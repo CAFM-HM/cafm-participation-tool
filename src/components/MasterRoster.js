@@ -69,8 +69,8 @@ export default function MasterRoster({ students, onAdd, onUpdate, onRemove, onRe
               {HOUSES.map(h => <option key={h} value={h}>{h}</option>)}
             </select>
             <select value={newStudent.gender} onChange={e => setNewStudent({ ...newStudent, gender: e.target.value })} style={{ maxWidth: 100 }}>
-              <option value="he">He/Him</option>
-              <option value="she">She/Her</option>
+              <option value="he">Boy</option>
+              <option value="she">Girl</option>
             </select>
           </div>
           <div className="setup-row" style={{ marginTop: 8 }}>
@@ -131,7 +131,7 @@ export default function MasterRoster({ students, onAdd, onUpdate, onRemove, onRe
                     </select>
                   ) : (
                     <span style={{ cursor: 'pointer' }} onClick={() => setEditId(s.id)}>
-                      {s.gender === 'she' ? 'She' : 'He'}
+                      {s.gender === 'she' 'Girl' : 'Boy'}
                     </span>
                   )}
                 </td>
