@@ -131,7 +131,7 @@ export default function MasterRoster({ students, onAdd, onUpdate, onRemove, onRe
                     </select>
                   ) : (
                     <span style={{ cursor: 'pointer' }} onClick={() => setEditId(s.id)}>
-                      {s.gender === 'she' 'Girl' : 'Boy'}
+                      {s.gender === 'she' ? 'Girl' : 'Boy'}
                     </span>
                   )}
                 </td>
