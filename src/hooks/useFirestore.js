@@ -257,7 +257,7 @@ const loadAll = useCallback(async () => {
       // If no docs found, use known UIDs from auth
       const teacherIds = teacherSnap.docs.length > 0 
         ? teacherSnap.docs.map(d => d.id)
-        : ['RfcdU5sf2Zhzj4aJTbfE7Iy5e5E2', 'hvThHfEBFAY7VrG3YQ3djt0Icx', 'xn858oNYT3XOP6afwXh9qnT06c'];
+        : ['RfcdU5sf2Zhzj4aJTbfE7Iy5e5E2', 'hvThHfEBFAY7VrG3YQ3djt0Icxi1', 'xn858oNYT3XOP6afwXh9qnT06cx2'];
 
       for (const uid of teacherIds) {
         const teacherData = { uid };
