@@ -5,7 +5,6 @@ import DailyTracker from './components/DailyTracker';
 import NarrativeBuilder from './components/NarrativeBuilder';
 import Dashboard from './components/Dashboard';
 import HousePoints from './components/HousePoints';
-import Demerits from './components/Demerits';
 import MasterRoster from './components/MasterRoster';
 
 function App() {
@@ -46,7 +45,6 @@ function App() {
     { id: 'daily', label: 'Daily Tracker' },
     { id: 'narrative', label: 'Narrative Builder' },
     { id: 'house', label: 'House Points' },
-    { id: 'demerits', label: 'Conduct Log' },
     ...(isAdmin ? [
       { id: 'dashboard', label: 'Dashboard' },
       { id: 'roster', label: 'Master Roster' },
@@ -86,7 +84,6 @@ function App() {
           {activeTab === 'daily' && <DailyTracker uid={user.uid} masterStudents={masterStudents} />}
           {activeTab === 'narrative' && <NarrativeBuilder uid={user.uid} masterStudents={masterStudents} />}
           {activeTab === 'house' && <HousePoints uid={user.uid} isAdmin={isAdmin} masterStudents={masterStudents} />}
-          {activeTab === 'demerits' && <Demerits uid={user.uid} isAdmin={isAdmin} masterStudents={masterStudents} />}
           {activeTab === 'dashboard' && isAdmin && <Dashboard masterStudents={masterStudents} />}
           {activeTab === 'roster' && isAdmin && (
             <MasterRoster
