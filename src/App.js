@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useAuth } from './hooks/useAuth';
-import { useMasterRoster } from './hooks/useFirestore';
+import { useMasterRoster, useAdminData } from './hooks/useFirestore';
 import DailyTracker from './components/DailyTracker';
 import NarrativeBuilder from './components/NarrativeBuilder';
 import Dashboard from './components/Dashboard';
@@ -11,6 +11,7 @@ import MasterRoster from './components/MasterRoster';
 function App() {
   const { user, loading, login, logout, isAdmin, displayName } = useAuth();
   const { students: masterStudents, loading: rosterLoading, addStudent, updateStudent, removeStudent, bulkImport, refresh: refreshRoster } = useMasterRoster();
+  const { allTeachers } = useAdminData();
   const [activeTab, setActiveTab] = useState('daily');
 
   if (loading || rosterLoading) {
@@ -95,6 +96,7 @@ function App() {
               onRemove={removeStudent}
               onBulkImport={bulkImport}
               onRefresh={refreshRoster}
+              allTeachers={allTeachers}
             />
           )}
         </div>
