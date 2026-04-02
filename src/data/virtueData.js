@@ -286,9 +286,29 @@ export const BRIDGES = {
     he: "His intellectual engagement is strong, but he would benefit from extending that same thoughtfulness to how he treats his classmates.",
     she: "Her intellectual engagement is strong, but she would benefit from extending that same thoughtfulness to how she treats her classmates."
   },
+  // High Inquiry / Low Attention
+  'inquiry_high_attention_low': {
+    he: "When a topic captures his interest he engages with impressive depth, but he needs to bring that same focus to the full arc of each lesson.",
+    she: "When a topic captures her interest she engages with impressive depth, but she needs to bring that same focus to the full arc of each lesson."
+  },
+  // High Attention / Low Inquiry
+  'attention_high_inquiry_low': {
+    he: "He is attentive and present during instruction, and the next step is translating that attentiveness into deeper questions and intellectual risk-taking.",
+    she: "She is attentive and present during instruction, and the next step is translating that attentiveness into deeper questions and intellectual risk-taking."
+  },
+  // High Charity / Low Attention
+  'charity_high_attention_low': {
+    he: "His warmth toward classmates is clear, but he needs to pair that relational strength with greater mental presence during instruction.",
+    she: "Her warmth toward classmates is clear, but she needs to pair that relational strength with greater mental presence during instruction."
+  },
+  // High Discipline / Low Inquiry
+  'discipline_high_inquiry_low': {
+    he: "He consistently meets preparation expectations, and bringing that same discipline to intellectual engagement would round out his growth.",
+    she: "She consistently meets preparation expectations, and bringing that same discipline to intellectual engagement would round out her growth."
+  },
 };
 
-// Detect if bridging is needed (gap of 3+ between two virtue scores)
+// Detect if bridging is needed (gap of 2+ between two virtue scores)
 export function getBridgingSentences(scores, pronoun) {
   const bridges = [];
   const d = scores.discipline;
@@ -296,16 +316,32 @@ export function getBridgingSentences(scores, pronoun) {
   const c = scores.charity;
   const i = scores.inquiry;
 
+  // Discipline ↔ Attention
   if (d !== null && a !== null) {
     if (d >= 4 && a <= 2) bridges.push(BRIDGES['discipline_high_attention_low'][pronoun]);
     if (d <= 2 && a >= 4) bridges.push(BRIDGES['discipline_low_attention_high'][pronoun]);
   }
+  // Charity ↔ Inquiry
   if (c !== null && i !== null) {
     if (c >= 4 && i <= 2) bridges.push(BRIDGES['charity_high_inquiry_low'][pronoun]);
     if (i >= 4 && c <= 2) bridges.push(BRIDGES['inquiry_high_charity_low'][pronoun]);
   }
+  // Inquiry ↔ Attention
+  if (i !== null && a !== null) {
+    if (i >= 4 && a <= 2) bridges.push(BRIDGES['inquiry_high_attention_low'][pronoun]);
+    if (a >= 4 && i <= 2) bridges.push(BRIDGES['attention_high_inquiry_low'][pronoun]);
+  }
+  // Charity ↔ Attention
+  if (c !== null && a !== null) {
+    if (c >= 4 && a <= 2) bridges.push(BRIDGES['charity_high_attention_low'][pronoun]);
+  }
+  // Discipline ↔ Inquiry
+  if (d !== null && i !== null) {
+    if (d >= 4 && i <= 2) bridges.push(BRIDGES['discipline_high_inquiry_low'][pronoun]);
+  }
 
-  return bridges;
+  // Max 2 bridges to avoid bloat
+  return bridges.slice(0, 2);
 }
 
 // ============================================================
@@ -333,6 +369,45 @@ export const OPENINGS = {
     "[S] requires immediate and sustained improvement in [C]."
   ],
 };
+
+// Mixed-performance openings — used when score range is 3+
+export const MIXED_OPENINGS = {
+  5: [
+    "[S] has shown flashes of excellence in [C] this quarter, though with notable inconsistency across areas.",
+    "[S] has demonstrated real strengths in [C] this quarter alongside areas that need attention."
+  ],
+  4: [
+    "[S] has had a mixed quarter in [C], with clear strengths alongside areas needing growth.",
+    "[S] has shown an uneven but promising quarter in [C], excelling in some areas while struggling in others."
+  ],
+  3: [
+    "[S] has had an inconsistent quarter in [C], with significant variation across different areas of participation.",
+    "[S] has shown a wide range of performance in [C] this quarter."
+  ],
+  2: [
+    "[S] has had a difficult and uneven quarter in [C], though there are bright spots worth building on.",
+    "[S] has struggled in [C] this quarter, with occasional strengths overshadowed by areas of serious concern."
+  ],
+  1: [
+    "[S] has not met expectations in [C] this quarter, with performance varying widely across areas.",
+    "[S] requires significant improvement in [C], though isolated strengths suggest the capacity for growth."
+  ],
+};
+
+// Determine if scores are mixed (range of 3+)
+export function isMixedPerformance(scores) {
+  const vals = Object.values(scores).filter(v => v !== null && v !== undefined);
+  if (vals.length < 2) return false;
+  return Math.max(...vals) - Math.min(...vals) >= 3;
+}
+
+// Get the right openings based on score consistency
+export function getOpenings(overallScore, scores) {
+  if (isMixedPerformance(scores)) {
+    return MIXED_OPENINGS[overallScore] || OPENINGS[overallScore] || [];
+  }
+  return OPENINGS[overallScore] || [];
+}
 
 export const CLOSINGS = {
   5: {
