@@ -1,0 +1,770 @@
+/* ============================================================
+   CAFM PARTICIPATION TOOL — Global Styles
+   Navy (#1B3A5C), Gold (#C9A227), DM Sans + Libre Baskerville
+   ============================================================ */
+
+:root {
+  --navy: #1B3A5C;
+  --navy-light: #2A5080;
+  --navy-dark: #0F2440;
+  --gold: #C9A227;
+  --gold-light: #E8D48B;
+  --cream: #FAF8F2;
+  --white: #FFFFFF;
+  --gray-50: #F9FAFB;
+  --gray-100: #F3F4F6;
+  --gray-200: #E5E7EB;
+  --gray-300: #D1D5DB;
+  --gray-400: #9CA3AF;
+  --gray-500: #6B7280;
+  --gray-600: #4B5563;
+  --gray-700: #374151;
+  --gray-800: #1F2937;
+  --red: #DC2626;
+  --red-bg: #FEF2F2;
+  --green: #16A34A;
+  --green-bg: #F0FDF4;
+  --blue-bg: #EFF6FF;
+
+  --font-display: 'Libre Baskerville', Georgia, serif;
+  --font-body: 'DM Sans', -apple-system, sans-serif;
+
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.08);
+  --shadow-md: 0 4px 12px rgba(0,0,0,0.1);
+  --shadow-lg: 0 8px 24px rgba(0,0,0,0.12);
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: var(--font-body);
+  background: var(--cream);
+  color: var(--gray-800);
+  -webkit-font-smoothing: antialiased;
+  line-height: 1.5;
+}
+
+/* ============================================================
+   HEADER
+   ============================================================ */
+.app-header {
+  background: linear-gradient(135deg, var(--navy) 0%, var(--navy-dark) 100%);
+  color: var(--white);
+  padding: 16px 24px;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  box-shadow: var(--shadow-md);
+}
+
+.header-inner {
+  max-width: 1100px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.header-brand .school-name {
+  font-family: var(--font-display);
+  font-size: 13px;
+  opacity: 0.8;
+  letter-spacing: 0.5px;
+}
+
+.header-brand .app-title {
+  font-family: var(--font-display);
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--gold);
+}
+
+.header-user {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 13px;
+  opacity: 0.9;
+}
+
+.header-user button {
+  background: rgba(255,255,255,0.15);
+  border: 1px solid rgba(255,255,255,0.25);
+  color: var(--white);
+  padding: 6px 14px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-family: var(--font-body);
+  font-size: 12px;
+  transition: background 0.2s;
+}
+
+.header-user button:hover {
+  background: rgba(255,255,255,0.25);
+}
+
+/* ============================================================
+   TAB NAVIGATION
+   ============================================================ */
+.tab-nav {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 12px 24px 0;
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.tab-btn {
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 500;
+  padding: 10px 18px;
+  border: none;
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
+  background: var(--gray-200);
+  color: var(--gray-600);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.tab-btn:hover {
+  background: var(--gray-300);
+}
+
+.tab-btn.active {
+  background: var(--white);
+  color: var(--navy);
+  font-weight: 600;
+  box-shadow: var(--shadow-sm);
+}
+
+/* ============================================================
+   MAIN CONTENT
+   ============================================================ */
+.main-content {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 0 24px 40px;
+}
+
+.tab-panel {
+  background: var(--white);
+  border-radius: 0 var(--radius-lg) var(--radius-lg) var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  padding: 24px;
+  min-height: 400px;
+}
+
+/* ============================================================
+   LOGIN SCREEN
+   ============================================================ */
+.login-screen {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 80vh;
+  text-align: center;
+  padding: 40px 24px;
+}
+
+.login-screen .school-crest {
+  font-size: 48px;
+  margin-bottom: 16px;
+}
+
+.login-screen h1 {
+  font-family: var(--font-display);
+  color: var(--navy);
+  font-size: 28px;
+  margin-bottom: 4px;
+}
+
+.login-screen .subtitle {
+  font-family: var(--font-display);
+  color: var(--gold);
+  font-size: 16px;
+  margin-bottom: 32px;
+}
+
+.login-btn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 28px;
+  background: var(--navy);
+  color: var(--white);
+  border: none;
+  border-radius: var(--radius-md);
+  font-family: var(--font-body);
+  font-size: 15px;
+  font-weight: 500;
+  cursor: pointer;
+  box-shadow: var(--shadow-md);
+  transition: all 0.2s;
+}
+
+.login-btn:hover {
+  background: var(--navy-light);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-lg);
+}
+
+/* ============================================================
+   CARDS & PANELS
+   ============================================================ */
+.card {
+  background: var(--white);
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-md);
+  padding: 16px;
+  margin-bottom: 12px;
+}
+
+.card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.section-title {
+  font-family: var(--font-display);
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--navy);
+}
+
+/* ============================================================
+   FORM ELEMENTS
+   ============================================================ */
+input[type="text"],
+input[type="date"],
+select {
+  font-family: var(--font-body);
+  font-size: 14px;
+  padding: 8px 12px;
+  border: 1px solid var(--gray-300);
+  border-radius: var(--radius-sm);
+  background: var(--white);
+  color: var(--gray-800);
+  outline: none;
+  transition: border-color 0.2s;
+  width: 100%;
+}
+
+input:focus, select:focus {
+  border-color: var(--navy);
+  box-shadow: 0 0 0 3px rgba(27, 58, 92, 0.1);
+}
+
+/* ============================================================
+   BUTTONS
+   ============================================================ */
+.btn {
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 500;
+  padding: 8px 16px;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all 0.2s;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.btn-primary {
+  background: var(--navy);
+  color: var(--white);
+}
+
+.btn-primary:hover {
+  background: var(--navy-light);
+}
+
+.btn-secondary {
+  background: var(--gray-100);
+  color: var(--gray-700);
+  border: 1px solid var(--gray-300);
+}
+
+.btn-secondary:hover {
+  background: var(--gray-200);
+}
+
+.btn-danger {
+  background: var(--red);
+  color: var(--white);
+}
+
+.btn-danger:hover {
+  opacity: 0.9;
+}
+
+.btn-gold {
+  background: var(--gold);
+  color: var(--navy-dark);
+  font-weight: 600;
+}
+
+.btn-gold:hover {
+  background: #B8921F;
+}
+
+.btn-sm {
+  font-size: 12px;
+  padding: 5px 10px;
+}
+
+/* ============================================================
+   VIRTUE SCORE BUTTONS
+   ============================================================ */
+.virtue-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.virtue-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  min-width: 70px;
+  text-align: right;
+  color: var(--gray-500);
+}
+
+.score-btns {
+  display: flex;
+  gap: 4px;
+}
+
+.score-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-sm);
+  border: 2px solid transparent;
+  background: var(--gray-100);
+  color: var(--gray-500);
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+}
+
+.score-btn:hover {
+  background: var(--gray-200);
+}
+
+.score-btn.active {
+  color: var(--white);
+  border-color: transparent;
+}
+
+.score-btn.s1.active { background: #DC2626; }
+.score-btn.s2.active { background: #EA580C; }
+.score-btn.s3.active { background: #CA8A04; }
+.score-btn.s4.active { background: #16A34A; }
+.score-btn.s5.active { background: #1B3A5C; }
+
+.score-btn.absent {
+  font-size: 11px;
+  width: 24px;
+  height: 24px;
+}
+
+.score-btn.absent.active {
+  background: var(--gray-500);
+  color: var(--white);
+}
+
+.legend-btn {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 1px solid var(--gray-300);
+  background: var(--white);
+  color: var(--gray-400);
+  font-size: 12px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.legend-btn:hover {
+  border-color: var(--navy);
+  color: var(--navy);
+}
+
+/* ============================================================
+   STUDENT ROWS
+   ============================================================ */
+.student-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--gray-100);
+}
+
+.student-row:last-child {
+  border-bottom: none;
+}
+
+.student-name {
+  min-width: 110px;
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--navy);
+  padding-top: 4px;
+}
+
+.student-virtues {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+}
+
+/* ============================================================
+   SETUP PANEL (collapsible)
+   ============================================================ */
+.setup-panel {
+  background: var(--blue-bg);
+  border: 1px solid #BFDBFE;
+  border-radius: var(--radius-md);
+  margin-bottom: 16px;
+}
+
+.setup-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.setup-header h3 {
+  font-family: var(--font-display);
+  font-size: 14px;
+  color: var(--navy);
+}
+
+.setup-body {
+  padding: 0 16px 16px;
+}
+
+.setup-row {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+
+.setup-row input, .setup-row select {
+  flex: 1;
+  min-width: 140px;
+}
+
+/* ============================================================
+   MODAL
+   ============================================================ */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 20px;
+}
+
+.modal-content {
+  background: var(--white);
+  border-radius: var(--radius-lg);
+  max-width: 480px;
+  width: 100%;
+  max-height: 80vh;
+  overflow-y: auto;
+  box-shadow: var(--shadow-lg);
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--gray-200);
+}
+
+.modal-header h3 {
+  font-family: var(--font-display);
+  font-size: 16px;
+  color: var(--navy);
+}
+
+.modal-close {
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-sm);
+  border: none;
+  background: var(--gray-100);
+  color: var(--gray-500);
+  font-size: 18px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.modal-close:hover {
+  background: var(--gray-200);
+}
+
+.modal-body {
+  padding: 16px 20px 20px;
+}
+
+.legend-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--gray-100);
+}
+
+.legend-row:last-child { border-bottom: none; }
+
+.legend-badge {
+  min-width: 36px;
+  height: 36px;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--white);
+  flex-shrink: 0;
+}
+
+.legend-text .legend-title {
+  font-weight: 700;
+  font-size: 12px;
+  margin-bottom: 2px;
+}
+
+.legend-text .legend-desc {
+  font-size: 12px;
+  color: var(--gray-600);
+  line-height: 1.4;
+}
+
+/* ============================================================
+   NARRATIVE BUILDER
+   ============================================================ */
+.narrative-student {
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-md);
+  margin-bottom: 16px;
+  overflow: hidden;
+}
+
+.narrative-student-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: var(--gray-50);
+  border-bottom: 1px solid var(--gray-200);
+  cursor: pointer;
+}
+
+.narrative-student-body {
+  padding: 16px;
+}
+
+.sentence-option {
+  display: block;
+  padding: 8px 12px;
+  margin: 4px 0;
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1.5;
+  transition: all 0.15s;
+  background: var(--white);
+}
+
+.sentence-option:hover {
+  border-color: var(--navy);
+  background: var(--blue-bg);
+}
+
+.sentence-option.selected {
+  border-color: var(--navy);
+  background: var(--navy);
+  color: var(--white);
+}
+
+.narrative-preview {
+  background: var(--cream);
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-md);
+  padding: 16px;
+  margin-top: 12px;
+  font-family: var(--font-display);
+  font-size: 14px;
+  line-height: 1.8;
+  color: var(--gray-700);
+}
+
+.progress-bar {
+  height: 4px;
+  background: var(--gray-200);
+  border-radius: 2px;
+  overflow: hidden;
+  margin-top: 8px;
+}
+
+.progress-fill {
+  height: 100%;
+  background: var(--green);
+  border-radius: 2px;
+  transition: width 0.3s;
+}
+
+/* ============================================================
+   DASHBOARD
+   ============================================================ */
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.stat-card {
+  background: var(--gray-50);
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-md);
+  padding: 14px;
+  text-align: center;
+}
+
+.stat-card .stat-value {
+  font-family: var(--font-display);
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--navy);
+}
+
+.stat-card .stat-label {
+  font-size: 12px;
+  color: var(--gray-500);
+  margin-top: 2px;
+}
+
+.stat-card.alert .stat-value {
+  color: var(--red);
+}
+
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.data-table th {
+  text-align: left;
+  padding: 10px 12px;
+  background: var(--gray-50);
+  border-bottom: 2px solid var(--gray-200);
+  font-weight: 600;
+  color: var(--gray-600);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.data-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--gray-100);
+}
+
+.data-table tr:hover td {
+  background: var(--gray-50);
+}
+
+.badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.badge-green { background: var(--green-bg); color: var(--green); }
+.badge-red { background: var(--red-bg); color: var(--red); }
+.badge-gray { background: var(--gray-100); color: var(--gray-500); }
+
+/* ============================================================
+   PLACEHOLDERS (House Points, Demerits)
+   ============================================================ */
+.coming-soon {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 60px 24px;
+  text-align: center;
+  color: var(--gray-400);
+}
+
+.coming-soon .icon {
+  font-size: 48px;
+  margin-bottom: 12px;
+}
+
+.coming-soon h3 {
+  font-family: var(--font-display);
+  font-size: 18px;
+  color: var(--gray-600);
+  margin-bottom: 6px;
+}
+
+/* ============================================================
+   RESPONSIVE
+   ============================================================ */
+@media (max-width: 640px) {
+  .app-header { padding: 12px 16px; }
+  .header-inner { flex-direction: column; align-items: flex-start; }
+  .header-brand .app-title { font-size: 17px; }
+  .tab-nav { padding: 10px 16px 0; }
+  .tab-btn { font-size: 12px; padding: 8px 12px; }
+  .main-content { padding: 0 16px 24px; }
+  .tab-panel { padding: 16px; }
+  .student-row { flex-direction: column; gap: 6px; }
+  .student-name { min-width: unset; }
+  .virtue-label { min-width: 55px; font-size: 10px; }
+  .score-btn { width: 28px; height: 28px; font-size: 12px; }
+  .setup-row { flex-direction: column; }
+}
