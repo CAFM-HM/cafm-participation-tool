@@ -315,8 +315,8 @@ export default function NarrativeBuilder({ uid, masterStudents }) {
                     onChange={e => updateStudent(student.id, { pronoun: e.target.value })}
                     style={{ maxWidth: 120 }}
                   >
-                    <option value="he">He/Him</option>
-                    <option value="she">She/Her</option>
+                    <option value="he">Boy</option>
+                    <option value="she">Girl</option>
                   </select>
                   <button
                     className="btn btn-sm btn-danger"
