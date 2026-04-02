@@ -61,7 +61,7 @@ export default function MasterRoster({ students, onAdd, onUpdate, onRemove, onRe
         <div className="card" style={{ marginBottom: 16, background: '#FFFBEB', border: '1px solid #FDE68A' }}>
           <div style={{ fontSize: 12, fontWeight: 600, color: '#6B7280', marginBottom: 8 }}>ADD NEW STUDENT</div>
           <div className="setup-row">
-            <input type="text" placeholder="Full name (Last, First)" value={newStudent.name}
+            <input type="text" placeholder="First Last (e.g. Faustina Arredondo)" value={newStudent.name}
               onChange={e => setNewStudent({ ...newStudent, name: e.target.value })}
               onKeyDown={e => e.key === 'Enter' && handleAdd()}
               style={{ flex: 2 }} />
