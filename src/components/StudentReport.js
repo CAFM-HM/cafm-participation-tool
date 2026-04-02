@@ -30,13 +30,12 @@ export default function StudentReport({ studentName, onClose }) {
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      // House points
+      // House points (includes merits and demerits)
       const hpSnap = await getDocs(query(collection(db, 'housePointEntries'), orderBy('createdAt', 'desc')));
-      setHousePoints(hpSnap.docs.map(d => d.data()).filter(e => e.studentName?.toLowerCase() === studentName.toLowerCase()));
-
-      // Conduct
-      const ceSnap = await getDocs(query(collection(db, 'conductEntries'), orderBy('date', 'desc')));
-      setConductEntries(ceSnap.docs.map(d => d.data()).filter(e => e.studentName?.toLowerCase() === studentName.toLowerCase()));
+      const allEntries = hpSnap.docs.map(d => d.data()).filter(e => e.studentName?.toLowerCase() === studentName.toLowerCase());
+      setHousePoints(allEntries);
+      // Derive conduct from house points
+      setConductEntries(allEntries);
 
       // Participation — read all teachers' classes to find this student
       const teacherIds = ['RfcdU5sf2Zhzj4aJTbfE7Iy5e5E2', 'hvThHfEBFAY7VrG3YQ3djt0Icxi1', 'xn858oNYT3XOP6afwXh9qnT06cx2'];
@@ -89,8 +88,8 @@ export default function StudentReport({ studentName, onClose }) {
   useEffect(() => { loadData(); }, [loadData]);
 
   const totalHP = housePoints.reduce((s, e) => s + (e.points || 0), 0);
-  const merits = conductEntries.filter(e => e.type === 'merit');
-  const demerits = conductEntries.filter(e => e.type === 'demerit');
+  const merits = conductEntries.filter(e => e.type === 'merit' || (!e.type && e.points > 0));
+  const demerits = conductEntries.filter(e => e.type === 'demerit' || (!e.type && e.points < 0));
 
   const handlePrint = () => {
     const content = reportRef.current;
