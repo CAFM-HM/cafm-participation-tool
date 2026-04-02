@@ -213,7 +213,7 @@ export function useNarrativeData(uid) {
     if (!uid) return;
     setLoading(true);
     try {
-      const ref = doc(db, 'teachers', uid, 'narrative');
+      const ref = doc(db, 'teachers', uid, 'config', 'narrative');
       const snap = await getDoc(ref);
       if (snap.exists()) {
         setNarrativeConfig(snap.data());
@@ -230,7 +230,7 @@ export function useNarrativeData(uid) {
     if (!uid) return;
     setNarrativeConfig(data);
     debouncedSave(async () => {
-      const ref = doc(db, 'teachers', uid, 'narrative');
+      const ref = doc(db, 'teachers', uid, 'config', 'narrative');
       await setDoc(ref, data);
     });
   }, [uid, debouncedSave]);
