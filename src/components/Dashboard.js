@@ -1,12 +1,13 @@
 import React, { useState, useMemo } from 'react';
 import { useAdminData } from '../hooks/useFirestore';
 import { VIRTUES } from '../data/virtueData';
+import StudentReport from './StudentReport';
 
 // Known UID → email mapping from Firebase Auth
 const UID_MAP = {
   'RfcdU5sf2Zhzj4aJTbfE7Iy5e5E2': 'charlie@chestertonpensacola.org',
-  'hvThHfEBFAY7VrG3YQ3djt0Icxi1': 'jreilly@chestertonpensacola.org',
-  'xn858oNYT3XOP6afwXh9qnT06cx2': 'trougas@chestertonpensacola.org',
+  'hvThHfEBFAY7VrG3YQ3djt0Icx': 'jreilly@chestertonpensacola.org',
+  'xn858oNYT3XOP6afwXh9qnT06c': 'trougas@chestertonpensacola.org',
 };
 
 function teacherName(uid) {
@@ -20,6 +21,7 @@ function teacherName(uid) {
 export default function Dashboard() {
   const { allTeachers, loading, refresh } = useAdminData();
   const [view, setView] = useState('summary');
+  const [reportStudent, setReportStudent] = useState(null);
 
   const stats = useMemo(() => {
     let totalStudents = 0;
@@ -280,6 +282,7 @@ export default function Dashboard() {
                 {VIRTUES.map(v => <th key={v.key} style={{ color: v.color }}>{v.label.substring(0, 4)}</th>)}
                 <th>Avg</th>
                 <th>Grade</th>
+                <th></th>
               </tr>
             </thead>
             <tbody>
@@ -299,11 +302,27 @@ export default function Dashboard() {
                     {s.overallAvg}
                   </td>
                   <td>{s.gradePct}</td>
+                  <td>
+                    <button
+                      className="btn btn-sm btn-secondary"
+                      onClick={() => setReportStudent(s.name)}
+                    >
+                      Report
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
+      )}
+
+      {/* Student Report Modal */}
+      {reportStudent && (
+        <StudentReport
+          studentName={reportStudent}
+          onClose={() => setReportStudent(null)}
+        />
       )}
     </div>
   );
