@@ -248,31 +248,43 @@ export function useAdminData() {
 const loadAll = useCallback(async () => {
     setLoading(true);
     try {
-      const { collectionGroup, query } = await import('firebase/firestore');
-      const classesQuery = query(collectionGroup(db, 'classes'));
-      const classSnap = await getDocs(classesQuery);
-      const teacherMap = {};
+      const knownTeachers = [];
+      const teachersRef = collection(db, 'teachers');
+      
+      // Try listing teacher docs first
+      const teacherSnap = await getDocs(teachersRef);
+      
+      // If no docs found, use known UIDs from auth
+      const teacherIds = teacherSnap.docs.length > 0 
+        ? teacherSnap.docs.map(d => d.id)
+        : ['RfcdU5sf2Zhzj4aJTbfE7Iy5e5E2', 'hvThHfEBFAY7VrG3YQ3djt0Icx', 'xn858oNYT3XOP6afwXh9qnT06c'];
 
-      for (const cDoc of classSnap.docs) {
-        const teacherUid = cDoc.ref.parent.parent.id;
-        if (!teacherMap[teacherUid]) {
-          teacherMap[teacherUid] = { uid: teacherUid, classes: [] };
+      for (const uid of teacherIds) {
+        const teacherData = { uid };
+        const classesRef = collection(db, 'teachers', uid, 'classes');
+        try {
+          const classSnap = await getDocs(classesRef);
+          teacherData.classes = [];
+          for (const cDoc of classSnap.docs) {
+            const raw = cDoc.data();
+            teacherData.classes.push({
+              id: cDoc.id,
+              name: raw.cls || raw.name || 'Unnamed Class',
+              students: (raw.roster || []).map((name, idx) => ({
+                id: `roster_${idx}`,
+                name: name,
+                pronoun: raw.pronouns?.[name] || 'he',
+                house: raw.houses?.[name] || '',
+                scores: parseStudentScores(raw.scores, name),
+              })),
+            });
+          }
+          knownTeachers.push(teacherData);
+        } catch (e) {
+          console.warn('Could not read teacher:', uid, e);
         }
-        const raw = cDoc.data();
-        const classData = {
-          id: cDoc.id,
-          name: raw.cls || raw.name || 'Unnamed Class',
-          students: (raw.roster || []).map((name, idx) => ({
-            id: `roster_${idx}`,
-            name: name,
-            pronoun: raw.pronouns?.[name] || 'he',
-            house: raw.houses?.[name] || '',
-            scores: parseStudentScores(raw.scores, name),
-          })),
-        };
-        teacherMap[teacherUid].classes.push(classData);
       }
-      setAllTeachers(Object.values(teacherMap));
+      setAllTeachers(knownTeachers);
     } catch (err) {
       console.error('Error loading admin data:', err);
     }
