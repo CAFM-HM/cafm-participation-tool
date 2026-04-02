@@ -1,154 +1,163 @@
-import React, { useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useAdminData } from '../hooks/useFirestore';
 import { VIRTUES } from '../data/virtueData';
 
+// Known UID → email mapping from Firebase Auth
+const UID_MAP = {
+  'RfcdU5sf2Zhzj4aJTbfE7Iy5e5E2': 'charlie@chestertonpensacola.org',
+  'hvThHfEBFAY7VrG3YQ3djt0Icx': 'jreilly@chestertonpensacola.org',
+  'xn858oNYT3XOP6afwXh9qnT06c': 'trougas@chestertonpensacola.org',
+};
+
+function teacherName(uid) {
+  if (UID_MAP[uid]) {
+    const email = UID_MAP[uid];
+    return email.split('@')[0].charAt(0).toUpperCase() + email.split('@')[0].slice(1);
+  }
+  return uid.substring(0, 12) + '...';
+}
+
 export default function Dashboard() {
   const { allTeachers, loading, refresh } = useAdminData();
+  const [view, setView] = useState('summary');
 
-  // Compute stats
   const stats = useMemo(() => {
     let totalStudents = 0;
     let totalClasses = 0;
-    let belowThreshold = 0;
+    let totalTeachers = allTeachers.length;
+    let belowThree = 0;
     const teacherSummaries = [];
     const classSummaries = [];
     const studentRows = [];
 
-    allTeachers.forEach(teacher => {
+    for (const teacher of allTeachers) {
       let teacherDays = 0;
       let lastActive = null;
 
-      (teacher.classes || []).forEach(cls => {
+      for (const cls of teacher.classes || []) {
         totalClasses++;
         const classScores = [];
 
-        (cls.students || []).forEach(student => {
+        for (const stu of cls.students || []) {
           totalStudents++;
-          const allDayScores = student.scores || {};
-          const dates = Object.keys(allDayScores);
-          teacherDays = Math.max(teacherDays, dates.length);
+          const allDayScores = [];
 
-          // Track last active
-          dates.forEach(d => {
-            if (!lastActive || d > lastActive) lastActive = d;
-          });
+          for (const [dateStr, dayScores] of Object.entries(stu.scores || {})) {
+            if (dayScores.absent) continue;
+            const dayAvg = VIRTUES.reduce((sum, v) => {
+              return sum + (dayScores[v.key] || 0);
+            }, 0) / VIRTUES.length;
+            if (dayAvg > 0) {
+              allDayScores.push(dayAvg);
+              teacherDays++;
+              if (!lastActive || dateStr > lastActive) lastActive = dateStr;
+            }
+          }
 
-          // Compute student average across all days
-          let totalSum = 0;
-          let totalCount = 0;
+          const overallAvg = allDayScores.length > 0
+            ? allDayScores.reduce((a, b) => a + b, 0) / allDayScores.length
+            : null;
+
+          if (overallAvg !== null && overallAvg < 3) belowThree++;
+
+          classScores.push(overallAvg);
+
           const virtueAvgs = {};
-          VIRTUES.forEach(v => { virtueAvgs[v.key] = { sum: 0, count: 0 }; });
-
-          dates.forEach(date => {
-            const dayScores = allDayScores[date] || {};
-            VIRTUES.forEach(v => {
-              const s = dayScores[v.key];
-              if (s !== null && s !== undefined && s > 0) {
-                totalSum += s;
-                totalCount++;
-                virtueAvgs[v.key].sum += s;
-                virtueAvgs[v.key].count++;
-              }
-            });
-          });
-
-          const avg = totalCount > 0 ? totalSum / totalCount : null;
-          if (avg !== null && avg < 3.0) belowThreshold++;
-
-          const virtueScores = {};
           VIRTUES.forEach(v => {
-            virtueScores[v.key] = virtueAvgs[v.key].count > 0
-              ? (virtueAvgs[v.key].sum / virtueAvgs[v.key].count).toFixed(1)
+            const vals = [];
+            for (const dayScores of Object.values(stu.scores || {})) {
+              if (dayScores[v.key]) vals.push(dayScores[v.key]);
+            }
+            virtueAvgs[v.key] = vals.length > 0
+              ? (vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(1)
               : '—';
           });
 
-          if (avg !== null) classScores.push(avg);
-
           studentRows.push({
-            name: student.name,
-            teacher: teacher.displayName || teacher.email || teacher.uid,
+            name: stu.name,
+            house: stu.house || '',
             className: cls.name,
-            avg: avg !== null ? avg.toFixed(1) : '—',
-            grade: avg !== null ? Math.round((avg / 5) * 100) + '%' : '—',
-            ...virtueScores,
-            daysScored: dates.length,
-            house: student.house || '—',
+            teacher: teacherName(teacher.uid),
+            overallAvg: overallAvg !== null ? overallAvg.toFixed(2) : '—',
+            gradePct: overallAvg !== null ? Math.round((overallAvg / 5) * 100) + '%' : '—',
+            daysScored: allDayScores.length,
+            ...virtueAvgs,
+            isBelowThree: overallAvg !== null && overallAvg < 3,
           });
-        });
+        }
 
-        const classAvg = classScores.length > 0
-          ? (classScores.reduce((a, b) => a + b, 0) / classScores.length).toFixed(1)
+        const validScores = classScores.filter(s => s !== null);
+        const classAvg = validScores.length > 0
+          ? validScores.reduce((a, b) => a + b, 0) / validScores.length
           : null;
 
         classSummaries.push({
           name: cls.name,
-          teacher: teacher.displayName || teacher.email || teacher.uid,
-          studentCount: (cls.students || []).length,
-          avg: classAvg,
-          grade: classAvg ? Math.round((parseFloat(classAvg) / 5) * 100) + '%' : '—',
+          teacher: teacherName(teacher.uid),
+          studentCount: cls.students?.length || 0,
+          avg: classAvg !== null ? classAvg.toFixed(2) : '—',
+          gradePct: classAvg !== null ? Math.round((classAvg / 5) * 100) + '%' : '—',
+          isBelowThree: classAvg !== null && classAvg < 3,
         });
-      });
+      }
 
-      // Determine activity status
       let status = 'Inactive';
       if (lastActive) {
         const daysSince = Math.floor((Date.now() - new Date(lastActive).getTime()) / 86400000);
         if (daysSince <= 3) status = 'Active';
-        else if (daysSince <= 14) status = 'Stale';
+        else if (daysSince <= 10) status = 'Stale';
       }
 
       teacherSummaries.push({
-        name: teacher.displayName || teacher.email || teacher.uid,
-        email: teacher.email || '',
+        name: teacherName(teacher.uid),
+        email: UID_MAP[teacher.uid] || teacher.uid,
         classCount: (teacher.classes || []).length,
         daysScored: teacherDays,
-        lastActive: lastActive || 'Never',
+        lastActive,
         status,
       });
+    }
+
+    classSummaries.sort((a, b) => {
+      if (a.avg === '—') return 1;
+      if (b.avg === '—') return -1;
+      return parseFloat(a.avg) - parseFloat(b.avg);
     });
 
-    // Sort
-    classSummaries.sort((a, b) => (a.avg || 0) - (b.avg || 0));
-    studentRows.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+    studentRows.sort((a, b) => a.name.localeCompare(b.name));
 
-    return {
-      totalStudents,
-      totalClasses,
-      totalTeachers: allTeachers.length,
-      belowThreshold,
-      teacherSummaries,
-      classSummaries,
-      studentRows,
-    };
+    return { totalStudents, totalClasses, totalTeachers, belowThree, teacherSummaries, classSummaries, studentRows };
   }, [allTeachers]);
 
-  // CSV export
   const exportCSV = () => {
-    const headers = ['Student', 'Teacher', 'Class', 'House', 'Days Scored',
-      ...VIRTUES.map(v => v.label), 'Average', 'Grade %'];
-    const rows = stats.studentRows.map(r => [
-      r.name, r.teacher, r.className, r.house, r.daysScored,
-      ...VIRTUES.map(v => r[v.key]), r.avg, r.grade
+    const headers = ['Student', 'House', 'Class', 'Teacher', 'Overall Avg', 'Grade %', 'Days Scored',
+      ...VIRTUES.map(v => v.label)
+    ];
+    const rows = stats.studentRows.map(s => [
+      s.name, s.house, s.className, s.teacher, s.overallAvg, s.gradePct, s.daysScored,
+      ...VIRTUES.map(v => s[v.key])
     ]);
     const csv = [headers, ...rows].map(r => r.map(c => `"${c}"`).join(',')).join('\n');
     const blob = new Blob([csv], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `cafm_dashboard_${new Date().toISOString().split('T')[0]}.csv`;
+    a.download = `cafm-dashboard-${new Date().toISOString().split('T')[0]}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   };
 
-  if (loading) return <div style={{ padding: 40, textAlign: 'center', color: '#9CA3AF' }}>Loading dashboard data...</div>;
+  if (loading) {
+    return <div style={{ padding: 40, textAlign: 'center', color: '#9CA3AF' }}>Loading dashboard data...</div>;
+  }
 
   return (
     <div>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20, flexWrap: 'wrap', gap: 8 }}>
         <h2 className="section-title">Admin Dashboard</h2>
         <div style={{ display: 'flex', gap: 8 }}>
-          <button className="btn btn-secondary btn-sm" onClick={refresh}>↻ Refresh</button>
-          <button className="btn btn-gold btn-sm" onClick={exportCSV}>Export CSV</button>
+          <button className="btn btn-secondary" onClick={refresh}>↻ Refresh</button>
+          <button className="btn btn-gold" onClick={exportCSV}>Export CSV</button>
         </div>
       </div>
 
@@ -166,99 +175,136 @@ export default function Dashboard() {
           <div className="stat-value">{stats.totalTeachers}</div>
           <div className="stat-label">Teachers</div>
         </div>
-        <div className={`stat-card ${stats.belowThreshold > 0 ? 'alert' : ''}`}>
-          <div className="stat-value">{stats.belowThreshold}</div>
+        <div className={`stat-card ${stats.belowThree > 0 ? 'alert' : ''}`}>
+          <div className="stat-value">{stats.belowThree}</div>
           <div className="stat-label">Below 3.0</div>
         </div>
       </div>
 
+      {/* View Tabs */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
+        {[
+          { id: 'summary', label: 'Teacher Usage' },
+          { id: 'classes', label: 'Class Averages' },
+          { id: 'students', label: 'Student Overview' },
+        ].map(v => (
+          <button
+            key={v.id}
+            className={`btn ${view === v.id ? 'btn-primary' : 'btn-secondary'}`}
+            onClick={() => setView(v.id)}
+          >
+            {v.label}
+          </button>
+        ))}
+      </div>
+
       {/* Teacher Usage */}
-      <div className="card" style={{ marginBottom: 20 }}>
-        <div className="card-header"><h3 className="section-title">Teacher Usage</h3></div>
+      {view === 'summary' && (
         <div style={{ overflowX: 'auto' }}>
           <table className="data-table">
             <thead>
-              <tr><th>Teacher</th><th>Classes</th><th>Days Scored</th><th>Last Active</th><th>Status</th></tr>
+              <tr>
+                <th>Teacher</th>
+                <th>Email</th>
+                <th>Classes</th>
+                <th>Days Scored</th>
+                <th>Last Active</th>
+                <th>Status</th>
+              </tr>
             </thead>
             <tbody>
               {stats.teacherSummaries.map((t, i) => (
                 <tr key={i}>
-                  <td style={{ fontWeight: 600 }}>{t.name}</td>
+                  <td style={{ fontWeight: 500 }}>{t.name}</td>
+                  <td style={{ fontSize: 12, color: '#6B7280' }}>{t.email}</td>
                   <td>{t.classCount}</td>
                   <td>{t.daysScored}</td>
-                  <td style={{ fontSize: 12 }}>{t.lastActive}</td>
+                  <td>{t.lastActive || '—'}</td>
                   <td>
-                    <span className={`badge ${t.status === 'Active' ? 'badge-green' : t.status === 'Stale' ? 'badge-gray' : 'badge-red'}`}>
+                    <span className={`badge ${
+                      t.status === 'Active' ? 'badge-green' :
+                      t.status === 'Stale' ? 'badge-gray' : 'badge-red'
+                    }`}>
                       {t.status}
                     </span>
                   </td>
                 </tr>
               ))}
-              {stats.teacherSummaries.length === 0 && (
-                <tr><td colSpan={5} style={{ textAlign: 'center', color: '#9CA3AF' }}>No teacher data yet.</td></tr>
-              )}
             </tbody>
           </table>
         </div>
-      </div>
+      )}
 
       {/* Class Averages */}
-      <div className="card" style={{ marginBottom: 20 }}>
-        <div className="card-header"><h3 className="section-title">Class Averages</h3></div>
-        <div style={{ overflowX: 'auto' }}>
-          <table className="data-table">
-            <thead>
-              <tr><th>Class</th><th>Teacher</th><th>Students</th><th>Avg Score</th><th>Grade %</th></tr>
-            </thead>
-            <tbody>
-              {stats.classSummaries.map((c, i) => (
-                <tr key={i}>
-                  <td style={{ fontWeight: 600 }}>{c.name}</td>
-                  <td>{c.teacher}</td>
-                  <td>{c.studentCount}</td>
-                  <td style={{ color: c.avg && parseFloat(c.avg) < 3.0 ? '#DC2626' : '#374151', fontWeight: 600 }}>{c.avg ?? '—'}</td>
-                  <td>{c.grade}</td>
-                </tr>
-              ))}
-              {stats.classSummaries.length === 0 && (
-                <tr><td colSpan={5} style={{ textAlign: 'center', color: '#9CA3AF' }}>No class data yet.</td></tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* Student Overview */}
-      <div className="card">
-        <div className="card-header"><h3 className="section-title">Student Overview</h3></div>
+      {view === 'classes' && (
         <div style={{ overflowX: 'auto' }}>
           <table className="data-table">
             <thead>
               <tr>
-                <th>Student</th><th>Class</th><th>House</th><th>Days</th>
-                {VIRTUES.map(v => <th key={v.key} style={{ color: v.color }}>{v.label.slice(0, 4)}</th>)}
-                <th>Avg</th><th>Grade</th>
+                <th>Class</th>
+                <th>Teacher</th>
+                <th>Students</th>
+                <th>Avg Score</th>
+                <th>Grade %</th>
               </tr>
             </thead>
             <tbody>
-              {stats.studentRows.map((r, i) => (
+              {stats.classSummaries.map((c, i) => (
                 <tr key={i}>
-                  <td style={{ fontWeight: 600 }}>{r.name}</td>
-                  <td style={{ fontSize: 12 }}>{r.className}</td>
-                  <td style={{ fontSize: 12 }}>{r.house}</td>
-                  <td>{r.daysScored}</td>
-                  {VIRTUES.map(v => <td key={v.key}>{r[v.key]}</td>)}
-                  <td style={{ fontWeight: 600, color: r.avg !== '—' && parseFloat(r.avg) < 3.0 ? '#DC2626' : '#374151' }}>{r.avg}</td>
-                  <td>{r.grade}</td>
+                  <td style={{ fontWeight: 500 }}>{c.name}</td>
+                  <td>{c.teacher}</td>
+                  <td>{c.studentCount}</td>
+                  <td style={{ color: c.isBelowThree ? '#DC2626' : undefined, fontWeight: c.isBelowThree ? 600 : undefined }}>
+                    {c.avg}
+                  </td>
+                  <td style={{ color: c.isBelowThree ? '#DC2626' : undefined }}>
+                    {c.gradePct}
+                  </td>
                 </tr>
               ))}
-              {stats.studentRows.length === 0 && (
-                <tr><td colSpan={8 + VIRTUES.length} style={{ textAlign: 'center', color: '#9CA3AF' }}>No student data yet.</td></tr>
-              )}
             </tbody>
           </table>
         </div>
-      </div>
+      )}
+
+      {/* Student Overview */}
+      {view === 'students' && (
+        <div style={{ overflowX: 'auto' }}>
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Student</th>
+                <th>Class</th>
+                <th>House</th>
+                <th>Days</th>
+                {VIRTUES.map(v => <th key={v.key} style={{ color: v.color }}>{v.label.substring(0, 4)}</th>)}
+                <th>Avg</th>
+                <th>Grade</th>
+              </tr>
+            </thead>
+            <tbody>
+              {stats.studentRows.map((s, i) => (
+                <tr key={i}>
+                  <td style={{
+                    fontWeight: 500,
+                    color: s.isBelowThree ? '#DC2626' : undefined
+                  }}>
+                    {s.name}
+                  </td>
+                  <td>{s.className}</td>
+                  <td>{s.house}</td>
+                  <td>{s.daysScored}</td>
+                  {VIRTUES.map(v => <td key={v.key}>{s[v.key]}</td>)}
+                  <td style={{ color: s.isBelowThree ? '#DC2626' : undefined, fontWeight: s.isBelowThree ? 600 : undefined }}>
+                    {s.overallAvg}
+                  </td>
+                  <td>{s.gradePct}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }
