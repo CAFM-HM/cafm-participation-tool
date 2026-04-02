@@ -2,7 +2,7 @@ import React, { useState, useCallback, useMemo } from 'react';
 import { useTeacherData, useNarrativeData } from '../hooks/useFirestore';
 import {
   VIRTUES, VIRTUE_SENTENCES, OPENINGS, CLOSINGS,
-  getBridgingSentences
+  getBridgingSentences, getOpenings
 } from '../data/virtueData';
 
 export default function NarrativeBuilder({ uid }) {
@@ -115,7 +115,7 @@ export default function NarrativeBuilder({ uid }) {
     const displayClass = config.className || '[Class]';
     const pr = student.pronoun || 'he';
 
-    const opening = (OPENINGS[overall]?.[student.openingIndex] || '')
+    const opening = (getOpenings(overall, student.scores)[student.openingIndex] || '')
       .replace('[S]', displayName)
       .replace('[C]', displayClass);
 
@@ -333,7 +333,7 @@ export default function NarrativeBuilder({ uid }) {
                     <div style={{ fontSize: 12, fontWeight: 600, color: '#6B7280', marginBottom: 8 }}>
                       OPENING SENTENCE
                     </div>
-                    {(OPENINGS[overall] || []).map((sentence, i) => (
+                    {getOpenings(overall, student.scores).map((sentence, i) => (
                       <button
                         key={i}
                         className={`sentence-option ${student.openingIndex === i ? 'selected' : ''}`}
