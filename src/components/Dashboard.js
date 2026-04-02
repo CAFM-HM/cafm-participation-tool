@@ -5,8 +5,8 @@ import { VIRTUES } from '../data/virtueData';
 // Known UID → email mapping from Firebase Auth
 const UID_MAP = {
   'RfcdU5sf2Zhzj4aJTbfE7Iy5e5E2': 'charlie@chestertonpensacola.org',
-  'hvThHfEBFAY7VrG3YQ3djt0Icx': 'jreilly@chestertonpensacola.org',
-  'xn858oNYT3XOP6afwXh9qnT06c': 'trougas@chestertonpensacola.org',
+  'hvThHfEBFAY7VrG3YQ3djt0Icxi1': 'jreilly@chestertonpensacola.org',
+  'xn858oNYT3XOP6afwXh9qnT06cx2': 'trougas@chestertonpensacola.org',
 };
 
 function teacherName(uid) {
