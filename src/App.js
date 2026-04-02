@@ -6,6 +6,7 @@ import NarrativeBuilder from './components/NarrativeBuilder';
 import Dashboard from './components/Dashboard';
 import HousePoints from './components/HousePoints';
 import MasterRoster from './components/MasterRoster';
+import AnnouncementBanner from './components/AnnouncementBanner';
 
 function App() {
   const { user, loading, login, logout, isAdmin, displayName } = useAuth();
@@ -66,6 +67,8 @@ function App() {
           </div>
         </div>
       </header>
+
+      <AnnouncementBanner isAdmin={isAdmin} />
 
       <nav className="tab-nav">
         {tabs.map(tab => (
