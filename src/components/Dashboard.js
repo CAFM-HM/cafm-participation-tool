@@ -1,26 +1,26 @@
 import React, { useState, useMemo } from 'react';
-import { useAdminData, useConductEntries } from '../hooks/useFirestore';
+import { useAdminData, useHousePoints } from '../hooks/useFirestore';
 import { VIRTUES } from '../data/virtueData';
 import { teacherDisplayName, UID_MAP } from '../firebase';
 import StudentReport from './StudentReport';
 
 export default function Dashboard({ masterStudents }) {
   const { allTeachers, loading, refresh } = useAdminData();
-  const { entries: conductEntries, loading: conductLoading } = useConductEntries();
+  const { entries: houseEntries, loading: houseLoading } = useHousePoints();
   const [view, setView] = useState('summary');
   const [reportStudent, setReportStudent] = useState(null);
 
   // Count demerits per student
   const demeritCounts = useMemo(() => {
     const counts = {};
-    (conductEntries || []).forEach(e => {
-      if (e.type === 'demerit' && e.studentName) {
+    (houseEntries || []).forEach(e => {
+      if ((e.type === 'demerit' || (!e.type && e.points < 0)) && e.studentName) {
         const key = e.studentName.toLowerCase();
         counts[key] = (counts[key] || 0) + 1;
       }
     });
     return counts;
-  }, [conductEntries]);
+  }, [houseEntries]);
 
   const stats = useMemo(() => {
     let totalStudents = 0, totalClasses = 0, totalTeachers = allTeachers.length, belowThree = 0;
@@ -102,7 +102,7 @@ export default function Dashboard({ masterStudents }) {
     a.download = `cafm-dashboard-${new Date().toISOString().split('T')[0]}.csv`; a.click();
   };
 
-  if (loading || conductLoading) return <div style={{ padding: 40, textAlign: 'center', color: '#9CA3AF' }}>Loading dashboard...</div>;
+  if (loading || houseLoading) return <div style={{ padding: 40, textAlign: 'center', color: '#9CA3AF' }}>Loading dashboard...</div>;
 
   return (
     <div>
