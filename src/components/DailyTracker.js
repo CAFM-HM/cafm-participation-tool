@@ -15,7 +15,6 @@ export default function DailyTracker({ uid }) {
   const [setupOpen, setSetupOpen] = useState(true);
   const [newClassName, setNewClassName] = useState('');
   const [newStudentName, setNewStudentName] = useState('');
-  const [newStudentPronoun, setNewStudentPronoun] = useState('he');
   const [newStudentHouse, setNewStudentHouse] = useState('');
   const [legendVirtue, setLegendVirtue] = useState(null);
   const [confirmDelete, setConfirmDelete] = useState(null);
@@ -91,9 +90,8 @@ export default function DailyTracker({ uid }) {
 
   const handleAddStudent = async () => {
     if (!newStudentName.trim() || !selectedClass) return;
-    await addStudent(selectedClass, newStudentName, newStudentPronoun, newStudentHouse);
+    await addStudent(selectedClass, newStudentName, 'he', newStudentHouse);
     setNewStudentName('');
-    setNewStudentPronoun('he');
     setNewStudentHouse('');
   };
 
@@ -168,10 +166,6 @@ export default function DailyTracker({ uid }) {
                 </div>
                 <div className="setup-row">
                   <input type="text" placeholder="Student name" value={newStudentName} onChange={e => setNewStudentName(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleAddStudent()} style={{ flex: 2 }} />
-                  <select value={newStudentPronoun} onChange={e => setNewStudentPronoun(e.target.value)} style={{ flex: 0.7 }}>
-                    <option value="he">He/Him</option>
-                    <option value="she">She/Her</option>
-                  </select>
                   <select value={newStudentHouse} onChange={e => setNewStudentHouse(e.target.value)} style={{ flex: 1 }}>
                     <option value="">House (optional)</option>
                     {HOUSES.map(h => <option key={h} value={h}>{h}</option>)}
