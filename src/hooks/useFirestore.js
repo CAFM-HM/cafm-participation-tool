@@ -1,6 +1,12 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { doc, getDoc, setDoc, collection, getDocs } from 'firebase/firestore';
+import { doc, getDoc, setDoc, updateDoc, collection, getDocs, deleteDoc } from 'firebase/firestore';
 import { db } from '../firebase';
+
+// ============================================================
+// VIRTUE KEY MAPPING — old format uses single letters
+// ============================================================
+const VIRTUE_SHORT = { discipline: 'D', attention: 'A', charity: 'C', inquiry: 'I' };
+const VIRTUE_LONG = { D: 'discipline', A: 'attention', C: 'charity', I: 'inquiry' };
 
 // Debounce helper
 function useDebouncedSave(delay = 800) {
@@ -13,14 +19,38 @@ function useDebouncedSave(delay = 800) {
 }
 
 // ============================================================
-// TEACHER DATA HOOK — manages classes, students, daily scores
+// Convert old format scores into React-friendly format
+// Old: scores[date][studentName] = { A: 3, C: 5, D: 4, I: 3 }
+// New: per student: { scores: { [date]: { attention: 3, charity: 5, discipline: 4, inquiry: 3 } } }
+// ============================================================
+function parseStudentScores(allScores, studentName) {
+  const result = {};
+  for (const [dateStr, dateData] of Object.entries(allScores || {})) {
+    const studentData = dateData?.[studentName];
+    if (studentData) {
+      result[dateStr] = {};
+      for (const [shortKey, value] of Object.entries(studentData)) {
+        if (VIRTUE_LONG[shortKey]) {
+          result[dateStr][VIRTUE_LONG[shortKey]] = value;
+        } else if (shortKey === 'E') {
+          result[dateStr].absent = value;
+        }
+      }
+    }
+  }
+  return result;
+}
+
+// ============================================================
+// TEACHER DATA HOOK — reads old HTML format
+// Class doc: { cls: "Ancient History", quarter: "Q4", roster: [...], scores: {...} }
 // ============================================================
 export function useTeacherData(uid) {
   const [classes, setClasses] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [refreshKey, setRefreshKey] = useState(0);
   const debouncedSave = useDebouncedSave();
 
-  // Load all classes for this teacher
   const loadClasses = useCallback(async () => {
     if (!uid) return;
     setLoading(true);
@@ -29,12 +59,21 @@ export function useTeacherData(uid) {
       const snap = await getDocs(classesRef);
       const data = [];
       for (const d of snap.docs) {
-        const classData = d.data();
-        // Load students subcollection
-        const studentsRef = collection(db, 'teachers', uid, 'classes', d.id, 'students');
-        const studentSnap = await getDocs(studentsRef);
-        classData.students = studentSnap.docs.map(s => ({ id: s.id, ...s.data() }));
-        classData.id = d.id;
+        const raw = d.data();
+        const classData = {
+          id: d.id,
+          name: raw.cls || raw.name || 'Unnamed Class',
+          quarter: raw.quarter || 'Q4',
+          roster: raw.roster || [],
+          rawScores: raw.scores || {},
+          students: (raw.roster || []).map((name, idx) => ({
+            id: `roster_${idx}`,
+            name: name,
+            pronoun: raw.pronouns?.[name] || 'he',
+            house: raw.houses?.[name] || '',
+            scores: parseStudentScores(raw.scores, name),
+          })),
+        };
         data.push(classData);
       }
       setClasses(data);
@@ -44,103 +83,111 @@ export function useTeacherData(uid) {
     setLoading(false);
   }, [uid]);
 
-  useEffect(() => { loadClasses(); }, [loadClasses]);
+  useEffect(() => { loadClasses(); }, [loadClasses, refreshKey]);
 
-  // Save a class document
-  const saveClass = useCallback(async (classId, data) => {
-    if (!uid) return;
-    const ref = doc(db, 'teachers', uid, 'classes', classId);
-    await setDoc(ref, data, { merge: true });
-  }, [uid]);
-
-  // Save a student document within a class
-  const saveStudent = useCallback(async (classId, studentId, data) => {
-    if (!uid) return;
-    debouncedSave(async () => {
-      const ref = doc(db, 'teachers', uid, 'classes', classId, 'students', studentId);
-      await setDoc(ref, data, { merge: true });
-    });
-  }, [uid, debouncedSave]);
-
-  // Save student immediately (no debounce)
-  const saveStudentNow = useCallback(async (classId, studentId, data) => {
-    if (!uid) return;
-    const ref = doc(db, 'teachers', uid, 'classes', classId, 'students', studentId);
-    await setDoc(ref, data, { merge: true });
-  }, [uid]);
-
-  // Add a new class
+  // Add a new class (old format)
   const addClass = useCallback(async (className) => {
     if (!uid || !className.trim()) return;
-    const classId = 'class_' + Date.now();
-    const data = { name: className.trim(), createdAt: new Date().toISOString() };
-    await saveClass(classId, data);
-    await loadClasses();
-    return classId;
-  }, [uid, saveClass, loadClasses]);
+    const classesRef = collection(db, 'teachers', uid, 'classes');
+    const newRef = doc(classesRef);
+    await setDoc(newRef, {
+      cls: className.trim(),
+      quarter: 'Q4',
+      roster: [],
+      scores: {},
+    });
+    setRefreshKey(k => k + 1);
+    return newRef.id;
+  }, [uid]);
 
-  // Add a student to a class
+  // Add a student to roster
   const addStudent = useCallback(async (classId, studentName, pronoun = 'he', house = '') => {
     if (!uid || !studentName.trim()) return;
-    const studentId = 'student_' + Date.now();
-    const data = {
-      name: studentName.trim(),
-      pronoun,
-      house,
-      scores: {},
-      createdAt: new Date().toISOString()
-    };
-    const ref = doc(db, 'teachers', uid, 'classes', classId, 'students', studentId);
-    await setDoc(ref, data);
-    await loadClasses();
-    return studentId;
-  }, [uid, loadClasses]);
+    const cls = classes.find(c => c.id === classId);
+    if (!cls) return;
+    const newRoster = [...cls.roster, studentName.trim()];
+    const ref = doc(db, 'teachers', uid, 'classes', classId);
+    const updates = { roster: newRoster };
+    if (pronoun !== 'he') {
+      updates[`pronouns.${studentName.trim()}`] = pronoun;
+    }
+    if (house) {
+      updates[`houses.${studentName.trim()}`] = house;
+    }
+    await updateDoc(ref, updates);
+    setRefreshKey(k => k + 1);
+  }, [uid, classes]);
 
-  // Save daily score for a student
-  const saveDailyScore = useCallback(async (classId, studentId, date, virtueKey, score) => {
+  // Save daily score (old format: scores.{date}.{studentName}.{D/A/C/I} = value)
+  const saveDailyScore = useCallback((classId, studentId, date, virtueKey, score) => {
     if (!uid) return;
-    debouncedSave(async () => {
-      const ref = doc(db, 'teachers', uid, 'classes', classId, 'students', studentId);
-      const snap = await getDoc(ref);
-      const existing = snap.exists() ? snap.data() : {};
-      const scores = existing.scores || {};
-      if (!scores[date]) scores[date] = {};
-      scores[date][virtueKey] = score;
-      await setDoc(ref, { ...existing, scores }, { merge: true });
-    });
-  }, [uid, debouncedSave]);
+    const cls = classes.find(c => c.id === classId);
+    if (!cls) return;
+    const student = cls.students.find(s => s.id === studentId);
+    if (!student) return;
+    const studentName = student.name;
 
-  // Delete a student
+    debouncedSave(async () => {
+      const ref = doc(db, 'teachers', uid, 'classes', classId);
+      if (virtueKey === 'absent') {
+        await updateDoc(ref, {
+          [`scores.${date}.${studentName}.E`]: score
+        });
+      } else {
+        const shortKey = VIRTUE_SHORT[virtueKey];
+        if (shortKey) {
+          await updateDoc(ref, {
+            [`scores.${date}.${studentName}.${shortKey}`]: score
+          });
+        }
+      }
+    });
+
+    // Optimistic update
+    setClasses(prev => prev.map(c => {
+      if (c.id !== classId) return c;
+      return {
+        ...c,
+        students: c.students.map(s => {
+          if (s.id !== studentId) return s;
+          const newScores = { ...s.scores };
+          if (!newScores[date]) newScores[date] = {};
+          if (virtueKey === 'absent') {
+            newScores[date].absent = score;
+          } else {
+            newScores[date][virtueKey] = score;
+          }
+          return { ...s, scores: newScores };
+        })
+      };
+    }));
+  }, [uid, classes, debouncedSave]);
+
+  // Delete a student (remove from roster array)
   const deleteStudent = useCallback(async (classId, studentId) => {
     if (!uid) return;
-    const { deleteDoc } = await import('firebase/firestore');
-    const ref = doc(db, 'teachers', uid, 'classes', classId, 'students', studentId);
-    await deleteDoc(ref);
-    await loadClasses();
-  }, [uid, loadClasses]);
+    const cls = classes.find(c => c.id === classId);
+    if (!cls) return;
+    const student = cls.students.find(s => s.id === studentId);
+    if (!student) return;
+    const newRoster = cls.roster.filter(name => name !== student.name);
+    const ref = doc(db, 'teachers', uid, 'classes', classId);
+    await updateDoc(ref, { roster: newRoster });
+    setRefreshKey(k => k + 1);
+  }, [uid, classes]);
 
   // Delete a class
   const deleteClass = useCallback(async (classId) => {
     if (!uid) return;
-    const { deleteDoc } = await import('firebase/firestore');
-    // Delete all students first
-    const studentsRef = collection(db, 'teachers', uid, 'classes', classId, 'students');
-    const snap = await getDocs(studentsRef);
-    for (const s of snap.docs) {
-      await deleteDoc(s.ref);
-    }
     const ref = doc(db, 'teachers', uid, 'classes', classId);
     await deleteDoc(ref);
-    await loadClasses();
-  }, [uid, loadClasses]);
+    setRefreshKey(k => k + 1);
+  }, [uid]);
 
   return {
     classes,
     loading,
     loadClasses,
-    saveClass,
-    saveStudent,
-    saveStudentNow,
     addClass,
     addStudent,
     saveDailyScore,
@@ -150,7 +197,7 @@ export function useTeacherData(uid) {
 }
 
 // ============================================================
-// NARRATIVE DATA HOOK — manages narrative builder state
+// NARRATIVE DATA HOOK
 // ============================================================
 export function useNarrativeData(uid) {
   const [narrativeConfig, setNarrativeConfig] = useState({
@@ -192,7 +239,7 @@ export function useNarrativeData(uid) {
 }
 
 // ============================================================
-// ADMIN DATA HOOK — reads all teachers' data
+// ADMIN DATA HOOK — reads all teachers' old-format data
 // ============================================================
 export function useAdminData() {
   const [allTeachers, setAllTeachers] = useState([]);
@@ -206,18 +253,24 @@ export function useAdminData() {
       const teachers = [];
 
       for (const tDoc of teacherSnap.docs) {
-        const teacherData = { uid: tDoc.id, ...tDoc.data() };
-        // Load classes
+        const teacherData = { uid: tDoc.id };
         const classesRef = collection(db, 'teachers', tDoc.id, 'classes');
         const classSnap = await getDocs(classesRef);
         teacherData.classes = [];
 
         for (const cDoc of classSnap.docs) {
-          const classData = { id: cDoc.id, ...cDoc.data() };
-          // Load students
-          const studentsRef = collection(db, 'teachers', tDoc.id, 'classes', cDoc.id, 'students');
-          const studentSnap = await getDocs(studentsRef);
-          classData.students = studentSnap.docs.map(s => ({ id: s.id, ...s.data() }));
+          const raw = cDoc.data();
+          const classData = {
+            id: cDoc.id,
+            name: raw.cls || raw.name || 'Unnamed Class',
+            students: (raw.roster || []).map((name, idx) => ({
+              id: `roster_${idx}`,
+              name: name,
+              pronoun: raw.pronouns?.[name] || 'he',
+              house: raw.houses?.[name] || '',
+              scores: parseStudentScores(raw.scores, name),
+            })),
+          };
           teacherData.classes.push(classData);
         }
         teachers.push(teacherData);
