@@ -1,213 +1,141 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
-import { db } from '../firebase';
+import React, { useState } from 'react';
+import { useConductEntries } from '../hooks/useFirestore';
+import { HOUSES } from '../data/virtueData';
 
-const CATEGORIES = [
-  { value: 'merit', label: 'Merit', color: '#16A34A', bg: '#F0FDF4' },
-  { value: 'demerit', label: 'Demerit', color: '#DC2626', bg: '#FEF2F2' },
-  { value: 'detention', label: 'Detention', color: '#EA580C', bg: '#FFF7ED' },
-  { value: 'commendation', label: 'Commendation', color: '#1B3A5C', bg: '#EFF6FF' },
-];
+const HOUSE_COLORS = {
+  Augustine:  { bg: '#1B3A5C', light: '#E8EEF4' },
+  Athanasius: { bg: '#8B2252', light: '#F5E6EE' },
+  Chrysostom: { bg: '#C9A227', light: '#FDF8E8' },
+  Ambrose:    { bg: '#2E7D5B', light: '#E4F2EB' },
+};
 
-const DEMERIT_REASONS = [
-  'Dress code violation',
-  'Tardy to class',
-  'Disrespectful behavior',
-  'Unprepared for class',
-  'Disruptive behavior',
-  'Technology violation',
-  'Off-task / not engaged',
-  'Other',
-];
+const CATEGORIES = {
+  demerit: ['Dress code violation', 'Tardy to class', 'Disruptive behavior', 'Disrespectful to teacher', 'Disrespectful to student', 'Phone violation', 'Academic dishonesty', 'Failure to complete work', 'Other'],
+  merit: ['Outstanding participation', 'Act of charity', 'Academic excellence', 'Leadership', 'Service to school', 'Improvement/Growth', 'Sportsmanship', 'Other'],
+};
 
-const MERIT_REASONS = [
-  'Academic excellence',
-  'Acts of charity',
-  'Leadership',
-  'Improvement / growth',
-  'Service to the school',
-  'Exemplary conduct',
-  'Other',
-];
-
-export default function Demerits({ uid, isAdmin }) {
-  const [entries, setEntries] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [newEntry, setNewEntry] = useState({
-    type: 'demerit',
-    student: '',
-    reason: '',
-    customReason: '',
-    date: new Date().toISOString().split('T')[0],
-    notes: '',
-  });
+export default function Demerits({ uid, isAdmin, masterStudents }) {
+  const { entries, loading, addEntry } = useConductEntries();
+  const [showAdd, setShowAdd] = useState(false);
   const [filter, setFilter] = useState('all');
+  const [studentSearch, setStudentSearch] = useState('');
+  const [newEntry, setNewEntry] = useState({
+    type: 'demerit', studentName: '', house: '', category: CATEGORIES.demerit[0],
+    description: '', date: new Date().toISOString().split('T')[0],
+  });
 
-  const loadEntries = useCallback(async () => {
-    setLoading(true);
-    try {
-      const ref = doc(db, 'teachers', uid, 'conductLog', 'entries');
-      const snap = await getDoc(ref);
-      if (snap.exists()) {
-        setEntries(snap.data().log || []);
-      }
-    } catch (err) {
-      console.error('Error loading conduct log:', err);
-    }
-    setLoading(false);
-  }, [uid]);
+  const matchingStudents = (masterStudents || []).filter(s =>
+    studentSearch && s.name.toLowerCase().includes(studentSearch.toLowerCase())
+  ).slice(0, 8);
 
-  useEffect(() => { loadEntries(); }, [loadEntries]);
-
-  const saveEntries = async (newLog) => {
-    try {
-      const ref = doc(db, 'teachers', uid, 'conductLog', 'entries');
-      await setDoc(ref, { log: newLog });
-      setEntries(newLog);
-    } catch (err) {
-      console.error('Error saving conduct log:', err);
-    }
+  const selectStudent = (student) => {
+    setNewEntry({ ...newEntry, studentName: student.name, house: student.house });
+    setStudentSearch('');
   };
 
-  const addEntry = async () => {
-    if (!newEntry.student.trim()) return;
-    const reason = newEntry.reason === 'Other' ? newEntry.customReason : newEntry.reason;
-    if (!reason.trim()) return;
-
-    const entry = {
-      id: Date.now(),
-      type: newEntry.type,
-      student: newEntry.student.trim(),
-      reason: reason.trim(),
-      date: newEntry.date,
-      notes: newEntry.notes.trim(),
-      createdAt: new Date().toISOString(),
-      by: uid,
-    };
-
-    const updated = [entry, ...entries];
-    await saveEntries(updated);
-    setNewEntry({ ...newEntry, student: '', reason: '', customReason: '', notes: '' });
+  const handleAdd = async () => {
+    if (!newEntry.studentName.trim() || !newEntry.description.trim()) return;
+    await addEntry({ ...newEntry, addedBy: uid });
+    setNewEntry({ type: newEntry.type, studentName: '', house: '', category: CATEGORIES[newEntry.type][0], description: '', date: new Date().toISOString().split('T')[0] });
   };
 
-  const deleteEntry = async (id) => {
-    const updated = entries.filter(e => e.id !== id);
-    await saveEntries(updated);
-  };
+  const filtered = entries.filter(e => filter === 'all' || e.type === filter);
+  const meritCount = entries.filter(e => e.type === 'merit').length;
+  const demeritCount = entries.filter(e => e.type === 'demerit').length;
 
-  const filteredEntries = filter === 'all' ? entries : entries.filter(e => e.type === filter);
-  const reasons = newEntry.type === 'merit' || newEntry.type === 'commendation' ? MERIT_REASONS : DEMERIT_REASONS;
-
-  // Stats
-  const meritCount = entries.filter(e => e.type === 'merit' || e.type === 'commendation').length;
-  const demeritCount = entries.filter(e => e.type === 'demerit' || e.type === 'detention').length;
-
-  if (loading) return <div style={{ padding: 40, textAlign: 'center', color: '#9CA3AF' }}>Loading conduct log...</div>;
+  if (loading) return <div style={{ padding: 40, textAlign: 'center', color: '#9CA3AF' }}>Loading...</div>;
 
   return (
     <div>
-      <h2 className="section-title" style={{ marginBottom: 16 }}>Conduct Log</h2>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20, flexWrap: 'wrap', gap: 8 }}>
+        <h2 className="section-title">Conduct Log</h2>
+        <button className="btn btn-primary" onClick={() => setShowAdd(!showAdd)}>{showAdd ? 'Cancel' : '+ New Entry'}</button>
+      </div>
 
-      {/* Quick Stats */}
-      <div style={{ display: 'flex', gap: 12, marginBottom: 20 }}>
-        <div style={{ padding: '10px 16px', background: '#F0FDF4', border: '1px solid #BBF7D0', borderRadius: 8, flex: 1, textAlign: 'center' }}>
-          <div style={{ fontSize: 22, fontWeight: 700, color: '#16A34A', fontFamily: 'var(--font-display)' }}>{meritCount}</div>
-          <div style={{ fontSize: 11, color: '#15803D' }}>Merits / Commendations</div>
+      <div className="stats-grid" style={{ marginBottom: 16 }}>
+        <div className="stat-card">
+          <div className="stat-value" style={{ color: '#16A34A' }}>{meritCount}</div>
+          <div className="stat-label">Merits</div>
         </div>
-        <div style={{ padding: '10px 16px', background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 8, flex: 1, textAlign: 'center' }}>
-          <div style={{ fontSize: 22, fontWeight: 700, color: '#DC2626', fontFamily: 'var(--font-display)' }}>{demeritCount}</div>
-          <div style={{ fontSize: 11, color: '#B91C1C' }}>Demerits / Detentions</div>
+        <div className="stat-card">
+          <div className="stat-value" style={{ color: '#DC2626' }}>{demeritCount}</div>
+          <div className="stat-label">Demerits</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-value">{entries.length}</div>
+          <div className="stat-label">Total</div>
         </div>
       </div>
 
-      {/* New Entry Form */}
-      <div className="card" style={{ marginBottom: 16 }}>
-        <div className="card-header"><h3 className="section-title">New Entry</h3></div>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
-          {CATEGORIES.map(cat => (
-            <button
-              key={cat.value}
-              className="btn btn-sm"
-              style={{
-                background: newEntry.type === cat.value ? cat.color : cat.bg,
-                color: newEntry.type === cat.value ? '#FFF' : cat.color,
-                border: `1px solid ${cat.color}`,
-              }}
-              onClick={() => setNewEntry({ ...newEntry, type: cat.value, reason: '', customReason: '' })}
-            >
-              {cat.label}
+      {showAdd && (
+        <div className="card" style={{ marginBottom: 20, background: '#F9FAFB' }}>
+          <div className="setup-row">
+            <select value={newEntry.type} onChange={e => setNewEntry({ ...newEntry, type: e.target.value, category: CATEGORIES[e.target.value][0] })} style={{ maxWidth: 120 }}>
+              <option value="demerit">Demerit</option>
+              <option value="merit">Merit</option>
+            </select>
+            <div style={{ flex: 2, position: 'relative' }}>
+              <input type="text" placeholder="Search student..."
+                value={newEntry.studentName || studentSearch}
+                onChange={e => { setStudentSearch(e.target.value); setNewEntry({ ...newEntry, studentName: '', house: '' }); }} />
+              {matchingStudents.length > 0 && (
+                <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#fff', border: '1px solid #D1D5DB', borderRadius: 6, zIndex: 10, maxHeight: 200, overflowY: 'auto', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}>
+                  {matchingStudents.map(s => (
+                    <div key={s.id} onClick={() => selectStudent(s)}
+                      style={{ padding: '8px 12px', cursor: 'pointer', fontSize: 13, borderBottom: '1px solid #F3F4F6', display: 'flex', justifyContent: 'space-between' }}>
+                      <span>{s.name}</span>
+                      <span style={{ fontSize: 11, color: '#9CA3AF' }}>{s.house}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            {newEntry.house && <span className="badge" style={{ background: HOUSE_COLORS[newEntry.house]?.light, color: HOUSE_COLORS[newEntry.house]?.bg, alignSelf: 'center' }}>{newEntry.house}</span>}
+            <input type="date" value={newEntry.date} onChange={e => setNewEntry({ ...newEntry, date: e.target.value })} style={{ maxWidth: 160 }} />
+          </div>
+          <div className="setup-row" style={{ marginTop: 8 }}>
+            <select value={newEntry.category} onChange={e => setNewEntry({ ...newEntry, category: e.target.value })}>
+              {CATEGORIES[newEntry.type].map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </div>
+          <div className="setup-row" style={{ marginTop: 8 }}>
+            <input type="text" placeholder="Description / details" value={newEntry.description}
+              onChange={e => setNewEntry({ ...newEntry, description: e.target.value })}
+              onKeyDown={e => e.key === 'Enter' && handleAdd()} style={{ flex: 3 }} />
+            <button className={`btn ${newEntry.type === 'merit' ? 'btn-gold' : 'btn-danger'}`}
+              onClick={handleAdd} disabled={!newEntry.studentName} style={{ minWidth: 80 }}>
+              Log {newEntry.type === 'merit' ? 'Merit' : 'Demerit'}
             </button>
-          ))}
+          </div>
         </div>
-        <div className="setup-row">
-          <input type="text" placeholder="Student name" value={newEntry.student} onChange={e => setNewEntry({ ...newEntry, student: e.target.value })} style={{ flex: 1 }} />
-          <input type="date" value={newEntry.date} onChange={e => setNewEntry({ ...newEntry, date: e.target.value })} style={{ width: 'auto' }} />
-        </div>
-        <div className="setup-row">
-          <select value={newEntry.reason} onChange={e => setNewEntry({ ...newEntry, reason: e.target.value })} style={{ flex: 1 }}>
-            <option value="">Select reason...</option>
-            {reasons.map(r => <option key={r} value={r}>{r}</option>)}
-          </select>
-          {newEntry.reason === 'Other' && (
-            <input type="text" placeholder="Describe reason" value={newEntry.customReason} onChange={e => setNewEntry({ ...newEntry, customReason: e.target.value })} style={{ flex: 1 }} />
-          )}
-        </div>
-        <div className="setup-row">
-          <input type="text" placeholder="Additional notes (optional)" value={newEntry.notes} onChange={e => setNewEntry({ ...newEntry, notes: e.target.value })} style={{ flex: 1 }} />
-          <button className="btn btn-primary" onClick={addEntry}>Add Entry</button>
-        </div>
+      )}
+
+      <div style={{ display: 'flex', gap: 6, marginBottom: 16 }}>
+        {[{ id: 'all', label: 'All' }, { id: 'demerit', label: 'Demerits' }, { id: 'merit', label: 'Merits' }].map(f => (
+          <button key={f.id} className={`btn btn-sm ${filter === f.id ? 'btn-primary' : 'btn-secondary'}`}
+            onClick={() => setFilter(f.id)}>{f.label}</button>
+        ))}
       </div>
 
-      {/* Filter */}
-      <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
-        <button className={`btn btn-sm ${filter === 'all' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setFilter('all')}>All ({entries.length})</button>
-        {CATEGORIES.map(cat => {
-          const count = entries.filter(e => e.type === cat.value).length;
-          return (
-            <button key={cat.value} className={`btn btn-sm ${filter === cat.value ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setFilter(cat.value)}>
-              {cat.label} ({count})
-            </button>
-          );
-        })}
-      </div>
-
-      {/* Entries List */}
-      {filteredEntries.length === 0 ? (
-        <div style={{ padding: 30, textAlign: 'center', color: '#9CA3AF', fontSize: 14 }}>No entries yet.</div>
+      {filtered.length === 0 ? (
+        <div style={{ padding: 40, textAlign: 'center', color: '#9CA3AF' }}>No entries yet.</div>
       ) : (
-        <div>
-          {filteredEntries.map(entry => {
-            const cat = CATEGORIES.find(c => c.value === entry.type) || CATEGORIES[1];
-            return (
-              <div key={entry.id} style={{
-                display: 'flex', gap: 12, alignItems: 'flex-start',
-                padding: '12px 0', borderBottom: '1px solid #F3F4F6',
-              }}>
-                <div style={{
-                  padding: '3px 8px', borderRadius: 6,
-                  background: cat.bg, color: cat.color,
-                  fontSize: 11, fontWeight: 600, flexShrink: 0, marginTop: 2,
-                }}>
-                  {cat.label}
-                </div>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontWeight: 600, fontSize: 14, color: '#1F2937' }}>{entry.student}</div>
-                  <div style={{ fontSize: 13, color: '#374151' }}>{entry.reason}</div>
-                  {entry.notes && <div style={{ fontSize: 12, color: '#6B7280', fontStyle: 'italic', marginTop: 2 }}>{entry.notes}</div>}
-                </div>
-                <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                  <div style={{ fontSize: 12, color: '#9CA3AF' }}>{entry.date}</div>
-                  <button
-                    className="btn btn-sm"
-                    style={{ fontSize: 10, padding: '2px 6px', color: '#DC2626', background: 'transparent', marginTop: 4 }}
-                    onClick={() => deleteEntry(entry.id)}
-                  >
-                    Delete
-                  </button>
-                </div>
-              </div>
-            );
-          })}
+        <div style={{ overflowX: 'auto' }}>
+          <table className="data-table">
+            <thead><tr><th>Type</th><th>Date</th><th>Student</th><th>House</th><th>Category</th><th>Description</th></tr></thead>
+            <tbody>
+              {filtered.map(e => (
+                <tr key={e.id}>
+                  <td><span className={`badge ${e.type === 'merit' ? 'badge-green' : 'badge-red'}`}>{e.type === 'merit' ? '★ Merit' : '✗ Demerit'}</span></td>
+                  <td style={{ fontSize: 13 }}>{e.date}</td>
+                  <td style={{ fontWeight: 500 }}>{e.studentName}</td>
+                  <td>{e.house ? <span className="badge" style={{ background: HOUSE_COLORS[e.house]?.light, color: HOUSE_COLORS[e.house]?.bg }}>{e.house}</span> : '—'}</td>
+                  <td style={{ fontSize: 12 }}>{e.category}</td>
+                  <td style={{ fontSize: 13, maxWidth: 250 }}>{e.description}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
     </div>

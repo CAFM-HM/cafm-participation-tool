@@ -25,3 +25,19 @@ export const ADMINS = [
 ];
 
 export const isAdmin = (email) => ADMINS.includes(email?.toLowerCase());
+
+// Known UID → email mapping
+export const UID_MAP = {
+  'RfcdU5sf2Zhzj4aJTbfE7Iy5e5E2': 'charlie@chestertonpensacola.org',
+  'hvThHfEBFAY7VrG3YQ3djt0Icxi1': 'jreilly@chestertonpensacola.org',
+  'xn858oNYT3XOP6afwXh9qnT06cx2': 'trougas@chestertonpensacola.org',
+};
+
+export function teacherDisplayName(uid) {
+  const email = UID_MAP[uid];
+  if (email) {
+    const name = email.split('@')[0];
+    return name.charAt(0).toUpperCase() + name.slice(1);
+  }
+  return uid.substring(0, 12) + '...';
+}

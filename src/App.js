@@ -1,16 +1,19 @@
 import React, { useState } from 'react';
 import { useAuth } from './hooks/useAuth';
+import { useMasterRoster } from './hooks/useFirestore';
 import DailyTracker from './components/DailyTracker';
 import NarrativeBuilder from './components/NarrativeBuilder';
 import Dashboard from './components/Dashboard';
 import HousePoints from './components/HousePoints';
 import Demerits from './components/Demerits';
+import MasterRoster from './components/MasterRoster';
 
 function App() {
   const { user, loading, login, logout, isAdmin, displayName } = useAuth();
+  const { students: masterStudents, loading: rosterLoading, addStudent, updateStudent, removeStudent, bulkImport, refresh: refreshRoster } = useMasterRoster();
   const [activeTab, setActiveTab] = useState('daily');
 
-  if (loading) {
+  if (loading || rosterLoading) {
     return (
       <div className="login-screen">
         <div className="school-crest">⚜️</div>
@@ -41,16 +44,16 @@ function App() {
   const tabs = [
     { id: 'daily', label: 'Daily Tracker' },
     { id: 'narrative', label: 'Narrative Builder' },
-    ...(isAdmin ? [
-      { id: 'dashboard', label: 'Dashboard' },
-    ] : []),
     { id: 'house', label: 'House Points' },
     { id: 'demerits', label: 'Conduct Log' },
+    ...(isAdmin ? [
+      { id: 'dashboard', label: 'Dashboard' },
+      { id: 'roster', label: 'Master Roster' },
+    ] : []),
   ];
 
   return (
     <div>
-      {/* Header */}
       <header className="app-header">
         <div className="header-inner">
           <div className="header-brand">
@@ -65,7 +68,6 @@ function App() {
         </div>
       </header>
 
-      {/* Tab Navigation */}
       <nav className="tab-nav">
         {tabs.map(tab => (
           <button
@@ -78,14 +80,23 @@ function App() {
         ))}
       </nav>
 
-      {/* Main Content */}
       <main className="main-content">
         <div className="tab-panel">
-          {activeTab === 'daily' && <DailyTracker uid={user.uid} />}
-          {activeTab === 'narrative' && <NarrativeBuilder uid={user.uid} />}
-          {activeTab === 'dashboard' && isAdmin && <Dashboard />}
-          {activeTab === 'house' && <HousePoints uid={user.uid} isAdmin={isAdmin} />}
-          {activeTab === 'demerits' && <Demerits uid={user.uid} isAdmin={isAdmin} />}
+          {activeTab === 'daily' && <DailyTracker uid={user.uid} masterStudents={masterStudents} />}
+          {activeTab === 'narrative' && <NarrativeBuilder uid={user.uid} masterStudents={masterStudents} />}
+          {activeTab === 'house' && <HousePoints uid={user.uid} isAdmin={isAdmin} masterStudents={masterStudents} />}
+          {activeTab === 'demerits' && <Demerits uid={user.uid} isAdmin={isAdmin} masterStudents={masterStudents} />}
+          {activeTab === 'dashboard' && isAdmin && <Dashboard masterStudents={masterStudents} />}
+          {activeTab === 'roster' && isAdmin && (
+            <MasterRoster
+              students={masterStudents}
+              onAdd={addStudent}
+              onUpdate={updateStudent}
+              onRemove={removeStudent}
+              onBulkImport={bulkImport}
+              onRefresh={refreshRoster}
+            />
+          )}
         </div>
       </main>
     </div>

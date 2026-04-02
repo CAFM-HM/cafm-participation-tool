@@ -5,8 +5,8 @@ import {
   getBridgingSentences, getOpenings
 } from '../data/virtueData';
 
-export default function NarrativeBuilder({ uid }) {
-  const { classes, loading: classesLoading } = useTeacherData(uid);
+export default function NarrativeBuilder({ uid, masterStudents }) {
+  const { classes, loading: classesLoading } = useTeacherData(uid, masterStudents);
   const { narrativeConfig, setNarrativeConfig, loading: narrativeLoading } = useNarrativeData(uid);
   const [selectedClass, setSelectedClass] = useState(null);
   const [expandedStudent, setExpandedStudent] = useState(null);

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { onAuthStateChanged, signInWithPopup, signOut } from 'firebase/auth';
+import { onAuthStateChanged, signInWithRedirect, getRedirectResult, signOut } from 'firebase/auth';
 import { auth, provider, isAdmin } from '../firebase';
 
 export function useAuth() {
@@ -7,6 +7,7 @@ export function useAuth() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    getRedirectResult(auth).catch(() => {});
     const unsub = onAuthStateChanged(auth, (u) => {
       setUser(u);
       setLoading(false);
@@ -14,7 +15,7 @@ export function useAuth() {
     return unsub;
   }, []);
 
-  const login = () => signInWithPopup(auth, provider);
+  const login = () => signInWithRedirect(auth, provider);
   const logout = () => signOut(auth);
 
   return {
