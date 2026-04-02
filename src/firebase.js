@@ -3,12 +3,12 @@ import { getAuth, GoogleAuthProvider } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 
 const firebaseConfig = {
-  apiKey: "AIzaSyDHPMbvhZQMS-dMbnWDnfETv3dflmuAYC4",
+  apiKey: "AIzaSyBhPThGT9VOLFPePOFs2Ky0SWkLgh3BOP0",
   authDomain: "cafm-participation.firebaseapp.com",
   projectId: "cafm-participation",
   storageBucket: "cafm-participation.firebasestorage.app",
-  messagingSenderId: "1067842757498",
-  appId: "1:1067842757498:web:07cc139efe3b353b0e8573"
+  messagingSenderId: "849036044326",
+  appId: "1:849036044326:web:798a5535971cbb1d039ee7"
 };
 
 const app = initializeApp(firebaseConfig);
