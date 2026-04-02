@@ -1,25 +1,16 @@
 import React, { useState, useCallback, useMemo } from 'react';
-import { useNarrativeData } from '../hooks/useFirestore';
-import { VIRTUES, VIRTUE_SENTENCES, OPENINGS, CLOSINGS, buildNarrative, getBridgingSentences } from '../data/virtueData';
-
-function makeEmptyStudent(id) {
-  return {
-    id,
-    name: '',
-    pronoun: 'he',
-    scores: { discipline: null, attention: null, charity: null, inquiry: null },
-    sentenceSelections: { discipline: null, attention: null, charity: null, inquiry: null },
-    openingIndex: null,
-    closingIndex: null,
-    comment: '',
-  };
-}
+import { useTeacherData, useNarrativeData } from '../hooks/useFirestore';
+import {
+  VIRTUES, VIRTUE_SENTENCES, OPENINGS, CLOSINGS,
+  getBridgingSentences
+} from '../data/virtueData';
 
 export default function NarrativeBuilder({ uid }) {
-  const { narrativeConfig, setNarrativeConfig, loading } = useNarrativeData(uid);
-  const [activeStudentIdx, setActiveStudentIdx] = useState(0);
-  const [setupOpen, setSetupOpen] = useState(true);
-  const [copiedIdx, setCopiedIdx] = useState(null);
+  const { classes, loading: classesLoading } = useTeacherData(uid);
+  const { narrativeConfig, setNarrativeConfig, loading: narrativeLoading } = useNarrativeData(uid);
+  const [selectedClass, setSelectedClass] = useState(null);
+  const [expandedStudent, setExpandedStudent] = useState(null);
+  const [showSetup, setShowSetup] = useState(true);
 
   const config = narrativeConfig || { teacherName: '', className: '', quarter: 'Q4', students: [] };
   const students = config.students || [];
@@ -28,225 +19,446 @@ export default function NarrativeBuilder({ uid }) {
     setNarrativeConfig({ ...config, ...updates });
   }, [config, setNarrativeConfig]);
 
-  const updateStudent = useCallback((idx, updates) => {
-    const newStudents = [...students];
-    newStudents[idx] = { ...newStudents[idx], ...updates };
+  const updateStudent = useCallback((studentId, updates) => {
+    const newStudents = students.map(s =>
+      s.id === studentId ? { ...s, ...updates } : s
+    );
     updateConfig({ students: newStudents });
   }, [students, updateConfig]);
 
-  const addStudent = () => {
-    const newStudents = [...students, makeEmptyStudent(Date.now())];
-    updateConfig({ students: newStudents });
-    setActiveStudentIdx(newStudents.length - 1);
-  };
+  // Calculate quarterly averages for a student from daily tracker data
+  const getQuarterlyAvg = useCallback((studentScores) => {
+    const virtueTotals = {};
+    const virtueCounts = {};
+    VIRTUES.forEach(v => { virtueTotals[v.key] = 0; virtueCounts[v.key] = 0; });
 
-  const removeStudent = (idx) => {
-    const newStudents = students.filter((_, i) => i !== idx);
-    updateConfig({ students: newStudents });
-    if (activeStudentIdx >= newStudents.length) setActiveStudentIdx(Math.max(0, newStudents.length - 1));
-  };
+    for (const [dateStr, dayScores] of Object.entries(studentScores || {})) {
+      if (dayScores.absent) continue;
+      VIRTUES.forEach(v => {
+        if (dayScores[v.key] && typeof dayScores[v.key] === 'number') {
+          virtueTotals[v.key] += dayScores[v.key];
+          virtueCounts[v.key] += 1;
+        }
+      });
+    }
 
-  const student = students[activeStudentIdx];
+    const result = {};
+    VIRTUES.forEach(v => {
+      result[v.key] = virtueCounts[v.key] > 0
+        ? Math.round(virtueTotals[v.key] / virtueCounts[v.key])
+        : null;
+    });
+    return result;
+  }, []);
 
-  const overallScore = useMemo(() => {
-    if (!student) return null;
-    const vals = VIRTUES.map(v => student.scores?.[v.key]).filter(v => v !== null && v !== undefined);
-    if (vals.length !== 4) return null;
+  // Import students from a selected class with their quarterly averages
+  const importFromClass = useCallback((classId) => {
+    const cls = classes.find(c => c.id === classId);
+    if (!cls) return;
+
+    setSelectedClass(classId);
+
+    const imported = cls.students.map((stu, idx) => {
+      const avgScores = getQuarterlyAvg(stu.scores);
+      // Check if this student already exists in narrative config
+      const existing = students.find(s => s.name === stu.name);
+      if (existing) {
+        // Update scores but keep sentence selections
+        return { ...existing, scores: avgScores };
+      }
+      return {
+        id: Date.now() + idx,
+        name: stu.name,
+        pronoun: stu.pronoun || 'he',
+        scores: avgScores,
+        sentenceSelections: { discipline: null, attention: null, charity: null, inquiry: null },
+        openingIndex: null,
+        closingIndex: null,
+        comment: '',
+      };
+    });
+
+    updateConfig({
+      className: cls.name,
+      students: imported,
+    });
+  }, [classes, students, getQuarterlyAvg, updateConfig]);
+
+  const removeStudent = useCallback((id) => {
+    updateConfig({ students: students.filter(s => s.id !== id) });
+  }, [students, updateConfig]);
+
+  const getOverallScore = (student) => {
+    const vals = VIRTUES.map(v => student.scores?.[v.key]).filter(s => s !== null && s !== undefined);
+    if (vals.length < 4) return null;
     return Math.round(vals.reduce((a, b) => a + b, 0) / vals.length);
-  }, [student]);
+  };
 
-  const getProgress = (s) => {
-    if (!s) return { done: 0, total: 6 };
+  const getProgress = (student) => {
     let done = 0;
-    VIRTUES.forEach(v => { if (s.sentenceSelections?.[v.key] !== null && s.sentenceSelections?.[v.key] !== undefined) done++; });
-    if (s.openingIndex !== null && s.openingIndex !== undefined) done++;
-    if (s.closingIndex !== null && s.closingIndex !== undefined) done++;
-    return { done, total: 6 };
+    const total = 6;
+    VIRTUES.forEach(v => { if (student.sentenceSelections?.[v.key] !== null && student.sentenceSelections?.[v.key] !== undefined) done++; });
+    if (student.openingIndex !== null && student.openingIndex !== undefined) done++;
+    if (student.closingIndex !== null && student.closingIndex !== undefined) done++;
+    return { done, total, pct: Math.round((done / total) * 100) };
   };
 
-  const completedCount = students.filter(s => buildNarrative(s, config.teacherName, config.className, config.quarter) !== null).length;
+  const buildNarrative = (student) => {
+    const overall = getOverallScore(student);
+    if (!overall || student.openingIndex === null || student.openingIndex === undefined) return null;
+    if (student.closingIndex === null || student.closingIndex === undefined) return null;
+    for (const v of VIRTUES) {
+      if (student.sentenceSelections?.[v.key] === null || student.sentenceSelections?.[v.key] === undefined) return null;
+    }
 
-  const copyNarrative = async (idx) => {
-    const s = students[idx];
-    const text = buildNarrative(s, config.teacherName, config.className, config.quarter);
-    if (!text) return;
-    try { await navigator.clipboard.writeText(text); setCopiedIdx(idx); setTimeout(() => setCopiedIdx(null), 2000); } catch {}
+    const displayName = student.name || '[Student]';
+    const displayClass = config.className || '[Class]';
+    const pr = student.pronoun || 'he';
+
+    const opening = (OPENINGS[overall]?.[student.openingIndex] || '')
+      .replace('[S]', displayName)
+      .replace('[C]', displayClass);
+
+    const virtueParts = VIRTUES.map(v => {
+      const score = student.scores[v.key];
+      const idx = student.sentenceSelections[v.key];
+      return VIRTUE_SENTENCES[v.key]?.[score]?.[pr]?.[idx] || '';
+    });
+
+    const bridges = getBridgingSentences(student.scores, pr);
+
+    const closingOptions = [...(CLOSINGS[overall]?.[pr] || []), ...(CLOSINGS[overall]?.n || [])];
+    const closing = closingOptions[student.closingIndex] || '';
+
+    return [opening, ...virtueParts, ...bridges, closing].filter(Boolean).join(' ');
   };
 
-  const copyAll = async () => {
-    const texts = students.map(s => {
-      const text = buildNarrative(s, config.teacherName, config.className, config.quarter);
-      return text ? `${s.name}:\n${text}` : null;
-    }).filter(Boolean);
-    if (texts.length === 0) return;
-    try { await navigator.clipboard.writeText(texts.join('\n\n---\n\n')); setCopiedIdx('all'); setTimeout(() => setCopiedIdx(null), 2000); } catch {}
+  const completedCount = students.filter(s => buildNarrative(s)).length;
+
+  const copyAllNarratives = () => {
+    const texts = students
+      .map(s => {
+        const n = buildNarrative(s);
+        return n ? `${s.name}\n${n}${s.comment ? ' ' + s.comment : ''}` : null;
+      })
+      .filter(Boolean)
+      .join('\n\n---\n\n');
+
+    if (texts) {
+      navigator.clipboard.writeText(texts).then(() => {
+        alert(`Copied ${completedCount} narrative(s) to clipboard!`);
+      });
+    }
   };
 
-  if (loading) return <div style={{ padding: 40, textAlign: 'center', color: '#9CA3AF' }}>Loading narrative data...</div>;
+  if (classesLoading || narrativeLoading) {
+    return <div style={{ padding: 40, textAlign: 'center', color: '#9CA3AF' }}>Loading...</div>;
+  }
 
   return (
     <div>
       {/* Setup */}
       <div className="setup-panel">
-        <div className="setup-header" onClick={() => setSetupOpen(!setupOpen)}>
-          <h3>Class Setup</h3>
-          <span style={{ fontSize: 12, color: '#6B7280' }}>{setupOpen ? '▲ Hide' : '▼ Show'}</span>
+        <div className="setup-header" onClick={() => setShowSetup(!showSetup)}>
+          <h3>Narrative Setup</h3>
+          <span style={{ fontSize: 12, color: '#6B7280' }}>
+            {showSetup ? '▲ Hide' : '▼ Show'}
+          </span>
         </div>
-        {setupOpen && (
+        {showSetup && (
           <div className="setup-body">
             <div className="setup-row">
-              <input type="text" placeholder="Teacher Name" value={config.teacherName || ''} onChange={e => updateConfig({ teacherName: e.target.value })} />
-              <input type="text" placeholder="Class Name (e.g. Humanities 9)" value={config.className || ''} onChange={e => updateConfig({ className: e.target.value })} />
-              <select value={config.quarter || 'Q4'} onChange={e => updateConfig({ quarter: e.target.value })}>
-                <option value="Q1">Q1</option><option value="Q2">Q2</option><option value="Q3">Q3</option><option value="Q4">Q4</option>
+              <input
+                type="text"
+                placeholder="Teacher Name"
+                value={config.teacherName}
+                onChange={e => updateConfig({ teacherName: e.target.value })}
+              />
+              <select
+                value={config.quarter}
+                onChange={e => updateConfig({ quarter: e.target.value })}
+                style={{ maxWidth: 100 }}
+              >
+                <option value="Q1">Q1</option>
+                <option value="Q2">Q2</option>
+                <option value="Q3">Q3</option>
+                <option value="Q4">Q4</option>
               </select>
+            </div>
+            <div style={{ marginTop: 10 }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: '#6B7280', marginBottom: 6 }}>
+                IMPORT FROM DAILY TRACKER
+              </div>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                {classes.map(c => (
+                  <button
+                    key={c.id}
+                    className={`btn ${selectedClass === c.id ? 'btn-primary' : 'btn-secondary'}`}
+                    onClick={() => importFromClass(c.id)}
+                  >
+                    {c.name} ({c.students?.length || 0} students)
+                  </button>
+                ))}
+                {classes.length === 0 && (
+                  <span style={{ fontSize: 13, color: '#9CA3AF' }}>
+                    No classes found. Add classes in the Daily Tracker first.
+                  </span>
+                )}
+              </div>
+              {selectedClass && students.length > 0 && (
+                <div style={{ marginTop: 8, fontSize: 12, color: '#16A34A', fontWeight: 500 }}>
+                  ✓ Imported {students.length} students with quarterly averages from Daily Tracker
+                </div>
+              )}
             </div>
           </div>
         )}
       </div>
 
-      {/* Student tabs */}
-      <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 12, alignItems: 'center' }}>
-        {students.map((s, i) => {
-          const prog = getProgress(s);
-          const allScored = s.scores && VIRTUES.every(v => s.scores[v.key] !== null && s.scores[v.key] !== undefined);
-          const isComplete = prog.done === prog.total && allScored;
-          return (
-            <button key={s.id} className={`tab-btn ${activeStudentIdx === i ? 'active' : ''}`} onClick={() => setActiveStudentIdx(i)} style={{ fontSize: 12, padding: '6px 12px', borderRadius: 6 }}>
-              {s.name || `Student ${i + 1}`}
-              {isComplete && <span style={{ marginLeft: 4, color: '#16A34A' }}>✓</span>}
-            </button>
-          );
-        })}
-        <button className="btn btn-primary btn-sm" onClick={addStudent}>+ Add Student</button>
-        {completedCount > 0 && <span style={{ marginLeft: 'auto', fontSize: 12, color: '#16A34A', fontWeight: 600 }}>{completedCount}/{students.length} complete</span>}
+      {/* Toolbar */}
+      <div style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        marginBottom: 16, flexWrap: 'wrap', gap: 8
+      }}>
+        <span style={{ fontSize: 13, color: '#6B7280' }}>
+          {completedCount}/{students.length} narratives complete
+        </span>
+        {completedCount > 0 && (
+          <button className="btn btn-gold" onClick={copyAllNarratives}>
+            📋 Copy All Narratives
+          </button>
+        )}
       </div>
 
-      {/* Current student editor */}
-      {student ? (
-        <div className="narrative-student">
-          <div className="narrative-student-header">
-            <div style={{ display: 'flex', gap: 12, alignItems: 'center', flex: 1, flexWrap: 'wrap' }}>
-              <input type="text" placeholder="Student Name" value={student.name || ''} onChange={e => updateStudent(activeStudentIdx, { name: e.target.value })} style={{ width: 180 }} />
-              <select value={student.pronoun || 'he'} onChange={e => updateStudent(activeStudentIdx, { pronoun: e.target.value })} style={{ width: 100 }}>
-                <option value="he">He/Him</option><option value="she">She/Her</option>
-              </select>
-              <button className="btn btn-sm" style={{ color: '#DC2626', background: 'transparent', fontSize: 11 }} onClick={() => removeStudent(activeStudentIdx)}>Remove Student</button>
-            </div>
-          </div>
-          <div className="narrative-student-body">
-            {/* Virtue Scores */}
-            <div style={{ marginBottom: 20 }}>
-              <div style={{ fontSize: 13, fontWeight: 600, color: '#1B3A5C', marginBottom: 10 }}>1. Score each virtue</div>
-              {VIRTUES.map(v => (
-                <div key={v.key} className="virtue-row">
-                  <span className="virtue-label" style={{ color: v.color }}>{v.label}</span>
-                  <div className="score-btns">
-                    {[1, 2, 3, 4, 5].map(s => (
-                      <button key={s} className={`score-btn s${s} ${student.scores?.[v.key] === s ? 'active' : ''}`} onClick={() => {
-                        const newScores = { ...student.scores, [v.key]: student.scores?.[v.key] === s ? null : s };
-                        const newSent = { ...student.sentenceSelections };
-                        if (newScores[v.key] !== student.scores?.[v.key]) newSent[v.key] = null;
-                        updateStudent(activeStudentIdx, { scores: newScores, sentenceSelections: newSent });
-                      }}>{s}</button>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
+      {/* Students */}
+      {students.length === 0 && (
+        <div style={{ padding: 40, textAlign: 'center', color: '#9CA3AF' }}>
+          Select a class above to import students with their scores.
+        </div>
+      )}
 
-            {/* Opening */}
-            {overallScore && (
-              <div style={{ marginBottom: 20 }}>
-                <div style={{ fontSize: 13, fontWeight: 600, color: '#1B3A5C', marginBottom: 8 }}>2. Choose opening sentence</div>
-                {OPENINGS[overallScore]?.map((text, i) => (
-                  <div key={i} className={`sentence-option ${student.openingIndex === i ? 'selected' : ''}`} onClick={() => updateStudent(activeStudentIdx, { openingIndex: student.openingIndex === i ? null : i })}>
-                    {text.replace('[S]', student.name || '[Student]').replace('[C]', config.className || '[Class]')}
-                  </div>
+      {students.map((student, idx) => {
+        const isExpanded = expandedStudent === student.id;
+        const overall = getOverallScore(student);
+        const progress = getProgress(student);
+        const narrative = buildNarrative(student);
+
+        return (
+          <div key={student.id} className="narrative-student">
+            {/* Header */}
+            <div
+              className="narrative-student-header"
+              onClick={() => setExpandedStudent(isExpanded ? null : student.id)}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span style={{ fontWeight: 600, color: '#1B3A5C', fontSize: 14 }}>
+                  {student.name || `Student ${idx + 1}`}
+                </span>
+                {overall && (
+                  <span className={`badge ${overall >= 4 ? 'badge-green' : overall >= 3 ? 'badge-gray' : 'badge-red'}`}>
+                    {overall}/5
+                  </span>
+                )}
+                {VIRTUES.map(v => (
+                  <span key={v.key} style={{
+                    fontSize: 11, color: v.color, fontWeight: 600,
+                    background: v.bg, padding: '2px 6px', borderRadius: 4
+                  }}>
+                    {v.label.substring(0, 1)}:{student.scores?.[v.key] ?? '—'}
+                  </span>
                 ))}
+                {narrative && <span style={{ color: '#16A34A', fontSize: 12 }}>✓</span>}
               </div>
-            )}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <div className="progress-bar" style={{ width: 60 }}>
+                  <div className="progress-fill" style={{ width: `${progress.pct}%` }} />
+                </div>
+                <span style={{ fontSize: 12, color: '#9CA3AF' }}>{isExpanded ? '▲' : '▼'}</span>
+              </div>
+            </div>
 
-            {/* Virtue sentences */}
-            {VIRTUES.map((v, vi) => {
-              const score = student.scores?.[v.key];
-              if (!score) return null;
-              const options = VIRTUE_SENTENCES[v.key]?.[score]?.[student.pronoun || 'he'];
-              if (!options) return null;
-              return (
-                <div key={v.key} style={{ marginBottom: 20 }}>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: v.color, marginBottom: 8 }}>{3 + vi}. {v.label} sentence (score: {score})</div>
-                  {options.map((text, i) => (
-                    <div key={i} className={`sentence-option ${student.sentenceSelections?.[v.key] === i ? 'selected' : ''}`} onClick={() => {
-                      const newSent = { ...student.sentenceSelections, [v.key]: student.sentenceSelections?.[v.key] === i ? null : i };
-                      updateStudent(activeStudentIdx, { sentenceSelections: newSent });
-                    }}>{text}</div>
+            {/* Body */}
+            {isExpanded && (
+              <div className="narrative-student-body">
+                {/* Score override */}
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: '#6B7280', marginBottom: 8 }}>
+                    QUARTERLY SCORES (auto-calculated — click to override)
+                  </div>
+                  {VIRTUES.map(v => (
+                    <div key={v.key} className="virtue-row" style={{ marginBottom: 8 }}>
+                      <span className="virtue-label" style={{ color: v.color, minWidth: 80 }}>
+                        {v.label}
+                      </span>
+                      <div className="score-btns">
+                        {[1, 2, 3, 4, 5].map(score => (
+                          <button
+                            key={score}
+                            className={`score-btn s${score} ${student.scores?.[v.key] === score ? 'active' : ''}`}
+                            onClick={() => updateStudent(student.id, {
+                              scores: { ...student.scores, [v.key]: score },
+                              sentenceSelections: { ...student.sentenceSelections, [v.key]: null }
+                            })}
+                          >
+                            {score}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
                   ))}
                 </div>
-              );
-            })}
 
-            {/* Closing */}
-            {overallScore && (
-              <div style={{ marginBottom: 20 }}>
-                <div style={{ fontSize: 13, fontWeight: 600, color: '#1B3A5C', marginBottom: 8 }}>7. Choose closing sentence</div>
-                {[...(CLOSINGS[overallScore]?.[student.pronoun || 'he'] || []), ...(CLOSINGS[overallScore]?.n || [])].map((text, i) => (
-                  <div key={i} className={`sentence-option ${student.closingIndex === i ? 'selected' : ''}`} onClick={() => updateStudent(activeStudentIdx, { closingIndex: student.closingIndex === i ? null : i })}>{text}</div>
-                ))}
+                {/* Pronoun toggle */}
+                <div style={{ marginBottom: 16 }}>
+                  <select
+                    value={student.pronoun}
+                    onChange={e => updateStudent(student.id, { pronoun: e.target.value })}
+                    style={{ maxWidth: 120 }}
+                  >
+                    <option value="he">He/Him</option>
+                    <option value="she">She/Her</option>
+                  </select>
+                  <button
+                    className="btn btn-sm btn-danger"
+                    style={{ marginLeft: 8 }}
+                    onClick={() => removeStudent(student.id)}
+                  >
+                    Remove
+                  </button>
+                </div>
+
+                {/* Opening Sentence */}
+                {overall && (
+                  <div style={{ marginBottom: 16 }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: '#6B7280', marginBottom: 8 }}>
+                      OPENING SENTENCE
+                    </div>
+                    {(OPENINGS[overall] || []).map((sentence, i) => (
+                      <button
+                        key={i}
+                        className={`sentence-option ${student.openingIndex === i ? 'selected' : ''}`}
+                        onClick={() => updateStudent(student.id, { openingIndex: i })}
+                      >
+                        {sentence
+                          .replace('[S]', student.name || '[Student]')
+                          .replace('[C]', config.className || '[Class]')}
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {/* Virtue Sentences */}
+                {overall && VIRTUES.map(v => {
+                  const score = student.scores?.[v.key];
+                  if (!score) return null;
+                  const sentences = VIRTUE_SENTENCES[v.key]?.[score]?.[student.pronoun] || [];
+                  if (sentences.length === 0) return null;
+                  return (
+                    <div key={v.key} style={{ marginBottom: 16 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: v.color, marginBottom: 8 }}>
+                        {v.label} ({score}/5)
+                      </div>
+                      {sentences.map((sentence, i) => (
+                        <button
+                          key={i}
+                          className={`sentence-option ${student.sentenceSelections?.[v.key] === i ? 'selected' : ''}`}
+                          onClick={() => updateStudent(student.id, {
+                            sentenceSelections: { ...student.sentenceSelections, [v.key]: i }
+                          })}
+                        >
+                          {sentence}
+                        </button>
+                      ))}
+                    </div>
+                  );
+                })}
+
+                {/* Closing Sentence */}
+                {overall && (
+                  <div style={{ marginBottom: 16 }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: '#6B7280', marginBottom: 8 }}>
+                      CLOSING SENTENCE
+                    </div>
+                    {[
+                      ...(CLOSINGS[overall]?.[student.pronoun] || []),
+                      ...(CLOSINGS[overall]?.n || [])
+                    ].map((sentence, i) => (
+                      <button
+                        key={i}
+                        className={`sentence-option ${student.closingIndex === i ? 'selected' : ''}`}
+                        onClick={() => updateStudent(student.id, { closingIndex: i })}
+                      >
+                        {sentence}
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {/* Bridging Notice */}
+                {overall && (() => {
+                  const bridges = getBridgingSentences(student.scores, student.pronoun);
+                  if (bridges.length === 0) return null;
+                  return (
+                    <div style={{
+                      background: '#FFFBEB', border: '1px solid #FDE68A',
+                      borderRadius: 8, padding: 12, marginBottom: 16, fontSize: 13
+                    }}>
+                      <div style={{ fontWeight: 600, marginBottom: 4, fontSize: 12, color: '#92400E' }}>
+                        ⚡ Bridging sentence auto-added (score gap detected)
+                      </div>
+                      {bridges.map((b, i) => (
+                        <div key={i} style={{ fontStyle: 'italic', color: '#78350F', lineHeight: 1.5 }}>
+                          "{b}"
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })()}
+
+                {/* Comment */}
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: '#6B7280', marginBottom: 6 }}>
+                    ADDITIONAL COMMENT (optional)
+                  </div>
+                  <textarea
+                    value={student.comment || ''}
+                    onChange={e => updateStudent(student.id, { comment: e.target.value })}
+                    placeholder="Add a personal note that will appear at the end..."
+                    style={{
+                      width: '100%', minHeight: 60, padding: 10, borderRadius: 6,
+                      border: '1px solid #D1D5DB', fontFamily: 'inherit', fontSize: 13,
+                      resize: 'vertical'
+                    }}
+                  />
+                </div>
+
+                {/* Preview */}
+                {narrative && (
+                  <div>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: '#6B7280', marginBottom: 8 }}>
+                      NARRATIVE PREVIEW
+                    </div>
+                    <div className="narrative-preview">
+                      {narrative}
+                      {student.comment && <span> {student.comment}</span>}
+                    </div>
+                    <button
+                      className="btn btn-secondary btn-sm"
+                      style={{ marginTop: 8 }}
+                      onClick={() => {
+                        const text = narrative + (student.comment ? ' ' + student.comment : '');
+                        navigator.clipboard.writeText(text);
+                      }}
+                    >
+                      📋 Copy This Narrative
+                    </button>
+                  </div>
+                )}
               </div>
             )}
-
-            {/* Bridging notice */}
-            {student.scores && (() => {
-              const bridges = getBridgingSentences(student.scores, student.pronoun || 'he');
-              if (bridges.length === 0) return null;
-              return (
-                <div style={{ marginBottom: 16, padding: 12, background: '#FEF3C7', borderRadius: 8, border: '1px solid #FCD34D' }}>
-                  <div style={{ fontSize: 12, fontWeight: 600, color: '#92400E', marginBottom: 6 }}>Auto-bridging (smooths contradictions):</div>
-                  {bridges.map((b, i) => <div key={i} style={{ fontSize: 13, color: '#78350F', marginBottom: 4, fontStyle: 'italic' }}>{b}</div>)}
-                </div>
-              );
-            })()}
-
-            {/* Progress */}
-            {(() => {
-              const prog = getProgress(student);
-              const virtuesDone = VIRTUES.filter(v => student.scores?.[v.key] !== null && student.scores?.[v.key] !== undefined).length;
-              const total = prog.total + 4;
-              const done = prog.done + virtuesDone;
-              return (
-                <div style={{ marginBottom: 16 }}>
-                  <div style={{ fontSize: 12, color: '#6B7280' }}>{done}/{total} steps complete</div>
-                  <div className="progress-bar"><div className="progress-fill" style={{ width: `${(done / total) * 100}%` }} /></div>
-                </div>
-              );
-            })()}
-
-            {/* Preview */}
-            {(() => {
-              const text = buildNarrative(student, config.teacherName, config.className, config.quarter);
-              if (!text) return <div style={{ padding: 16, textAlign: 'center', color: '#9CA3AF', fontSize: 13, border: '1px dashed #D1D5DB', borderRadius: 8 }}>Complete all selections above to preview the narrative.</div>;
-              return (
-                <div>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: '#16A34A' }}>Narrative Preview</div>
-                    <button className="btn btn-primary btn-sm" onClick={() => copyNarrative(activeStudentIdx)}>{copiedIdx === activeStudentIdx ? '✓ Copied!' : 'Copy'}</button>
-                  </div>
-                  <div className="narrative-preview">{text}</div>
-                </div>
-              );
-            })()}
           </div>
-        </div>
-      ) : (
-        <div style={{ padding: 40, textAlign: 'center', color: '#9CA3AF' }}>Add a student above to begin building narratives.</div>
-      )}
-
-      {completedCount > 1 && (
-        <div style={{ marginTop: 16, textAlign: 'right' }}>
-          <button className="btn btn-gold" onClick={copyAll}>{copiedIdx === 'all' ? '✓ All Copied!' : `Copy All ${completedCount} Narratives`}</button>
-        </div>
-      )}
+        );
+      })}
     </div>
   );
 }
