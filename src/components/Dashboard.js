@@ -3,6 +3,7 @@ import { useAdminData, useHousePoints } from '../hooks/useFirestore';
 import { VIRTUES } from '../data/virtueData';
 import { teacherDisplayName, UID_MAP } from '../firebase';
 import StudentReport from './StudentReport';
+import RosterManager from './RosterManager';
 
 export default function Dashboard({ masterStudents }) {
   const { allTeachers, loading, refresh } = useAdminData();
@@ -162,7 +163,7 @@ export default function Dashboard({ masterStudents }) {
 
       {/* View Tabs */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
-        {[{ id: 'summary', label: 'Teacher Usage' }, { id: 'classes', label: 'Class Averages' }, { id: 'students', label: 'Student Overview' }].map(v => (
+        {[{ id: 'summary', label: 'Teacher Usage' }, { id: 'classes', label: 'Class Averages' }, { id: 'students', label: 'Student Overview' }, { id: 'rosters', label: 'Manage Rosters' }].map(v => (
           <button key={v.id} className={`btn ${view === v.id ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setView(v.id)}>{v.label}</button>
         ))}
       </div>
@@ -214,6 +215,10 @@ export default function Dashboard({ masterStudents }) {
             ))}</tbody>
           </table>
         </div>
+      )}
+
+      {view === 'rosters' && (
+        <RosterManager allTeachers={allTeachers} onRefresh={refresh} />
       )}
 
       {reportStudent && <StudentReport studentName={reportStudent} onClose={() => setReportStudent(null)} />}
