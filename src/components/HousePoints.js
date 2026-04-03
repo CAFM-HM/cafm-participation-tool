@@ -14,7 +14,7 @@ const DEMERIT_CATEGORIES = ['Dress Code Violation', 'Tardy to Class', 'Disruptiv
 const STUDENT_DENOMINATIONS = [1, 3, 7, 12];
 
 export default function HousePoints({ uid, isAdmin, masterStudents }) {
-  const { entries, loading, addEntry, deleteEntry } = useHousePoints();
+  const { entries, loading, addEntry, deleteEntry, resetAll } = useHousePoints();
   const [showAdd, setShowAdd] = useState(false);
   const [entryType, setEntryType] = useState('merit'); // 'merit' or 'demerit'
   const [awardTarget, setAwardTarget] = useState('student'); // 'student' or 'house'
@@ -22,6 +22,8 @@ export default function HousePoints({ uid, isAdmin, masterStudents }) {
   const [filterType, setFilterType] = useState('all');
   const [studentSearch, setStudentSearch] = useState('');
   const [confirmDeleteId, setConfirmDeleteId] = useState(null);
+  const [showReset, setShowReset] = useState(false);
+  const [resetting, setResetting] = useState(false);
   const [newEntry, setNewEntry] = useState({
     studentName: '', house: '', points: 1, category: MERIT_CATEGORIES[0], reason: '',
   });
@@ -108,10 +110,48 @@ export default function HousePoints({ uid, isAdmin, masterStudents }) {
     <div>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20, flexWrap: 'wrap', gap: 8 }}>
         <h2 className="section-title">House Points</h2>
-        <button className="btn btn-primary" onClick={() => setShowAdd(!showAdd)}>
-          {showAdd ? 'Cancel' : '+ Log Merit / Demerit'}
-        </button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          {isAdmin && (
+            <button className="btn btn-sm btn-secondary" style={{ color: '#DC2626' }}
+              onClick={() => setShowReset(true)}>Reset All</button>
+          )}
+          <button className="btn btn-primary" onClick={() => setShowAdd(!showAdd)}>
+            {showAdd ? 'Cancel' : '+ Log Merit / Demerit'}
+          </button>
+        </div>
       </div>
+
+      {/* Reset Confirmation */}
+      {showReset && (
+        <div className="modal-overlay" onClick={() => setShowReset(false)}>
+          <div className="modal-content" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3 style={{ color: '#DC2626' }}>Reset All House Points</h3>
+              <button className="modal-close" onClick={() => setShowReset(false)}>&times;</button>
+            </div>
+            <div className="modal-body">
+              <p style={{ marginBottom: 12, fontSize: 14 }}>
+                This will permanently delete <strong>all {entries.length} entries</strong> — every merit, demerit, and house award. All house totals will go to zero.
+              </p>
+              <p style={{ marginBottom: 16, fontSize: 14, color: '#DC2626', fontWeight: 600 }}>
+                This cannot be undone.
+              </p>
+              <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                <button className="btn btn-secondary" onClick={() => setShowReset(false)}>Cancel</button>
+                <button className="btn btn-danger" disabled={resetting}
+                  onClick={async () => {
+                    setResetting(true);
+                    await resetAll();
+                    setResetting(false);
+                    setShowReset(false);
+                  }}>
+                  {resetting ? 'Resetting...' : 'Yes, Reset Everything'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Summary */}
       <div className="stats-grid" style={{ marginBottom: 16 }}>
