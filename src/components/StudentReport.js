@@ -157,20 +157,65 @@ export default function StudentReport({ studentName, onClose }) {
     const content = reportRef.current;
     if (!content) return;
     const w = window.open('', '_blank');
-    w.document.write(`<!DOCTYPE html><html><head><title>Report — ${studentName}</title>
+    w.document.write(`<!DOCTYPE html><html><head><title>Student Report — ${studentName}</title>
       <link href="https://fonts.googleapis.com/css2?family=Libre+Baskerville:wght@400;700&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
-      <style>body{font-family:'DM Sans',sans-serif;color:#1F2937;padding:32px;max-width:800px;margin:0 auto}
-      h1{font-family:'Libre Baskerville',serif;color:#1B3A5C;font-size:22px;margin-bottom:4px}
-      h2{font-family:'Libre Baskerville',serif;color:#1B3A5C;font-size:15px;margin-top:24px;margin-bottom:8px;border-bottom:2px solid #E5E7EB;padding-bottom:4px}
-      table{width:100%;border-collapse:collapse;margin-bottom:16px;font-size:13px}
-      th{text-align:left;padding:6px 8px;background:#F9FAFB;border-bottom:2px solid #E5E7EB;font-size:11px;text-transform:uppercase;color:#6B7280}
-      td{padding:6px 8px;border-bottom:1px solid #F3F4F6}
-      .narrative{background:#FAF8F2;border:1px solid #E5E7EB;border-radius:8px;padding:16px;margin-bottom:12px;font-family:'Libre Baskerville',serif;font-size:13px;line-height:1.8;color:#374151}
-      .narrative-label{font-size:11px;font-weight:600;color:#6B7280;margin-bottom:4px}
-      .empty{color:#9CA3AF;font-style:italic;font-size:13px}
-      @media print{body{padding:16px}}</style></head><body>${content.innerHTML}</body></html>`);
+      <style>
+        body { font-family: 'DM Sans', sans-serif; color: #1F2937; padding: 0; margin: 0; }
+        .letterhead {
+          background: linear-gradient(135deg, #1B3A5C 0%, #0F2440 100%);
+          color: #fff;
+          padding: 24px 40px;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+        }
+        .letterhead img { height: 50px; }
+        .letterhead .school-info { text-align: right; }
+        .letterhead .school-name { font-family: 'Libre Baskerville', serif; font-size: 14px; font-weight: 700; color: #C9A227; }
+        .letterhead .school-detail { font-size: 10px; opacity: 0.7; margin-top: 2px; }
+        .report-body { padding: 24px 40px 40px; max-width: 800px; }
+        h1 { font-family: 'Libre Baskerville', serif; color: #1B3A5C; font-size: 22px; margin: 0 0 2px; }
+        .report-subtitle { font-size: 13px; color: #6B7280; margin-bottom: 20px; }
+        h2 { font-family: 'Libre Baskerville', serif; color: #1B3A5C; font-size: 14px; margin-top: 24px; margin-bottom: 8px; border-bottom: 2px solid #1B3A5C; padding-bottom: 4px; }
+        table { width: 100%; border-collapse: collapse; margin-bottom: 16px; font-size: 12px; }
+        th { text-align: left; padding: 6px 8px; background: #F3F4F6; border-bottom: 2px solid #D1D5DB; font-size: 10px; text-transform: uppercase; color: #6B7280; letter-spacing: 0.5px; }
+        td { padding: 6px 8px; border-bottom: 1px solid #E5E7EB; }
+        .stats-row { display: flex; gap: 12px; margin-bottom: 20px; }
+        .stat-box { flex: 1; background: #F9FAFB; border: 1px solid #E5E7EB; border-radius: 6px; padding: 10px; text-align: center; }
+        .stat-val { font-family: 'Libre Baskerville', serif; font-size: 20px; font-weight: 700; color: #1B3A5C; }
+        .stat-lbl { font-size: 10px; color: #6B7280; text-transform: uppercase; letter-spacing: 0.5px; }
+        .stat-green .stat-val { color: #16A34A; }
+        .stat-red .stat-val { color: #DC2626; }
+        .narrative-block { background: #FAF8F2; border-left: 3px solid #C9A227; padding: 14px 16px; margin-bottom: 10px; font-family: 'Libre Baskerville', serif; font-size: 12px; line-height: 1.9; color: #374151; }
+        .narrative-label { font-family: 'DM Sans', sans-serif; font-size: 10px; font-weight: 600; color: #6B7280; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.5px; }
+        .merit-badge { color: #16A34A; font-weight: 600; }
+        .demerit-badge { color: #DC2626; font-weight: 600; }
+        .footer { margin-top: 32px; padding-top: 12px; border-top: 1px solid #E5E7EB; font-size: 10px; color: #9CA3AF; text-align: center; }
+        @media print {
+          body { padding: 0; }
+          .letterhead { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+          .stat-box { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+          .narrative-block { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+        }
+      </style>
+    </head><body>
+      <div class="letterhead">
+        <img src="https://static.wixstatic.com/media/f61363_bf5fe629d9c14c2380f88ea0a522389f~mv2.png/v1/fill/w_666,h_158,al_c,q_85,usm_0.66_1.00_0.01,enc_avif,quality_auto/Copy%20of%20CSN_CAFM_AltLogo_FULL.png" alt="CAFM Logo" />
+        <div class="school-info">
+          <div class="school-name">Chesterton Academy of the Florida Martyrs</div>
+          <div class="school-detail">A Classical Catholic High School · Pensacola, Florida</div>
+        </div>
+      </div>
+      <div class="report-body">
+        ${content.innerHTML}
+        <div class="footer">
+          Chesterton Academy of the Florida Martyrs · Family Life Center, St. Anne Catholic Church · Pensacola, FL<br/>
+          Report generated ${new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
+        </div>
+      </div>
+    </body></html>`);
     w.document.close();
-    w.print();
+    setTimeout(() => w.print(), 500); // Small delay to let logo load
   };
 
   if (loading) {
