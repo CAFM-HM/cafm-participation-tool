@@ -33,7 +33,11 @@ export const UID_MAP = {
   'xn858oNYT3XOP6afwXh9qnT06cx2': 'trougas@chestertonpensacola.org',
 };
 
+// Custom display names (loaded from Firestore config/teacherNames)
+export const customTeacherNames = {};
+
 export function teacherDisplayName(uid) {
+  if (customTeacherNames[uid]) return customTeacherNames[uid];
   const email = UID_MAP[uid];
   if (email) {
     const name = email.split('@')[0];
@@ -41,3 +45,11 @@ export function teacherDisplayName(uid) {
   }
   return uid.substring(0, 12) + '...';
 }
+
+// Load custom names from Firestore
+import { doc, getDoc } from 'firebase/firestore';
+getDoc(doc(db, 'config', 'teacherNames')).then(snap => {
+  if (snap.exists()) {
+    Object.assign(customTeacherNames, snap.data());
+  }
+}).catch(() => {});
