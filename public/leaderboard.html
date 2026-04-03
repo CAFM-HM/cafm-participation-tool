@@ -18,90 +18,31 @@
       justify-content: center;
       padding: 40px 24px;
     }
-    .header {
-      text-align: center;
-      margin-bottom: 40px;
-    }
+    .header { text-align: center; margin-bottom: 40px; }
     .header .crest { font-size: 48px; margin-bottom: 8px; }
-    .header h1 {
-      font-family: 'Libre Baskerville', serif;
-      font-size: 32px;
-      color: #C9A227;
-      margin-bottom: 4px;
-    }
-    .header .subtitle {
-      font-family: 'Libre Baskerville', serif;
-      font-size: 14px;
-      opacity: 0.7;
-    }
-    .leaderboard {
-      width: 100%;
-      max-width: 700px;
-      display: flex;
-      flex-direction: column;
-      gap: 16px;
-    }
+    .header h1 { font-family: 'Libre Baskerville', serif; font-size: 32px; color: #C9A227; margin-bottom: 4px; }
+    .header .subtitle { font-family: 'Libre Baskerville', serif; font-size: 14px; opacity: 0.7; }
+    .leaderboard { width: 100%; max-width: 700px; display: flex; flex-direction: column; gap: 16px; }
     .house-bar {
-      position: relative;
-      border-radius: 16px;
-      padding: 24px 28px;
-      overflow: hidden;
-      transition: transform 0.3s;
+      position: relative; border-radius: 16px; padding: 24px 28px;
+      overflow: hidden; transition: transform 0.3s;
     }
     .house-bar:hover { transform: scale(1.02); }
     .house-bar .fill {
-      position: absolute;
-      left: 0; top: 0; bottom: 0;
-      border-radius: 16px;
-      opacity: 0.2;
-      transition: width 1.5s ease;
+      position: absolute; left: 0; top: 0; bottom: 0;
+      border-radius: 16px; opacity: 0.2; transition: width 1.5s ease;
     }
-    .house-bar .content {
-      position: relative;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-    }
-    .house-bar .left {
-      display: flex;
-      align-items: center;
-      gap: 16px;
-    }
+    .house-bar .content { position: relative; display: flex; align-items: center; justify-content: space-between; }
+    .house-bar .left { display: flex; align-items: center; gap: 16px; }
     .house-bar .rank {
-      width: 44px; height: 44px;
-      border-radius: 50%;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-family: 'Libre Baskerville', serif;
-      font-size: 20px;
-      font-weight: 700;
-      border: 2px solid rgba(255,255,255,0.3);
+      width: 44px; height: 44px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+      font-family: 'Libre Baskerville', serif; font-size: 20px; font-weight: 700; border: 2px solid rgba(255,255,255,0.3);
     }
-    .house-bar .name {
-      font-family: 'Libre Baskerville', serif;
-      font-size: 24px;
-      font-weight: 700;
-    }
-    .house-bar .points {
-      font-family: 'Libre Baskerville', serif;
-      font-size: 48px;
-      font-weight: 700;
-    }
-    .house-bar .pts-label {
-      font-size: 12px;
-      opacity: 0.7;
-      text-transform: uppercase;
-      letter-spacing: 1px;
-    }
-    .updated {
-      text-align: center;
-      margin-top: 24px;
-      font-size: 12px;
-      opacity: 0.4;
-    }
+    .house-bar .name { font-family: 'Libre Baskerville', serif; font-size: 24px; font-weight: 700; }
+    .house-bar .points { font-family: 'Libre Baskerville', serif; font-size: 48px; font-weight: 700; }
+    .house-bar .pts-label { font-size: 12px; opacity: 0.7; text-transform: uppercase; letter-spacing: 1px; }
+    .updated { text-align: center; margin-top: 24px; font-size: 12px; opacity: 0.4; }
 
-    /* House colors */
     .house-augustine { background: rgba(185, 28, 28, 0.6); }
     .house-augustine .fill { background: #B91C1C; }
     .house-athanasius { background: rgba(21, 128, 61, 0.6); }
@@ -111,7 +52,6 @@
     .house-ambrose { background: rgba(202, 138, 4, 0.6); }
     .house-ambrose .fill { background: #CA8A04; }
 
-    /* First place glow */
     .house-bar.first {
       box-shadow: 0 0 30px rgba(201, 162, 39, 0.3);
       border: 1px solid rgba(201, 162, 39, 0.4);
@@ -139,7 +79,7 @@
 
   <script type="module">
     import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
-    import { getFirestore, collection, getDocs, query, orderBy } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
+    import { getFirestore, collection, getDocs, doc, getDoc } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
 
     const app = initializeApp({
       apiKey: "AIzaSyBhPThGT9VOLFPePOFs2Ky0SWkLgh3BOP0",
@@ -159,48 +99,36 @@
       Ambrose: 'house-ambrose',
     };
 
-    // Check if leaderboard should be frozen (after April 1 of current school year)
-    function isFrozen() {
-      const now = new Date();
-      const month = now.getMonth(); // 0-indexed: 3 = April
-      return month >= 3 && month <= 4; // April and May
-    }
+    let frozenTotals = null;
 
-    let frozen = isFrozen();
-    let frozenData = null;
+    async function checkFreeze() {
+      try {
+        const snap = await getDoc(doc(db, 'config', 'housePoints'));
+        if (snap.exists() && snap.data().frozen) {
+          // Use the frozen totals saved when admin clicked freeze
+          frozenTotals = snap.data().frozenTotals || null;
+          return true;
+        }
+      } catch (e) { /* not frozen */ }
+      return false;
+    }
 
     async function loadAndRender() {
       try {
-        // If frozen and we already loaded once, don't re-fetch
-        if (frozen && frozenData) {
-          renderBoard(frozenData);
+        const isFrozen = await checkFreeze();
+
+        if (isFrozen && frozenTotals) {
+          renderBoard(frozenTotals);
           return;
         }
 
-        const q = query(collection(db, 'housePointEntries'), orderBy('createdAt', 'desc'));
-        const snap = await getDocs(q);
+        const snap = await getDocs(collection(db, 'housePointEntries'));
         const totals = {};
         HOUSES.forEach(h => { totals[h] = 0; });
-
-        if (frozen) {
-          // Only count entries before April 1 of this year
-          const freezeDate = new Date(new Date().getFullYear(), 3, 1);
-          snap.docs.forEach(d => {
-            const e = d.data();
-            if (e.house && e.points) {
-              const entryDate = e.createdAt ? new Date(e.createdAt) : null;
-              if (!entryDate || entryDate < freezeDate) {
-                totals[e.house] += Number(e.points);
-              }
-            }
-          });
-          frozenData = totals;
-        } else {
-          snap.docs.forEach(d => {
-            const e = d.data();
-            if (e.house && e.points) totals[e.house] += Number(e.points);
-          });
-        }
+        snap.docs.forEach(d => {
+          const e = d.data();
+          if (e.house && e.points) totals[e.house] += Number(e.points);
+        });
 
         renderBoard(totals);
       } catch (err) {
@@ -233,16 +161,12 @@
         `;
       }).join('');
 
-      // Don't reveal that it's frozen — just show last updated normally
       document.getElementById('updated').textContent =
         'Last updated: ' + new Date().toLocaleTimeString();
     }
 
     loadAndRender();
-    // Auto-refresh every 30 seconds (only matters when not frozen)
-    if (!frozen) {
-      setInterval(loadAndRender, 30000);
-    }
+    setInterval(loadAndRender, 30000);
   </script>
 </body>
 </html>
