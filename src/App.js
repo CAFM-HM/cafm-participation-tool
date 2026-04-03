@@ -13,6 +13,9 @@ function App() {
   const { students: masterStudents, loading: rosterLoading, addStudent, updateStudent, removeStudent, bulkImport, refresh: refreshRoster } = useMasterRoster();
   const { allTeachers } = useAdminData();
   const [activeTab, setActiveTab] = useState('daily');
+  const [teacherView, setTeacherView] = useState(false);
+
+  const effectiveAdmin = isAdmin && !teacherView;
 
   if (loading || rosterLoading) {
     return (
@@ -46,7 +49,7 @@ function App() {
     { id: 'daily', label: 'Daily Tracker' },
     { id: 'narrative', label: 'Narrative Builder' },
     { id: 'house', label: 'House Points' },
-    ...(isAdmin ? [
+    ...(effectiveAdmin ? [
       { id: 'dashboard', label: 'Dashboard' },
       { id: 'roster', label: 'Master Roster' },
     ] : []),
@@ -62,13 +65,19 @@ function App() {
           </div>
           <div className="header-user">
             <span>{displayName}</span>
-            {isAdmin && <span className="badge badge-green">Admin</span>}
+            {isAdmin && !teacherView && <span className="badge badge-green">Admin</span>}
+            {isAdmin && (
+              <button className="btn btn-sm btn-secondary" style={{ fontSize: 11 }}
+                onClick={() => { setTeacherView(!teacherView); setActiveTab('daily'); }}>
+                {teacherView ? '← Admin View' : '👁 Teacher View'}
+              </button>
+            )}
             <button onClick={logout}>Sign Out</button>
           </div>
         </div>
       </header>
 
-      <AnnouncementBanner isAdmin={isAdmin} />
+      <AnnouncementBanner isAdmin={effectiveAdmin} />
 
       <nav className="tab-nav">
         {tabs.map(tab => (
@@ -86,9 +95,9 @@ function App() {
         <div className="tab-panel">
           {activeTab === 'daily' && <DailyTracker uid={user.uid} masterStudents={masterStudents} />}
           {activeTab === 'narrative' && <NarrativeBuilder uid={user.uid} masterStudents={masterStudents} />}
-          {activeTab === 'house' && <HousePoints uid={user.uid} isAdmin={isAdmin} masterStudents={masterStudents} />}
-          {activeTab === 'dashboard' && isAdmin && <Dashboard masterStudents={masterStudents} />}
-          {activeTab === 'roster' && isAdmin && (
+          {activeTab === 'house' && <HousePoints uid={user.uid} isAdmin={effectiveAdmin} masterStudents={masterStudents} />}
+          {activeTab === 'dashboard' && effectiveAdmin && <Dashboard masterStudents={masterStudents} />}
+          {activeTab === 'roster' && effectiveAdmin && (
             <MasterRoster
               students={masterStudents}
               onAdd={addStudent}
