@@ -135,21 +135,35 @@ export default function DailyTracker({ uid, masterStudents }) {
                 <div style={{ fontSize: 12, fontWeight: 600, color: '#6B7280', marginBottom: 6 }}>
                   ADD STUDENT TO {currentClass?.name?.toUpperCase()}
                 </div>
-                <input type="text" placeholder="Search master roster..." value={studentSearch}
+                <input type="text" placeholder="Filter students..." value={studentSearch}
                   onChange={e => setStudentSearch(e.target.value)} style={{ marginBottom: 8, maxWidth: 300 }} />
-                {studentSearch && availableStudents.length > 0 && (
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
-                    {availableStudents.slice(0, 10).map(ms => (
-                      <button key={ms.id} className="btn btn-sm btn-secondary"
-                        onClick={() => handleAddStudent(ms.name)}>
-                        + {ms.name} <span style={{ fontSize: 10, opacity: 0.6 }}>({ms.house})</span>
-                      </button>
+                {availableStudents.length > 0 ? (
+                  <div style={{
+                    maxHeight: 200, overflowY: 'auto', border: '1px solid #D1D5DB',
+                    borderRadius: 6, background: '#fff',
+                  }}>
+                    {availableStudents.map(ms => (
+                      <div key={ms.id}
+                        onClick={() => handleAddStudent(ms.name)}
+                        style={{
+                          padding: '8px 12px', cursor: 'pointer', fontSize: 13,
+                          borderBottom: '1px solid #F3F4F6',
+                          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                          transition: 'background 0.1s',
+                        }}
+                        onMouseEnter={e => e.currentTarget.style.background = '#EFF6FF'}
+                        onMouseLeave={e => e.currentTarget.style.background = '#fff'}
+                      >
+                        <span style={{ fontWeight: 500 }}>{ms.name}</span>
+                        <span style={{ fontSize: 11, color: '#9CA3AF' }}>{ms.house || 'No house'}</span>
+                      </div>
                     ))}
                   </div>
-                )}
-                {studentSearch && availableStudents.length === 0 && (
-                  <div style={{ fontSize: 12, color: '#9CA3AF', marginBottom: 8 }}>
-                    No matching students found in master roster.
+                ) : (
+                  <div style={{ fontSize: 12, color: '#9CA3AF', padding: 8 }}>
+                    {(masterStudents || []).length === 0
+                      ? 'No students in master roster. Admin can add them in the Master Roster tab.'
+                      : 'All students are already in this class.'}
                   </div>
                 )}
               </div>
