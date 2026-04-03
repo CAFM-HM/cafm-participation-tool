@@ -281,7 +281,15 @@ export function useHousePoints() {
     await load();
   }, [load]);
 
-  return { entries, loading, addEntry, deleteEntry, updateEntry, refresh: load };
+  const resetAll = useCallback(async () => {
+    const snap = await getDocs(collection(db, 'housePointEntries'));
+    for (const d of snap.docs) {
+      await deleteDoc(doc(db, 'housePointEntries', d.id));
+    }
+    await load();
+  }, [load]);
+
+  return { entries, loading, addEntry, deleteEntry, updateEntry, resetAll, refresh: load };
 }
 
 // ============================================================
