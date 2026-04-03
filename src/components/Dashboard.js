@@ -24,7 +24,9 @@ export default function Dashboard({ masterStudents }) {
   }, [houseEntries]);
 
   const stats = useMemo(() => {
-    let totalStudents = 0, totalClasses = 0, totalTeachers = allTeachers.length, belowThree = 0;
+    let totalClasses = 0, totalTeachers = allTeachers.length;
+    const uniqueStudents = new Set();
+    const belowThreeStudents = new Set();
     const teacherSummaries = [], classSummaries = [], studentRows = [];
 
     for (const teacher of allTeachers) {
@@ -33,7 +35,7 @@ export default function Dashboard({ masterStudents }) {
         totalClasses++;
         const classScores = [];
         for (const stu of cls.students || []) {
-          totalStudents++;
+          uniqueStudents.add(stu.name.toLowerCase());
           const allDayScores = [];
           for (const [dateStr, dayScores] of Object.entries(stu.scores || {})) {
             if (dayScores.absent) continue;
@@ -41,7 +43,7 @@ export default function Dashboard({ masterStudents }) {
             if (dayAvg > 0) { allDayScores.push(dayAvg); teacherDays++; if (!lastActive || dateStr > lastActive) lastActive = dateStr; }
           }
           const overallAvg = allDayScores.length > 0 ? allDayScores.reduce((a, b) => a + b, 0) / allDayScores.length : null;
-          if (overallAvg !== null && overallAvg < 3) belowThree++;
+          if (overallAvg !== null && overallAvg < 3) belowThreeStudents.add(stu.name.toLowerCase());
           classScores.push(overallAvg);
           const virtueAvgs = {};
           VIRTUES.forEach(v => {
@@ -75,7 +77,7 @@ export default function Dashboard({ masterStudents }) {
     }
     classSummaries.sort((a, b) => { if (a.avg === '—') return 1; if (b.avg === '—') return -1; return parseFloat(a.avg) - parseFloat(b.avg); });
     studentRows.sort((a, b) => a.name.localeCompare(b.name));
-    return { totalStudents, totalClasses, totalTeachers, belowThree, teacherSummaries, classSummaries, studentRows };
+    return { totalStudents: uniqueStudents.size, totalClasses, totalTeachers, belowThree: belowThreeStudents.size, teacherSummaries, classSummaries, studentRows };
   }, [allTeachers, masterStudents, demeritCounts]);
 
   // Attention Needed: students below 3.0 OR 3+ demerits (deduplicated by name)
