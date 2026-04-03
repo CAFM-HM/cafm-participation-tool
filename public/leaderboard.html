@@ -159,51 +159,90 @@
       Ambrose: 'house-ambrose',
     };
 
+    // Check if leaderboard should be frozen (after April 1 of current school year)
+    function isFrozen() {
+      const now = new Date();
+      const month = now.getMonth(); // 0-indexed: 3 = April
+      return month >= 3 && month <= 4; // April and May
+    }
+
+    let frozen = isFrozen();
+    let frozenData = null;
+
     async function loadAndRender() {
       try {
+        // If frozen and we already loaded once, don't re-fetch
+        if (frozen && frozenData) {
+          renderBoard(frozenData);
+          return;
+        }
+
         const q = query(collection(db, 'housePointEntries'), orderBy('createdAt', 'desc'));
         const snap = await getDocs(q);
         const totals = {};
         HOUSES.forEach(h => { totals[h] = 0; });
-        snap.docs.forEach(d => {
-          const e = d.data();
-          if (e.house && e.points) totals[e.house] += Number(e.points);
-        });
 
-        const sorted = [...HOUSES].sort((a, b) => totals[b] - totals[a]);
-        const max = Math.max(...Object.values(totals), 1);
+        if (frozen) {
+          // Only count entries before April 1 of this year
+          const freezeDate = new Date(new Date().getFullYear(), 3, 1);
+          snap.docs.forEach(d => {
+            const e = d.data();
+            if (e.house && e.points) {
+              const entryDate = e.createdAt ? new Date(e.createdAt) : null;
+              if (!entryDate || entryDate < freezeDate) {
+                totals[e.house] += Number(e.points);
+              }
+            }
+          });
+          frozenData = totals;
+        } else {
+          snap.docs.forEach(d => {
+            const e = d.data();
+            if (e.house && e.points) totals[e.house] += Number(e.points);
+          });
+        }
 
-        const el = document.getElementById('leaderboard');
-        el.innerHTML = sorted.map((house, idx) => {
-          const pts = totals[house];
-          const pct = (pts / max) * 100;
-          return `
-            <div class="house-bar ${CLASSES[house]} ${idx === 0 ? 'first' : ''}">
-              <div class="fill" style="width:${Math.max(pct, 5)}%"></div>
-              <div class="content">
-                <div class="left">
-                  <div class="rank">${idx + 1}</div>
-                  <div class="name">${house}</div>
-                </div>
-                <div style="text-align:right">
-                  <div class="points">${pts}</div>
-                  <div class="pts-label">points</div>
-                </div>
-              </div>
-            </div>
-          `;
-        }).join('');
-
-        document.getElementById('updated').textContent =
-          'Last updated: ' + new Date().toLocaleTimeString();
+        renderBoard(totals);
       } catch (err) {
         console.error(err);
       }
     }
 
+    function renderBoard(totals) {
+      const sorted = [...HOUSES].sort((a, b) => totals[b] - totals[a]);
+      const max = Math.max(...Object.values(totals), 1);
+
+      const el = document.getElementById('leaderboard');
+      el.innerHTML = sorted.map((house, idx) => {
+        const pts = totals[house];
+        const pct = (pts / max) * 100;
+        return `
+          <div class="house-bar ${CLASSES[house]} ${idx === 0 ? 'first' : ''}">
+            <div class="fill" style="width:${Math.max(pct, 5)}%"></div>
+            <div class="content">
+              <div class="left">
+                <div class="rank">${idx + 1}</div>
+                <div class="name">${house}</div>
+              </div>
+              <div style="text-align:right">
+                <div class="points">${pts}</div>
+                <div class="pts-label">points</div>
+              </div>
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      // Don't reveal that it's frozen — just show last updated normally
+      document.getElementById('updated').textContent =
+        'Last updated: ' + new Date().toLocaleTimeString();
+    }
+
     loadAndRender();
-    // Auto-refresh every 30 seconds
-    setInterval(loadAndRender, 30000);
+    // Auto-refresh every 30 seconds (only matters when not frozen)
+    if (!frozen) {
+      setInterval(loadAndRender, 30000);
+    }
   </script>
 </body>
 </html>
