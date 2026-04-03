@@ -21,7 +21,7 @@ export default function DailyTracker({ uid, masterStudents }) {
   const [selectedClass, setSelectedClass] = useState(null);
   const [date, setDate] = useState(TODAY);
   const [showSetup, setShowSetup] = useState(true);
-  const [viewMode, setViewMode] = useState('grid'); // 'grid' or 'card'
+  const [viewMode, setViewMode] = useState('grid');
   const [newClassName, setNewClassName] = useState('');
   const [studentSearch, setStudentSearch] = useState('');
   const [legendVirtue, setLegendVirtue] = useState(null);
@@ -56,20 +56,15 @@ export default function DailyTracker({ uid, masterStudents }) {
     saveDailyScore(selectedClass, studentId, date, 'absent', !isAbsent(stu));
   };
 
-  // Quick Score: click cycles through 1→2→3→4→5→null
-  const cycleScore = (studentId, virtueKey) => {
+  // Set All: give every non-absent student the same score for a virtue
+  const setAllScores = useCallback((virtueKey, score) => {
     if (!selectedClass) return;
-    const stu = students.find(s => s.id === studentId);
-    if (!stu || isAbsent(stu)) return;
-    const current = getScore(stu, virtueKey);
-    const next = current === null ? 3 : current >= 5 ? null : current + 1;
-    if (next === null) {
-      // Can't easily "unset" in Firestore with dot notation, so set to 0 as "unscored"
-      saveDailyScore(selectedClass, studentId, date, virtueKey, 0);
-    } else {
-      saveDailyScore(selectedClass, studentId, date, virtueKey, next);
-    }
-  };
+    students.forEach(stu => {
+      if (!isAbsent(stu)) {
+        saveDailyScore(selectedClass, stu.id, date, virtueKey, score);
+      }
+    });
+  }, [selectedClass, students, date, saveDailyScore]);
 
   const availableStudents = (masterStudents || []).filter(ms =>
     !currentClass?.roster?.includes(ms.name) &&
@@ -178,28 +173,46 @@ export default function DailyTracker({ uid, masterStudents }) {
           <div style={{ marginLeft: 'auto', display: 'flex', gap: 6, alignItems: 'center' }}>
             <span style={{ fontSize: 12, color: '#9CA3AF' }}>{students.length} students</span>
             <button className={`btn btn-sm ${viewMode === 'grid' ? 'btn-primary' : 'btn-secondary'}`}
-              onClick={() => setViewMode('grid')}>Grid</button>
+              onClick={() => setViewMode('grid')}>Quick Score</button>
             <button className={`btn btn-sm ${viewMode === 'card' ? 'btn-primary' : 'btn-secondary'}`}
-              onClick={() => setViewMode('card')}>Cards</button>
+              onClick={() => setViewMode('card')}>Detailed</button>
           </div>
         </div>
       )}
 
       {/* ============================================================ */}
-      {/* GRID VIEW — Quick Score Mode */}
+      {/* GRID VIEW — Quick Score with Set All */}
       {/* ============================================================ */}
       {selectedClass && viewMode === 'grid' && students.length > 0 && (
         <div style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
             <thead>
               <tr>
-                <th style={{ textAlign: 'left', padding: '8px 10px', background: '#F9FAFB', borderBottom: '2px solid #E5E7EB', fontSize: 12, fontWeight: 600, color: '#6B7280', minWidth: 140 }}>Student</th>
+                <th style={{ textAlign: 'left', padding: '8px 10px', background: '#F9FAFB', borderBottom: '2px solid #E5E7EB', fontSize: 12, fontWeight: 600, color: '#6B7280', minWidth: 150 }}>Student</th>
                 <th style={{ padding: '8px 6px', background: '#F9FAFB', borderBottom: '2px solid #E5E7EB', fontSize: 11, fontWeight: 600, color: '#6B7280', width: 36, textAlign: 'center' }}>E</th>
                 {VIRTUES.map(v => (
-                  <th key={v.key} style={{ padding: '8px 6px', background: '#F9FAFB', borderBottom: '2px solid #E5E7EB', fontSize: 11, fontWeight: 600, color: v.color, textAlign: 'center', minWidth: 50 }}>
-                    <span style={{ cursor: 'pointer' }} onClick={() => setLegendVirtue(v.key)}>
-                      {v.label.substring(0, 4)}
-                    </span>
+                  <th key={v.key} style={{ padding: '4px 2px', background: '#F9FAFB', borderBottom: '2px solid #E5E7EB', textAlign: 'center', minWidth: 180 }}>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: v.color, marginBottom: 4, cursor: 'pointer' }}
+                      onClick={() => setLegendVirtue(v.key)}>
+                      {v.label} <span style={{ fontSize: 9, opacity: 0.6 }}>?</span>
+                    </div>
+                    <div style={{ display: 'flex', gap: 2, justifyContent: 'center' }}>
+                      {[1, 2, 3, 4, 5].map(score => (
+                        <button key={score} onClick={() => setAllScores(v.key, score)}
+                          title={`Set all to ${score}`}
+                          style={{
+                            width: 28, height: 22, borderRadius: 4, border: 'none',
+                            background: SCORE_COLORS[score].bg, color: SCORE_COLORS[score].color,
+                            fontSize: 11, fontWeight: 700, cursor: 'pointer',
+                            opacity: 0.7, transition: 'opacity 0.15s',
+                          }}
+                          onMouseEnter={e => e.target.style.opacity = 1}
+                          onMouseLeave={e => e.target.style.opacity = 0.7}
+                        >
+                          {score}
+                        </button>
+                      ))}
+                    </div>
                   </th>
                 ))}
                 <th style={{ padding: '8px 6px', background: '#F9FAFB', borderBottom: '2px solid #E5E7EB', fontSize: 11, fontWeight: 600, color: '#6B7280', textAlign: 'center', width: 44 }}>Avg</th>
@@ -214,38 +227,43 @@ export default function DailyTracker({ uid, masterStudents }) {
                   <tr key={student.id} style={{ opacity: absent ? 0.35 : 1 }}>
                     <td style={{ padding: '6px 10px', borderBottom: '1px solid #F3F4F6', fontWeight: 500, color: '#1B3A5C' }}>
                       {student.name}
-                      {student.house && <span style={{ fontSize: 10, color: '#9CA3AF', marginLeft: 6 }}>{student.house}</span>}
                     </td>
                     <td style={{ padding: '4px', borderBottom: '1px solid #F3F4F6', textAlign: 'center' }}>
-                      <button
-                        onClick={() => toggleAbsent(student.id)}
+                      <button onClick={() => toggleAbsent(student.id)}
                         style={{
                           width: 28, height: 28, borderRadius: 4, border: 'none',
                           background: absent ? '#6B7280' : '#F3F4F6',
                           color: absent ? '#fff' : '#9CA3AF',
                           fontSize: 11, fontWeight: 600, cursor: 'pointer',
-                        }}
-                      >E</button>
+                        }}>E</button>
                     </td>
                     {VIRTUES.map(v => {
                       const score = getScore(student, v.key);
-                      const sc = score && score > 0 ? SCORE_COLORS[score] : null;
                       return (
-                        <td key={v.key} style={{ padding: '4px', borderBottom: '1px solid #F3F4F6', textAlign: 'center' }}>
-                          <button
-                            onClick={() => cycleScore(student.id, v.key)}
-                            disabled={absent}
-                            style={{
-                              width: 36, height: 36, borderRadius: 6,
-                              border: sc ? 'none' : '2px dashed #D1D5DB',
-                              background: sc ? sc.bg : 'transparent',
-                              color: sc ? sc.color : '#D1D5DB',
-                              fontSize: 16, fontWeight: 700, cursor: absent ? 'default' : 'pointer',
-                              transition: 'all 0.1s',
-                            }}
-                          >
-                            {score && score > 0 ? score : '·'}
-                          </button>
+                        <td key={v.key} style={{ padding: '4px 2px', borderBottom: '1px solid #F3F4F6', textAlign: 'center' }}>
+                          <div style={{ display: 'flex', gap: 2, justifyContent: 'center' }}>
+                            {[1, 2, 3, 4, 5].map(s => {
+                              const active = score === s;
+                              const sc = SCORE_COLORS[s];
+                              return (
+                                <button key={s}
+                                  onClick={() => !absent && saveDailyScore(selectedClass, student.id, date, v.key, s)}
+                                  disabled={absent}
+                                  style={{
+                                    width: 28, height: 28, borderRadius: 4,
+                                    border: active ? `2px solid ${sc.color}` : '1px solid #E5E7EB',
+                                    background: active ? sc.bg : '#fff',
+                                    color: active ? sc.color : '#D1D5DB',
+                                    fontSize: 13, fontWeight: active ? 700 : 400,
+                                    cursor: absent ? 'default' : 'pointer',
+                                    transition: 'all 0.1s',
+                                  }}
+                                >
+                                  {s}
+                                </button>
+                              );
+                            })}
+                          </div>
                         </td>
                       );
                     })}
@@ -262,13 +280,13 @@ export default function DailyTracker({ uid, masterStudents }) {
             </tbody>
           </table>
           <div style={{ fontSize: 11, color: '#9CA3AF', marginTop: 8, fontStyle: 'italic' }}>
-            Click a cell to score. Click again to increase (1→2→3→4→5). Click column headers for rubric.
+            Use the small buttons under each virtue header to set the whole class at once, then adjust individual students.
           </div>
         </div>
       )}
 
       {/* ============================================================ */}
-      {/* CARD VIEW — Original Layout */}
+      {/* CARD VIEW — Detailed Layout */}
       {/* ============================================================ */}
       {selectedClass && viewMode === 'card' && students.length > 0 && (
         <>
