@@ -508,3 +508,39 @@ export function buildNarrative(student, teacherName, className, quarter) {
 
   return [opening, ...virtueParts, ...bridges, closing].filter(Boolean).join(' ');
 }
+
+// Auto-generate a narrative from scores — no manual selection needed
+export function autoGenerateNarrative(name, className, pronoun, scores) {
+  const pr = pronoun || 'he';
+  const displayName = name || '[Student]';
+  const displayClass = className || '[Class]';
+
+  // Calculate overall score
+  const vals = VIRTUES.map(v => scores[v.key]).filter(s => s !== null && s !== undefined && s > 0);
+  if (vals.length < 4) return null;
+  const overall = Math.round(vals.reduce((a, b) => a + b, 0) / vals.length);
+  if (!overall) return null;
+
+  // Pick opening (first option, using mixed if needed)
+  const openings = getOpenings(overall, scores);
+  const opening = (openings[0] || '')
+    .replace('[S]', displayName)
+    .replace('[C]', displayClass);
+
+  // Pick first sentence option for each virtue
+  const virtueParts = VIRTUES.map(v => {
+    const score = scores[v.key];
+    if (!score || score <= 0) return '';
+    const sentences = VIRTUE_SENTENCES[v.key]?.[score]?.[pr];
+    return sentences?.[0] || '';
+  });
+
+  // Bridging sentences
+  const bridges = getBridgingSentences(scores, pr);
+
+  // Pick first closing option
+  const closingOptions = [...(CLOSINGS[overall]?.[pr] || []), ...(CLOSINGS[overall]?.n || [])];
+  const closing = closingOptions[0] || '';
+
+  return [opening, ...virtueParts, ...bridges, closing].filter(Boolean).join(' ');
+}
