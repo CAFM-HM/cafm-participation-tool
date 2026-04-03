@@ -1,4 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { db } from '../firebase';
 import { useHousePoints } from '../hooks/useFirestore';
 import { HOUSES } from '../data/virtueData';
 
@@ -24,6 +26,33 @@ export default function HousePoints({ uid, isAdmin, masterStudents }) {
   const [confirmDeleteId, setConfirmDeleteId] = useState(null);
   const [showReset, setShowReset] = useState(false);
   const [resetting, setResetting] = useState(false);
+  const [isFrozen, setIsFrozen] = useState(false);
+  const [freezing, setFreezing] = useState(false);
+
+  // Check freeze status on load
+  useEffect(() => {
+    getDoc(doc(db, 'config', 'housePoints')).then(snap => {
+      if (snap.exists() && snap.data().frozen) setIsFrozen(true);
+    }).catch(() => {});
+  }, []);
+
+  // Toggle freeze
+  const toggleFreeze = useCallback(async () => {
+    setFreezing(true);
+    if (isFrozen) {
+      // Unfreeze
+      await setDoc(doc(db, 'config', 'housePoints'), { frozen: false, frozenTotals: null });
+      setIsFrozen(false);
+    } else {
+      // Freeze — save current totals
+      const currentTotals = {};
+      HOUSES.forEach(h => { currentTotals[h] = 0; });
+      entries.forEach(e => { if (e.house && e.points) currentTotals[e.house] += Number(e.points); });
+      await setDoc(doc(db, 'config', 'housePoints'), { frozen: true, frozenTotals: currentTotals, frozenAt: new Date().toISOString() });
+      setIsFrozen(true);
+    }
+    setFreezing(false);
+  }, [isFrozen, entries]);
   const [newEntry, setNewEntry] = useState({
     studentName: '', house: '', points: 1, category: MERIT_CATEGORIES[0], reason: '',
   });
@@ -109,8 +138,17 @@ export default function HousePoints({ uid, isAdmin, masterStudents }) {
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20, flexWrap: 'wrap', gap: 8 }}>
-        <h2 className="section-title">House Points</h2>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <h2 className="section-title">House Points</h2>
+          {isFrozen && <span className="badge" style={{ background: '#EFF6FF', color: '#0284C7' }}>Public Board Frozen</span>}
+        </div>
         <div style={{ display: 'flex', gap: 8 }}>
+          {isAdmin && (
+            <button className="btn btn-sm btn-secondary" disabled={freezing}
+              onClick={toggleFreeze}>
+              {freezing ? '...' : isFrozen ? '👁 Unfreeze Board' : '❄️ Freeze Board'}
+            </button>
+          )}
           {isAdmin && (
             <button className="btn btn-sm btn-secondary" style={{ color: '#DC2626' }}
               onClick={() => setShowReset(true)}>Reset All</button>
