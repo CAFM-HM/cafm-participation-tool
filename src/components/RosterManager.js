@@ -1,11 +1,50 @@
 import React, { useState, useCallback } from 'react';
-import { doc, getDoc, updateDoc } from 'firebase/firestore';
-import { db, teacherDisplayName } from '../firebase';
+import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
+import { db, teacherDisplayName, UID_MAP } from '../firebase';
 
 export default function RosterManager({ allTeachers, onRefresh }) {
-  const [editingStudent, setEditingStudent] = useState(null); // { teacherUid, classId, oldName, newName }
+  const [editingStudent, setEditingStudent] = useState(null);
+  const [editingClass, setEditingClass] = useState(null); // { teacherUid, classId, newName }
+  const [editingTeacher, setEditingTeacher] = useState(null); // { uid, newName }
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
+
+  // Rename class
+  const handleRenameClass = useCallback(async () => {
+    if (!editingClass || !editingClass.newName.trim()) return;
+    setSaving(true);
+    setMessage('');
+    try {
+      const ref = doc(db, 'teachers', editingClass.teacherUid, 'classes', editingClass.classId);
+      await updateDoc(ref, { cls: editingClass.newName.trim() });
+      setMessage(`Class renamed to "${editingClass.newName.trim()}".`);
+      setEditingClass(null);
+      if (onRefresh) onRefresh();
+    } catch (err) {
+      setMessage('Error: ' + err.message);
+    }
+    setSaving(false);
+  }, [editingClass, onRefresh]);
+
+  // Rename teacher display name (stored in config/teacherNames)
+  const handleRenameTeacher = useCallback(async () => {
+    if (!editingTeacher || !editingTeacher.newName.trim()) return;
+    setSaving(true);
+    setMessage('');
+    try {
+      const ref = doc(db, 'config', 'teacherNames');
+      const snap = await getDoc(ref);
+      const names = snap.exists() ? snap.data() : {};
+      names[editingTeacher.uid] = editingTeacher.newName.trim();
+      await setDoc(ref, names);
+      setMessage(`Teacher display name updated to "${editingTeacher.newName.trim()}".`);
+      setEditingTeacher(null);
+      if (onRefresh) onRefresh();
+    } catch (err) {
+      setMessage('Error: ' + err.message);
+    }
+    setSaving(false);
+  }, [editingTeacher, onRefresh]);
 
   const handleRename = useCallback(async () => {
     if (!editingStudent || !editingStudent.newName.trim()) return;
@@ -87,17 +126,45 @@ export default function RosterManager({ allTeachers, onRefresh }) {
 
       {allTeachers.map(teacher => (
         <div key={teacher.uid} style={{ marginBottom: 20 }}>
-          <h3 style={{ fontFamily: 'var(--font-display)', fontSize: 14, color: '#1B3A5C', marginBottom: 8 }}>
-            {teacherDisplayName(teacher.uid)}
-          </h3>
+          {editingTeacher?.uid === teacher.uid ? (
+            <div style={{ display: 'flex', gap: 4, alignItems: 'center', marginBottom: 8 }}>
+              <input type="text" value={editingTeacher.newName}
+                onChange={e => setEditingTeacher({ ...editingTeacher, newName: e.target.value })}
+                onKeyDown={e => e.key === 'Enter' && handleRenameTeacher()}
+                style={{ width: 200, fontSize: 14, padding: '4px 8px', fontFamily: 'var(--font-display)', fontWeight: 700 }}
+                autoFocus />
+              <button className="btn btn-sm btn-primary" onClick={handleRenameTeacher} disabled={saving}>{saving ? '...' : 'Save'}</button>
+              <button className="btn btn-sm btn-secondary" onClick={() => setEditingTeacher(null)}>Cancel</button>
+            </div>
+          ) : (
+            <h3 style={{ fontFamily: 'var(--font-display)', fontSize: 14, color: '#1B3A5C', marginBottom: 8, cursor: 'pointer' }}
+              onClick={() => setEditingTeacher({ uid: teacher.uid, newName: teacherDisplayName(teacher.uid) })}
+              title="Click to rename">
+              {teacherDisplayName(teacher.uid)} <span style={{ fontSize: 11, color: '#9CA3AF', fontWeight: 400 }}>✎</span>
+            </h3>
+          )}
           {(teacher.classes || []).length === 0 ? (
             <div style={{ fontSize: 13, color: '#9CA3AF', marginLeft: 12 }}>No classes</div>
           ) : (
             teacher.classes.map(cls => (
               <div key={cls.id} style={{ marginLeft: 12, marginBottom: 12 }}>
-                <div style={{ fontSize: 13, fontWeight: 600, color: '#6B7280', marginBottom: 4 }}>
-                  {cls.name} ({cls.students?.length || 0} students)
-                </div>
+                {editingClass?.classId === cls.id && editingClass?.teacherUid === teacher.uid ? (
+                  <div style={{ display: 'flex', gap: 4, alignItems: 'center', marginBottom: 4 }}>
+                    <input type="text" value={editingClass.newName}
+                      onChange={e => setEditingClass({ ...editingClass, newName: e.target.value })}
+                      onKeyDown={e => e.key === 'Enter' && handleRenameClass()}
+                      style={{ width: 200, fontSize: 13, padding: '4px 8px' }}
+                      autoFocus />
+                    <button className="btn btn-sm btn-primary" onClick={handleRenameClass} disabled={saving}>{saving ? '...' : 'Save'}</button>
+                    <button className="btn btn-sm btn-secondary" onClick={() => setEditingClass(null)}>Cancel</button>
+                  </div>
+                ) : (
+                  <div style={{ fontSize: 13, fontWeight: 600, color: '#6B7280', marginBottom: 4, cursor: 'pointer' }}
+                    onClick={() => setEditingClass({ teacherUid: teacher.uid, classId: cls.id, newName: cls.name })}
+                    title="Click to rename class">
+                    {cls.name} ({cls.students?.length || 0} students) <span style={{ fontSize: 11, color: '#9CA3AF' }}>✎</span>
+                  </div>
+                )}
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                   {(cls.students || []).map(stu => {
                     const isEditing = editingStudent?.teacherUid === teacher.uid
