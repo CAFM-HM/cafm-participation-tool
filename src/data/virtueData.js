@@ -396,17 +396,40 @@ export const MIXED_OPENINGS = {
 
 // Determine if scores are mixed (range of 3+)
 export function isMixedPerformance(scores) {
-  const vals = Object.values(scores).filter(v => v !== null && v !== undefined);
+  const vals = Object.values(scores).filter(v => v !== null && v !== undefined && v > 0);
   if (vals.length < 2) return false;
   return Math.max(...vals) - Math.min(...vals) >= 3;
 }
 
+// Adjust overall score for opening sentence selection
+// Rule: if any virtue is 3 or below, cap at level 3 (even if average rounds to 4)
+// Rule: if any virtue is 2 or below, cap at level 2
+// Rule: only use level 5 opening if ALL scores are 5
+export function getAdjustedScore(overallScore, scores) {
+  const vals = Object.values(scores).filter(v => v !== null && v !== undefined && v > 0);
+  if (vals.length === 0) return overallScore;
+  const min = Math.min(...vals);
+  const max = Math.max(...vals);
+
+  // All 5s = level 5
+  if (min === 5) return 5;
+  // Any 1 = cap at 1
+  if (min <= 1) return Math.min(overallScore, 1);
+  // Any 2 = cap at 2
+  if (min <= 2) return Math.min(overallScore, 2);
+  // Any 3 with average of 4+ = cap at 3
+  if (min <= 3 && overallScore >= 4) return 3;
+  // Range of 2+ with high average = use mixed openings (handled separately)
+  return overallScore;
+}
+
 // Get the right openings based on score consistency
 export function getOpenings(overallScore, scores) {
+  const adjusted = getAdjustedScore(overallScore, scores);
   if (isMixedPerformance(scores)) {
-    return MIXED_OPENINGS[overallScore] || OPENINGS[overallScore] || [];
+    return MIXED_OPENINGS[adjusted] || OPENINGS[adjusted] || [];
   }
-  return OPENINGS[overallScore] || [];
+  return OPENINGS[adjusted] || [];
 }
 
 export const CLOSINGS = {
@@ -522,6 +545,7 @@ export function autoGenerateNarrative(name, className, pronoun, scores) {
   if (!overall) return null;
 
   // Pick opening (first option, using mixed if needed)
+  const adjusted = getAdjustedScore(overall, scores);
   const openings = getOpenings(overall, scores);
   const opening = (openings[0] || '')
     .replace('[S]', displayName)
@@ -538,8 +562,8 @@ export function autoGenerateNarrative(name, className, pronoun, scores) {
   // Bridging sentences
   const bridges = getBridgingSentences(scores, pr);
 
-  // Pick first closing option
-  const closingOptions = [...(CLOSINGS[overall]?.[pr] || []), ...(CLOSINGS[overall]?.n || [])];
+  // Pick first closing option — use adjusted score
+  const closingOptions = [...(CLOSINGS[adjusted]?.[pr] || []), ...(CLOSINGS[adjusted]?.n || [])];
   const closing = closingOptions[0] || '';
 
   return [opening, ...virtueParts, ...bridges, closing].filter(Boolean).join(' ');
