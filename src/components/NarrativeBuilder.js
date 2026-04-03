@@ -2,7 +2,7 @@ import React, { useState, useCallback, useMemo } from 'react';
 import { useTeacherData, useNarrativeData } from '../hooks/useFirestore';
 import {
   VIRTUES, VIRTUE_SENTENCES, OPENINGS, CLOSINGS,
-  getBridgingSentences, getOpenings
+  getBridgingSentences, getOpenings, autoGenerateNarrative
 } from '../data/virtueData';
 
 export default function NarrativeBuilder({ uid, masterStudents }) {
@@ -133,20 +133,34 @@ export default function NarrativeBuilder({ uid, masterStudents }) {
     return [opening, ...virtueParts, ...bridges, closing].filter(Boolean).join(' ');
   };
 
+  // Get best narrative: manual if complete, auto-generated as fallback
+  const getNarrative = (student) => {
+    const manual = buildNarrative(student);
+    if (manual) return { text: manual, type: 'manual' };
+    const auto = autoGenerateNarrative(student.name, config.className, student.pronoun, student.scores);
+    if (auto) return { text: auto, type: 'auto' };
+    return null;
+  };
+
   const completedCount = students.filter(s => buildNarrative(s)).length;
+  const autoCount = students.filter(s => !buildNarrative(s) && autoGenerateNarrative(s.name, config.className, s.pronoun, s.scores)).length;
+  const totalWithNarrative = completedCount + autoCount;
 
   const copyAllNarratives = () => {
     const texts = students
       .map(s => {
-        const n = buildNarrative(s);
-        return n ? `${s.name}\n${n}${s.comment ? ' ' + s.comment : ''}` : null;
+        const n = getNarrative(s);
+        if (!n) return null;
+        const comment = s.comment ? ' ' + s.comment : '';
+        const label = n.type === 'auto' ? ' [Auto-generated]' : '';
+        return `${s.name}${label}\n${n.text}${comment}`;
       })
       .filter(Boolean)
       .join('\n\n---\n\n');
 
     if (texts) {
       navigator.clipboard.writeText(texts).then(() => {
-        alert(`Copied ${completedCount} narrative(s) to clipboard!`);
+        alert(`Copied ${totalWithNarrative} narrative(s) to clipboard!`);
       });
     }
   };
@@ -220,14 +234,16 @@ export default function NarrativeBuilder({ uid, masterStudents }) {
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
         marginBottom: 16, flexWrap: 'wrap', gap: 8
       }}>
-        <span style={{ fontSize: 13, color: '#6B7280' }}>
-          {completedCount}/{students.length} narratives complete
-        </span>
-        {completedCount > 0 && (
-          <button className="btn btn-gold" onClick={copyAllNarratives}>
-            📋 Copy All Narratives
-          </button>
-        )}
+        <div style={{ fontSize: 13, color: '#6B7280' }}>
+          {completedCount} customized{autoCount > 0 && <span> · {autoCount} auto-generated</span>} · {students.length - totalWithNarrative} pending
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          {totalWithNarrative > 0 && (
+            <button className="btn btn-gold" onClick={copyAllNarratives}>
+              📋 Copy All ({totalWithNarrative})
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Students */}
@@ -242,6 +258,7 @@ export default function NarrativeBuilder({ uid, masterStudents }) {
         const overall = getOverallScore(student);
         const progress = getProgress(student);
         const narrative = buildNarrative(student);
+        const narrativeInfo = getNarrative(student);
 
         return (
           <div key={student.id} className="narrative-student">
@@ -267,7 +284,8 @@ export default function NarrativeBuilder({ uid, masterStudents }) {
                     {v.label.substring(0, 1)}:{student.scores?.[v.key] ?? '—'}
                   </span>
                 ))}
-                {narrative && <span style={{ color: '#16A34A', fontSize: 12 }}>✓</span>}
+                {narrative && <span style={{ color: '#16A34A', fontSize: 12 }}>✓ Customized</span>}
+                {!narrative && narrativeInfo?.type === 'auto' && <span style={{ color: '#0284C7', fontSize: 12 }}>⚡ Auto</span>}
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <div className="progress-bar" style={{ width: 60 }}>
@@ -432,21 +450,28 @@ export default function NarrativeBuilder({ uid, masterStudents }) {
                   />
                 </div>
 
-                {/* Preview */}
-                {narrative && (
+                {/* Preview — manual or auto-generated */}
+                {narrativeInfo && (
                   <div>
                     <div style={{ fontSize: 12, fontWeight: 600, color: '#6B7280', marginBottom: 8 }}>
-                      NARRATIVE PREVIEW
+                      {narrativeInfo.type === 'manual' ? 'NARRATIVE PREVIEW' : 'AUTO-GENERATED NARRATIVE'}
+                      {narrativeInfo.type === 'auto' && (
+                        <span style={{ fontWeight: 400, fontStyle: 'italic', marginLeft: 8, color: '#0284C7' }}>
+                          Customize by selecting sentences above
+                        </span>
+                      )}
                     </div>
-                    <div className="narrative-preview">
-                      {narrative}
+                    <div className="narrative-preview" style={{
+                      borderLeft: narrativeInfo.type === 'auto' ? '3px solid #0284C7' : undefined,
+                    }}>
+                      {narrativeInfo.text}
                       {student.comment && <span> {student.comment}</span>}
                     </div>
                     <button
                       className="btn btn-secondary btn-sm"
                       style={{ marginTop: 8 }}
                       onClick={() => {
-                        const text = narrative + (student.comment ? ' ' + student.comment : '');
+                        const text = narrativeInfo.text + (student.comment ? ' ' + student.comment : '');
                         navigator.clipboard.writeText(text);
                       }}
                     >
