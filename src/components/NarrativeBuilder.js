@@ -1,4 +1,6 @@
 import React, { useState, useCallback, useMemo } from 'react';
+import { collection, getDocs } from 'firebase/firestore';
+import { db } from '../firebase';
 import { useTeacherData, useNarrativeData } from '../hooks/useFirestore';
 import {
   VIRTUES, VIRTUE_SENTENCES, OPENINGS, CLOSINGS,
@@ -467,16 +469,98 @@ export default function NarrativeBuilder({ uid, masterStudents }) {
                       {narrativeInfo.text}
                       {student.comment && <span> {student.comment}</span>}
                     </div>
-                    <button
-                      className="btn btn-secondary btn-sm"
-                      style={{ marginTop: 8 }}
-                      onClick={() => {
-                        const text = narrativeInfo.text + (student.comment ? ' ' + student.comment : '');
-                        navigator.clipboard.writeText(text);
-                      }}
-                    >
-                      📋 Copy This Narrative
-                    </button>
+                    <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                      <button
+                        className="btn btn-secondary btn-sm"
+                        onClick={() => {
+                          const text = narrativeInfo.text + (student.comment ? ' ' + student.comment : '');
+                          navigator.clipboard.writeText(text);
+                        }}
+                      >
+                        📋 Copy
+                      </button>
+                      <button
+                        className="btn btn-gold btn-sm"
+                        onClick={async () => {
+                          // Fetch merits/demerits for this student
+                          let hpRows = '';
+                          try {
+                            const snap = await getDocs(collection(db, 'housePointEntries'));
+                            const entries = snap.docs.map(d => d.data())
+                              .filter(e => e.studentName?.toLowerCase() === student.name.toLowerCase())
+                              .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+                            if (entries.length > 0) {
+                              const merits = entries.filter(e => e.type === 'merit' || (!e.type && e.points > 0));
+                              const demerits = entries.filter(e => e.type === 'demerit' || (!e.type && e.points < 0));
+                              const totalHP = entries.reduce((s, e) => s + (e.points || 0), 0);
+                              hpRows = `
+                                <h2>House Points (${totalHP})</h2>
+                                <div style="display:flex;gap:12px;margin-bottom:12px;">
+                                  <div style="flex:1;background:#F0FDF4;border:1px solid #BBF7D0;border-radius:6px;padding:8px;text-align:center;">
+                                    <div style="font-size:20px;font-weight:700;color:#16A34A">${merits.length}</div>
+                                    <div style="font-size:10px;color:#6B7280">Merits</div>
+                                  </div>
+                                  <div style="flex:1;background:${demerits.length > 0 ? '#FEF2F2' : '#F9FAFB'};border:1px solid ${demerits.length > 0 ? '#FECACA' : '#E5E7EB'};border-radius:6px;padding:8px;text-align:center;">
+                                    <div style="font-size:20px;font-weight:700;color:${demerits.length > 0 ? '#DC2626' : '#6B7280'}">${demerits.length}</div>
+                                    <div style="font-size:10px;color:#6B7280">Demerits</div>
+                                  </div>
+                                </div>
+                                ${entries.length > 0 ? `<table><thead><tr><th>Date</th><th>Type</th><th>Category</th><th>Points</th><th>Reason</th></tr></thead><tbody>${entries.map(e => {
+                                  const isMerit = e.type === 'merit' || (!e.type && e.points > 0);
+                                  return `<tr><td>${e.createdAt ? new Date(e.createdAt).toLocaleDateString() : '—'}</td><td style="color:${isMerit ? '#16A34A' : '#DC2626'};font-weight:600">${isMerit ? 'Merit' : 'Demerit'}</td><td>${e.category || '—'}</td><td style="font-weight:600;color:${isMerit ? '#16A34A' : '#DC2626'}">${e.points > 0 ? '+' : ''}${e.points}</td><td>${e.reason || ''}</td></tr>`;
+                                }).join('')}</tbody></table>` : ''}
+                              `;
+                            }
+                          } catch (err) { /* no house points */ }
+
+                          const narrativeText = narrativeInfo.text + (student.comment ? ' ' + student.comment : '');
+                          const master = (masterStudents || []).find(ms => ms.name.toLowerCase() === student.name.toLowerCase());
+                          const w = window.open('', '_blank');
+                          w.document.write(`<!DOCTYPE html><html><head><title>Narrative — ${student.name}</title>
+                            <link href="https://fonts.googleapis.com/css2?family=Libre+Baskerville:wght@400;700&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+                            <style>
+                              body{font-family:'DM Sans',sans-serif;color:#1F2937;padding:0;margin:0}
+                              .letterhead{background:linear-gradient(135deg,#1B3A5C 0%,#0F2440 100%);color:#fff;padding:24px 40px;display:flex;align-items:center;justify-content:space-between}
+                              .letterhead img{height:50px}
+                              .letterhead .school-info{text-align:right}
+                              .letterhead .school-name{font-family:'Libre Baskerville',serif;font-size:14px;font-weight:700;color:#C9A227}
+                              .letterhead .school-detail{font-size:10px;opacity:0.7;margin-top:2px}
+                              .body{padding:24px 40px 40px;max-width:800px}
+                              h1{font-family:'Libre Baskerville',serif;color:#1B3A5C;font-size:22px;margin:0 0 2px}
+                              h2{font-family:'Libre Baskerville',serif;color:#1B3A5C;font-size:14px;margin-top:24px;margin-bottom:8px;border-bottom:2px solid #1B3A5C;padding-bottom:4px}
+                              .subtitle{font-size:13px;color:#6B7280;margin-bottom:20px}
+                              .narrative{background:#FAF8F2;border-left:3px solid #C9A227;padding:16px;margin-bottom:16px;font-family:'Libre Baskerville',serif;font-size:13px;line-height:1.9;color:#374151}
+                              table{width:100%;border-collapse:collapse;margin-bottom:16px;font-size:12px}
+                              th{text-align:left;padding:6px 8px;background:#F3F4F6;border-bottom:2px solid #D1D5DB;font-size:10px;text-transform:uppercase;color:#6B7280}
+                              td{padding:6px 8px;border-bottom:1px solid #E5E7EB}
+                              .footer{margin-top:32px;padding-top:12px;border-top:1px solid #E5E7EB;font-size:10px;color:#9CA3AF;text-align:center}
+                              @media print{.letterhead{-webkit-print-color-adjust:exact;print-color-adjust:exact}.narrative{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
+                            </style></head><body>
+                            <div class="letterhead">
+                              <img src="https://static.wixstatic.com/media/f61363_bf5fe629d9c14c2380f88ea0a522389f~mv2.png/v1/fill/w_666,h_158,al_c,q_85,usm_0.66_1.00_0.01,enc_avif,quality_auto/Copy%20of%20CSN_CAFM_AltLogo_FULL.png" alt="CAFM" />
+                              <div class="school-info">
+                                <div class="school-name">Chesterton Academy of the Florida Martyrs</div>
+                                <div class="school-detail">A Classical Catholic High School · Pensacola, Florida</div>
+                              </div>
+                            </div>
+                            <div class="body">
+                              <h1>${student.name}</h1>
+                              <div class="subtitle">${config.className || 'Class'} · Participation Narrative · ${new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</div>
+                              <h2>Participation Narrative</h2>
+                              <div class="narrative">${narrativeText}</div>
+                              <h2>Scores</h2>
+                              <table><thead><tr>${VIRTUES.map(v => `<th style="color:${v.color}">${v.label}</th>`).join('')}<th>Average</th><th>Grade</th></tr></thead>
+                              <tbody><tr>${VIRTUES.map(v => `<td style="font-weight:600">${student.scores[v.key] || '—'}</td>`).join('')}<td style="font-weight:600">${student.scores ? (VIRTUES.reduce((s,v) => s + (student.scores[v.key]||0), 0) / VIRTUES.length).toFixed(1) : '—'}</td><td>${student.scores ? Math.round((VIRTUES.reduce((s,v) => s + (student.scores[v.key]||0), 0) / VIRTUES.length / 5) * 100) + '%' : '—'}</td></tr></tbody></table>
+                              ${hpRows}
+                              <div class="footer">Chesterton Academy of the Florida Martyrs · Family Life Center, St. Anne Catholic Church · Pensacola, FL<br/>Report generated ${new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</div>
+                            </div></body></html>`);
+                          w.document.close();
+                          setTimeout(() => w.print(), 500);
+                        }}
+                      >
+                        🖨 Print / PDF
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>
