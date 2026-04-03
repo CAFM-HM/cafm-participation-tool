@@ -4,6 +4,9 @@ import { HOUSES } from '../data/virtueData';
 export default function MasterRoster({ students, onAdd, onUpdate, onRemove, onBulkImport, onRefresh, allTeachers }) {
   const [showAdd, setShowAdd] = useState(false);
   const [showImport, setShowImport] = useState(false);
+  const [showCsvUpload, setShowCsvUpload] = useState(false);
+  const [csvPreview, setCsvPreview] = useState([]);
+  const [csvUploading, setCsvUploading] = useState(false);
   const [editId, setEditId] = useState(null);
   const [newStudent, setNewStudent] = useState({ name: '', house: 'Augustine', gender: 'he', parentEmail: '', studentEmail: '' });
   const [search, setSearch] = useState('');
@@ -25,6 +28,103 @@ export default function MasterRoster({ students, onAdd, onUpdate, onRemove, onBu
     if (window.confirm(`Remove ${name} from the master roster? This cannot be undone.`)) {
       await onRemove(id);
     }
+  };
+
+  // CSV Upload
+  const handleCsvFile = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const text = ev.target.result;
+      const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+      if (lines.length < 2) { alert('CSV appears empty or has no data rows.'); return; }
+
+      // Parse header
+      const header = lines[0].toLowerCase().split(',').map(h => h.trim().replace(/"/g, ''));
+      const nameIdx = header.findIndex(h => h === 'name' || h === 'student' || h === 'student name' || h === 'full name');
+      const houseIdx = header.findIndex(h => h === 'house');
+      const genderIdx = header.findIndex(h => h === 'gender' || h === 'boy/girl' || h === 'sex');
+      const parentEmailIdx = header.findIndex(h => h.includes('parent') && h.includes('email'));
+      const studentEmailIdx = header.findIndex(h => h.includes('student') && h.includes('email'));
+
+      if (nameIdx === -1) {
+        alert('Could not find a "Name" column in the CSV. Make sure the first row has column headers including "Name".');
+        return;
+      }
+
+      const rows = [];
+      for (let i = 1; i < lines.length; i++) {
+        // Simple CSV parse (handles quoted fields with commas)
+        const cells = [];
+        let current = '';
+        let inQuotes = false;
+        for (const ch of lines[i]) {
+          if (ch === '"') { inQuotes = !inQuotes; continue; }
+          if (ch === ',' && !inQuotes) { cells.push(current.trim()); current = ''; continue; }
+          current += ch;
+        }
+        cells.push(current.trim());
+
+        const name = cells[nameIdx] || '';
+        if (!name) continue;
+
+        // Check if already in master roster
+        const exists = students.some(s => s.name.toLowerCase() === name.toLowerCase());
+
+        let house = houseIdx >= 0 ? cells[houseIdx] || '' : '';
+        // Normalize house name
+        if (house) {
+          const match = HOUSES.find(h => h.toLowerCase() === house.toLowerCase());
+          house = match || '';
+        }
+
+        let gender = genderIdx >= 0 ? (cells[genderIdx] || '').toLowerCase() : 'he';
+        if (gender === 'girl' || gender === 'f' || gender === 'female' || gender === 'she') gender = 'she';
+        else gender = 'he';
+
+        rows.push({
+          name,
+          house,
+          gender,
+          parentEmail: parentEmailIdx >= 0 ? cells[parentEmailIdx] || '' : '',
+          studentEmail: studentEmailIdx >= 0 ? cells[studentEmailIdx] || '' : '',
+          exists,
+        });
+      }
+
+      setCsvPreview(rows);
+      setShowCsvUpload(true);
+    };
+    reader.readAsText(file);
+    e.target.value = ''; // Reset file input
+  };
+
+  const handleCsvImport = async () => {
+    setCsvUploading(true);
+    const toImport = csvPreview.filter(r => !r.exists);
+    for (const row of toImport) {
+      await onAdd({
+        name: row.name,
+        house: row.house,
+        gender: row.gender,
+        parentEmail: row.parentEmail,
+        studentEmail: row.studentEmail,
+      });
+    }
+    setCsvUploading(false);
+    setCsvPreview([]);
+    setShowCsvUpload(false);
+    onRefresh();
+  };
+
+  const downloadTemplate = () => {
+    const csv = 'Name,House,Gender,Parent Email,Student Email\nJohn Smith,Augustine,Boy,parent@email.com,student@email.com\nJane Doe,Athanasius,Girl,,';
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'cafm-student-roster-template.csv';
+    a.click();
   };
 
   // Gather all unique student names from all teachers' class rosters
@@ -91,6 +191,11 @@ export default function MasterRoster({ students, onAdd, onUpdate, onRemove, onBu
         <h2 className="section-title">Master Roster ({students.length} students)</h2>
         <div style={{ display: 'flex', gap: 8 }}>
           <button className="btn btn-secondary" onClick={onRefresh}>↻ Refresh</button>
+          <button className="btn btn-secondary" onClick={downloadTemplate}>↓ Template</button>
+          <label className="btn btn-secondary" style={{ cursor: 'pointer' }}>
+            📄 Upload CSV
+            <input type="file" accept=".csv,.txt" onChange={handleCsvFile} style={{ display: 'none' }} />
+          </label>
           {importableNames.length > 0 && (
             <button className="btn btn-gold" onClick={() => setShowImport(!showImport)}>
               {showImport ? 'Cancel Import' : `Import from Tracker (${importableNames.length})`}
@@ -146,6 +251,53 @@ export default function MasterRoster({ students, onAdd, onUpdate, onRemove, onBu
               disabled={importing}
             >
               {importing ? 'Importing...' : `Import ${selectedCount} Student${selectedCount !== 1 ? 's' : ''}`}
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* CSV Upload Preview */}
+      {showCsvUpload && csvPreview.length > 0 && (
+        <div className="card" style={{ marginBottom: 16, background: '#F0FDF4', border: '1px solid #BBF7D0' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+            <div>
+              <div style={{ fontWeight: 600, color: '#1B3A5C', marginBottom: 2 }}>CSV Preview</div>
+              <div style={{ fontSize: 12, color: '#6B7280' }}>
+                {csvPreview.filter(r => !r.exists).length} new students to import, {csvPreview.filter(r => r.exists).length} already in roster (will be skipped)
+              </div>
+            </div>
+            <button className="btn btn-sm btn-secondary" onClick={() => { setShowCsvUpload(false); setCsvPreview([]); }}>Cancel</button>
+          </div>
+          <div style={{ maxHeight: 300, overflowY: 'auto', border: '1px solid #D1D5DB', borderRadius: 6, background: '#fff' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+              <thead>
+                <tr>
+                  <th style={{ textAlign: 'left', padding: '6px 10px', background: '#F9FAFB', borderBottom: '2px solid #E5E7EB', fontSize: 11, color: '#6B7280' }}>Name</th>
+                  <th style={{ textAlign: 'left', padding: '6px 10px', background: '#F9FAFB', borderBottom: '2px solid #E5E7EB', fontSize: 11, color: '#6B7280' }}>House</th>
+                  <th style={{ textAlign: 'left', padding: '6px 10px', background: '#F9FAFB', borderBottom: '2px solid #E5E7EB', fontSize: 11, color: '#6B7280' }}>Gender</th>
+                  <th style={{ textAlign: 'left', padding: '6px 10px', background: '#F9FAFB', borderBottom: '2px solid #E5E7EB', fontSize: 11, color: '#6B7280' }}>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {csvPreview.map((row, i) => (
+                  <tr key={i} style={{ opacity: row.exists ? 0.4 : 1 }}>
+                    <td style={{ padding: '6px 10px', borderBottom: '1px solid #F3F4F6', fontWeight: 500 }}>{row.name}</td>
+                    <td style={{ padding: '6px 10px', borderBottom: '1px solid #F3F4F6' }}>{row.house || '—'}</td>
+                    <td style={{ padding: '6px 10px', borderBottom: '1px solid #F3F4F6' }}>{row.gender === 'she' ? 'Girl' : 'Boy'}</td>
+                    <td style={{ padding: '6px 10px', borderBottom: '1px solid #F3F4F6' }}>
+                      {row.exists
+                        ? <span style={{ color: '#9CA3AF', fontSize: 12 }}>Already in roster</span>
+                        : <span style={{ color: '#16A34A', fontSize: 12, fontWeight: 600 }}>New — will import</span>
+                      }
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {csvPreview.filter(r => !r.exists).length > 0 && (
+            <button className="btn btn-primary" style={{ marginTop: 10 }} onClick={handleCsvImport} disabled={csvUploading}>
+              {csvUploading ? 'Importing...' : `Import ${csvPreview.filter(r => !r.exists).length} New Students`}
             </button>
           )}
         </div>
