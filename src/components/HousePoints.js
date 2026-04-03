@@ -14,14 +14,14 @@ const DEMERIT_CATEGORIES = ['Dress Code Violation', 'Tardy to Class', 'Disruptiv
 const STUDENT_DENOMINATIONS = [1, 3, 7, 12];
 
 export default function HousePoints({ uid, isAdmin, masterStudents }) {
-  const { entries, loading, addEntry } = useHousePoints();
+  const { entries, loading, addEntry, deleteEntry } = useHousePoints();
   const [showAdd, setShowAdd] = useState(false);
   const [entryType, setEntryType] = useState('merit'); // 'merit' or 'demerit'
   const [awardTarget, setAwardTarget] = useState('student'); // 'student' or 'house'
   const [filterHouse, setFilterHouse] = useState('all');
   const [filterType, setFilterType] = useState('all');
   const [studentSearch, setStudentSearch] = useState('');
-
+  const [confirmDeleteId, setConfirmDeleteId] = useState(null);
   const [newEntry, setNewEntry] = useState({
     studentName: '', house: '', points: 1, category: MERIT_CATEGORIES[0], reason: '',
   });
@@ -308,7 +308,7 @@ export default function HousePoints({ uid, isAdmin, masterStudents }) {
       ) : (
         <div style={{ overflowX: 'auto' }}>
           <table className="data-table">
-            <thead><tr><th>Type</th><th>House</th><th>Student</th><th>Category</th><th>Points</th><th>Reason</th><th>Date</th></tr></thead>
+            <thead><tr><th>Type</th><th>House</th><th>Student</th><th>Category</th><th>Points</th><th>Reason</th><th>Date</th><th></th></tr></thead>
             <tbody>
               {filtered.slice(0, 50).map(e => {
                 const isMerit = e.type === 'merit' || (!e.type && e.points > 0);
@@ -321,6 +321,17 @@ export default function HousePoints({ uid, isAdmin, masterStudents }) {
                     <td style={{ fontWeight: 600, color: isMerit ? '#16A34A' : '#DC2626' }}>{e.points > 0 ? '+' : ''}{e.points}</td>
                     <td style={{ fontSize: 13 }}>{e.reason}</td>
                     <td style={{ fontSize: 12, color: '#9CA3AF' }}>{e.createdAt ? new Date(e.createdAt).toLocaleDateString() : '—'}</td>
+                    <td>
+                      {confirmDeleteId === e.id ? (
+                        <div style={{ display: 'flex', gap: 4 }}>
+                          <button className="btn btn-sm btn-danger" onClick={async () => { await deleteEntry(e.id); setConfirmDeleteId(null); }}>Yes</button>
+                          <button className="btn btn-sm btn-secondary" onClick={() => setConfirmDeleteId(null)}>No</button>
+                        </div>
+                      ) : (
+                        <button className="btn btn-sm" style={{ background: 'none', color: '#DC2626', padding: '4px 6px' }}
+                          onClick={() => setConfirmDeleteId(e.id)} title="Delete">×</button>
+                      )}
+                    </td>
                   </tr>
                 );
               })}
