@@ -105,6 +105,63 @@ export default function Dashboard({ masterStudents }) {
     a.download = `cafm-dashboard-${new Date().toISOString().split('T')[0]}.csv`; a.click();
   };
 
+  const sendWeeklySummary = () => {
+    const weekOf = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+
+    for (const teacher of stats.teacherSummaries) {
+      // Find this teacher's students with concerns
+      const teacherStudents = stats.studentRows.filter(s => s.teacher === teacher.name);
+      const belowThree = teacherStudents.filter(s => s.isBelowThree);
+      const withDemerits = teacherStudents.filter(s => s.demerits >= 3);
+
+      // Find this teacher's classes
+      const teacherClasses = stats.classSummaries.filter(c => c.teacher === teacher.name);
+
+      let body = `Hi ${teacher.name},\n\n`;
+      body += `Here is your weekly participation summary for the week of ${weekOf}.\n\n`;
+
+      body += `SCORING ACTIVITY\n`;
+      body += `Days scored this period: ${teacher.daysScored}\n`;
+      body += `Classes: ${teacher.classCount}\n`;
+      body += `Status: ${teacher.status}\n\n`;
+
+      if (teacherClasses.length > 0) {
+        body += `CLASS AVERAGES\n`;
+        teacherClasses.forEach(c => {
+          body += `  ${c.name}: ${c.avg} (${c.gradePct})\n`;
+        });
+        body += '\n';
+      }
+
+      if (belowThree.length > 0) {
+        body += `STUDENTS BELOW 3.0 (need attention)\n`;
+        belowThree.forEach(s => {
+          body += `  ${s.name} — ${s.overallAvg} avg (${s.gradePct}) in ${s.className}\n`;
+        });
+        body += '\n';
+      }
+
+      if (withDemerits.length > 0) {
+        body += `STUDENTS WITH 3+ DEMERITS\n`;
+        withDemerits.forEach(s => {
+          body += `  ${s.name} — ${s.demerits} demerits\n`;
+        });
+        body += '\n';
+      }
+
+      if (belowThree.length === 0 && withDemerits.length === 0) {
+        body += `No students flagged for concern this week. Great work!\n\n`;
+      }
+
+      body += `Please make sure participation scores are up to date. You can access the tool at:\nhttps://cafm-hm.github.io/cafm-participation-tool/\n\n`;
+      body += `God bless,\nCAFM Administration`;
+
+      const subject = `Weekly Participation Summary — ${weekOf}`;
+      const mailto = `https://mail.google.com/mail/?view=cm&to=${encodeURIComponent(teacher.email)}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+      window.open(mailto, '_blank');
+    }
+  };
+
   if (loading || houseLoading) return <div style={{ padding: 40, textAlign: 'center', color: '#9CA3AF' }}>Loading dashboard...</div>;
 
   return (
@@ -113,6 +170,7 @@ export default function Dashboard({ masterStudents }) {
         <h2 className="section-title">Admin Dashboard</h2>
         <div style={{ display: 'flex', gap: 8 }}>
           <button className="btn btn-secondary" onClick={refresh}>↻ Refresh</button>
+          <button className="btn btn-secondary" onClick={sendWeeklySummary}>✉ Email Summaries</button>
           <button className="btn btn-gold" onClick={exportCSV}>Export CSV</button>
         </div>
       </div>
