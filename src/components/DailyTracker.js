@@ -6,6 +6,7 @@ import LegendModal from './LegendModal';
 const TODAY = new Date().toISOString().split('T')[0];
 
 const SCORE_COLORS = {
+  0: { bg: '#F3F4F6', color: '#6B7280' },
   1: { bg: '#FEE2E2', color: '#DC2626' },
   2: { bg: '#FFEDD5', color: '#EA580C' },
   3: { bg: '#FEF9C3', color: '#CA8A04' },
@@ -197,7 +198,7 @@ export default function DailyTracker({ uid, masterStudents }) {
                       {v.label} <span style={{ fontSize: 9, opacity: 0.6 }}>?</span>
                     </div>
                     <div style={{ display: 'flex', gap: 2, justifyContent: 'center' }}>
-                      {[1, 2, 3, 4, 5].map(score => (
+                      {[0, 1, 2, 3, 4, 5].map(score => (
                         <button key={score} onClick={() => setAllScores(v.key, score)}
                           title={`Set all to ${score}`}
                           style={{
@@ -216,13 +217,16 @@ export default function DailyTracker({ uid, masterStudents }) {
                   </th>
                 ))}
                 <th style={{ padding: '8px 6px', background: '#F9FAFB', borderBottom: '2px solid #E5E7EB', fontSize: 11, fontWeight: 600, color: '#6B7280', textAlign: 'center', width: 44 }}>Avg</th>
+                <th style={{ padding: '8px 6px', background: '#F9FAFB', borderBottom: '2px solid #E5E7EB', fontSize: 11, fontWeight: 600, color: '#6B7280', textAlign: 'center', width: 50 }}>Grade</th>
               </tr>
             </thead>
             <tbody>
               {sortedStudents.map(student => {
                 const absent = isAbsent(student);
-                const scores = VIRTUES.map(v => getScore(student, v.key)).filter(s => s && s > 0);
+                const scores = VIRTUES.map(v => getScore(student, v.key)).filter(s => s !== null && s !== undefined);
+                const scoredValues = scores.filter(s => s > 0);
                 const avg = scores.length > 0 ? (scores.reduce((a, b) => a + b, 0) / scores.length) : null;
+                const gradePct = avg !== null ? Math.round((avg / 5) * 100) : null;
                 return (
                   <tr key={student.id} style={{ opacity: absent ? 0.35 : 1 }}>
                     <td style={{ padding: '6px 10px', borderBottom: '1px solid #F3F4F6', fontWeight: 500, color: '#1B3A5C' }}>
@@ -242,7 +246,7 @@ export default function DailyTracker({ uid, masterStudents }) {
                       return (
                         <td key={v.key} style={{ padding: '4px 2px', borderBottom: '1px solid #F3F4F6', textAlign: 'center' }}>
                           <div style={{ display: 'flex', gap: 2, justifyContent: 'center' }}>
-                            {[1, 2, 3, 4, 5].map(s => {
+                            {[0, 1, 2, 3, 4, 5].map(s => {
                               const active = score === s;
                               const sc = SCORE_COLORS[s];
                               return (
@@ -273,6 +277,12 @@ export default function DailyTracker({ uid, masterStudents }) {
                       color: avg !== null ? (avg >= 4 ? '#16A34A' : avg >= 3 ? '#CA8A04' : '#DC2626') : '#D1D5DB',
                     }}>
                       {avg !== null ? avg.toFixed(1) : '—'}
+                    </td>
+                    <td style={{
+                      padding: '6px', borderBottom: '1px solid #F3F4F6', textAlign: 'center',
+                      fontSize: 12, fontWeight: 500, color: '#6B7280',
+                    }}>
+                      {gradePct !== null ? `${gradePct}%` : '—'}
                     </td>
                   </tr>
                 );
@@ -326,7 +336,7 @@ export default function DailyTracker({ uid, masterStudents }) {
                     <div key={virtue.key} className="virtue-row">
                       <span className="virtue-label" style={{ color: virtue.color }}>{virtue.label.substring(0, 4)}</span>
                       <div className="score-btns">
-                        {[1, 2, 3, 4, 5].map(score => (
+                        {[0, 1, 2, 3, 4, 5].map(score => (
                           <button key={score}
                             className={`score-btn s${score} ${getScore(student, virtue.key) === score ? 'active' : ''}`}
                             onClick={() => !absent && saveDailyScore(selectedClass, student.id, date, virtue.key, score)}
