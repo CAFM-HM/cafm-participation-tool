@@ -3,10 +3,10 @@ import { useHousePoints } from '../hooks/useFirestore';
 import { HOUSES } from '../data/virtueData';
 
 const HOUSE_COLORS = {
-  Augustine:  { bg: '#1B3A5C', light: '#E8EEF4' },
-  Athanasius: { bg: '#8B2252', light: '#F5E6EE' },
-  Chrysostom: { bg: '#C9A227', light: '#FDF8E8' },
-  Ambrose:    { bg: '#2E7D5B', light: '#E4F2EB' },
+  Augustine:  { bg: '#B91C1C', light: '#FEE2E2' },
+  Athanasius: { bg: '#15803D', light: '#DCFCE7' },
+  Chrysostom: { bg: '#0284C7', light: '#E0F2FE' },
+  Ambrose:    { bg: '#CA8A04', light: '#FEF9C3' },
 };
 
 const MERIT_CATEGORIES = ['Virtue', 'Academic', 'Service', 'Leadership', 'Sportsmanship', 'Outstanding Participation', 'Act of Charity', 'Improvement/Growth', 'Other'];
