@@ -271,7 +271,17 @@ export function useHousePoints() {
     await load();
   }, [load]);
 
-  return { entries, loading, addEntry, refresh: load };
+  const deleteEntry = useCallback(async (entryId) => {
+    await deleteDoc(doc(db, 'housePointEntries', entryId));
+    await load();
+  }, [load]);
+
+  const updateEntry = useCallback(async (entryId, updates) => {
+    await updateDoc(doc(db, 'housePointEntries', entryId), updates);
+    await load();
+  }, [load]);
+
+  return { entries, loading, addEntry, deleteEntry, updateEntry, refresh: load };
 }
 
 // ============================================================
