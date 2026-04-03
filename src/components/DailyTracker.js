@@ -5,6 +5,14 @@ import LegendModal from './LegendModal';
 
 const TODAY = new Date().toISOString().split('T')[0];
 
+const SCORE_COLORS = {
+  1: { bg: '#FEE2E2', color: '#DC2626' },
+  2: { bg: '#FFEDD5', color: '#EA580C' },
+  3: { bg: '#FEF9C3', color: '#CA8A04' },
+  4: { bg: '#DCFCE7', color: '#16A34A' },
+  5: { bg: '#E8EEF4', color: '#1B3A5C' },
+};
+
 export default function DailyTracker({ uid, masterStudents }) {
   const {
     classes, loading, addClass, addStudentToClass, removeStudentFromClass, saveDailyScore, deleteClass,
@@ -13,6 +21,7 @@ export default function DailyTracker({ uid, masterStudents }) {
   const [selectedClass, setSelectedClass] = useState(null);
   const [date, setDate] = useState(TODAY);
   const [showSetup, setShowSetup] = useState(true);
+  const [viewMode, setViewMode] = useState('grid'); // 'grid' or 'card'
   const [newClassName, setNewClassName] = useState('');
   const [studentSearch, setStudentSearch] = useState('');
   const [legendVirtue, setLegendVirtue] = useState(null);
@@ -47,11 +56,27 @@ export default function DailyTracker({ uid, masterStudents }) {
     saveDailyScore(selectedClass, studentId, date, 'absent', !isAbsent(stu));
   };
 
-  // Students from master roster not yet in this class
+  // Quick Score: click cycles through 1→2→3→4→5→null
+  const cycleScore = (studentId, virtueKey) => {
+    if (!selectedClass) return;
+    const stu = students.find(s => s.id === studentId);
+    if (!stu || isAbsent(stu)) return;
+    const current = getScore(stu, virtueKey);
+    const next = current === null ? 3 : current >= 5 ? null : current + 1;
+    if (next === null) {
+      // Can't easily "unset" in Firestore with dot notation, so set to 0 as "unscored"
+      saveDailyScore(selectedClass, studentId, date, virtueKey, 0);
+    } else {
+      saveDailyScore(selectedClass, studentId, date, virtueKey, next);
+    }
+  };
+
   const availableStudents = (masterStudents || []).filter(ms =>
     !currentClass?.roster?.includes(ms.name) &&
     ms.name.toLowerCase().includes(studentSearch.toLowerCase())
   );
+
+  const sortedStudents = [...students].sort((a, b) => (a.name || '').localeCompare(b.name || ''));
 
   if (loading) return <div style={{ padding: 40, textAlign: 'center', color: '#9CA3AF' }}>Loading classes...</div>;
 
@@ -109,7 +134,6 @@ export default function DailyTracker({ uid, masterStudents }) {
               </div>
             )}
 
-            {/* Add student from master roster */}
             {selectedClass && (
               <div style={{ marginTop: 8 }}>
                 <div style={{ fontSize: 12, fontWeight: 600, color: '#6B7280', marginBottom: 6 }}>
@@ -129,7 +153,7 @@ export default function DailyTracker({ uid, masterStudents }) {
                 )}
                 {studentSearch && availableStudents.length === 0 && (
                   <div style={{ fontSize: 12, color: '#9CA3AF', marginBottom: 8 }}>
-                    No matching students found in master roster. Admin can add them in the Master Roster tab.
+                    No matching students found in master roster.
                   </div>
                 )}
               </div>
@@ -138,7 +162,7 @@ export default function DailyTracker({ uid, masterStudents }) {
         )}
       </div>
 
-      {/* Date & Class selector */}
+      {/* Date, Class, View Toggle */}
       {selectedClass && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -151,75 +175,162 @@ export default function DailyTracker({ uid, masterStudents }) {
               {classes.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
           </div>
-          <div style={{ marginLeft: 'auto', fontSize: 12, color: '#9CA3AF' }}>
-            {students.length} student{students.length !== 1 ? 's' : ''}
+          <div style={{ marginLeft: 'auto', display: 'flex', gap: 6, alignItems: 'center' }}>
+            <span style={{ fontSize: 12, color: '#9CA3AF' }}>{students.length} students</span>
+            <button className={`btn btn-sm ${viewMode === 'grid' ? 'btn-primary' : 'btn-secondary'}`}
+              onClick={() => setViewMode('grid')}>Grid</button>
+            <button className={`btn btn-sm ${viewMode === 'card' ? 'btn-primary' : 'btn-secondary'}`}
+              onClick={() => setViewMode('card')}>Cards</button>
           </div>
         </div>
       )}
 
-      {/* Column headers */}
-      {selectedClass && students.length > 0 && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8, paddingLeft: 140, fontSize: 11, fontWeight: 600, color: '#6B7280' }}>
-          <div style={{ width: 28 }}></div>
-          {VIRTUES.map(v => (
-            <div key={v.key} style={{ display: 'flex', alignItems: 'center', gap: 4, minWidth: 170 }}>
-              <span style={{ color: v.color }}>{v.label}</span>
-              <button className="legend-btn" onClick={() => setLegendVirtue(v.key)} title={`${v.label} rubric`}>?</button>
-            </div>
-          ))}
+      {/* ============================================================ */}
+      {/* GRID VIEW — Quick Score Mode */}
+      {/* ============================================================ */}
+      {selectedClass && viewMode === 'grid' && students.length > 0 && (
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+            <thead>
+              <tr>
+                <th style={{ textAlign: 'left', padding: '8px 10px', background: '#F9FAFB', borderBottom: '2px solid #E5E7EB', fontSize: 12, fontWeight: 600, color: '#6B7280', minWidth: 140 }}>Student</th>
+                <th style={{ padding: '8px 6px', background: '#F9FAFB', borderBottom: '2px solid #E5E7EB', fontSize: 11, fontWeight: 600, color: '#6B7280', width: 36, textAlign: 'center' }}>E</th>
+                {VIRTUES.map(v => (
+                  <th key={v.key} style={{ padding: '8px 6px', background: '#F9FAFB', borderBottom: '2px solid #E5E7EB', fontSize: 11, fontWeight: 600, color: v.color, textAlign: 'center', minWidth: 50 }}>
+                    <span style={{ cursor: 'pointer' }} onClick={() => setLegendVirtue(v.key)}>
+                      {v.label.substring(0, 4)}
+                    </span>
+                  </th>
+                ))}
+                <th style={{ padding: '8px 6px', background: '#F9FAFB', borderBottom: '2px solid #E5E7EB', fontSize: 11, fontWeight: 600, color: '#6B7280', textAlign: 'center', width: 44 }}>Avg</th>
+              </tr>
+            </thead>
+            <tbody>
+              {sortedStudents.map(student => {
+                const absent = isAbsent(student);
+                const scores = VIRTUES.map(v => getScore(student, v.key)).filter(s => s && s > 0);
+                const avg = scores.length > 0 ? (scores.reduce((a, b) => a + b, 0) / scores.length) : null;
+                return (
+                  <tr key={student.id} style={{ opacity: absent ? 0.35 : 1 }}>
+                    <td style={{ padding: '6px 10px', borderBottom: '1px solid #F3F4F6', fontWeight: 500, color: '#1B3A5C' }}>
+                      {student.name}
+                      {student.house && <span style={{ fontSize: 10, color: '#9CA3AF', marginLeft: 6 }}>{student.house}</span>}
+                    </td>
+                    <td style={{ padding: '4px', borderBottom: '1px solid #F3F4F6', textAlign: 'center' }}>
+                      <button
+                        onClick={() => toggleAbsent(student.id)}
+                        style={{
+                          width: 28, height: 28, borderRadius: 4, border: 'none',
+                          background: absent ? '#6B7280' : '#F3F4F6',
+                          color: absent ? '#fff' : '#9CA3AF',
+                          fontSize: 11, fontWeight: 600, cursor: 'pointer',
+                        }}
+                      >E</button>
+                    </td>
+                    {VIRTUES.map(v => {
+                      const score = getScore(student, v.key);
+                      const sc = score && score > 0 ? SCORE_COLORS[score] : null;
+                      return (
+                        <td key={v.key} style={{ padding: '4px', borderBottom: '1px solid #F3F4F6', textAlign: 'center' }}>
+                          <button
+                            onClick={() => cycleScore(student.id, v.key)}
+                            disabled={absent}
+                            style={{
+                              width: 36, height: 36, borderRadius: 6,
+                              border: sc ? 'none' : '2px dashed #D1D5DB',
+                              background: sc ? sc.bg : 'transparent',
+                              color: sc ? sc.color : '#D1D5DB',
+                              fontSize: 16, fontWeight: 700, cursor: absent ? 'default' : 'pointer',
+                              transition: 'all 0.1s',
+                            }}
+                          >
+                            {score && score > 0 ? score : '·'}
+                          </button>
+                        </td>
+                      );
+                    })}
+                    <td style={{
+                      padding: '6px', borderBottom: '1px solid #F3F4F6', textAlign: 'center',
+                      fontSize: 13, fontWeight: 600,
+                      color: avg !== null ? (avg >= 4 ? '#16A34A' : avg >= 3 ? '#CA8A04' : '#DC2626') : '#D1D5DB',
+                    }}>
+                      {avg !== null ? avg.toFixed(1) : '—'}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          <div style={{ fontSize: 11, color: '#9CA3AF', marginTop: 8, fontStyle: 'italic' }}>
+            Click a cell to score. Click again to increase (1→2→3→4→5). Click column headers for rubric.
+          </div>
         </div>
       )}
 
-      {/* Student rows */}
+      {/* ============================================================ */}
+      {/* CARD VIEW — Original Layout */}
+      {/* ============================================================ */}
+      {selectedClass && viewMode === 'card' && students.length > 0 && (
+        <>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8, paddingLeft: 140, fontSize: 11, fontWeight: 600, color: '#6B7280' }}>
+            <div style={{ width: 28 }}></div>
+            {VIRTUES.map(v => (
+              <div key={v.key} style={{ display: 'flex', alignItems: 'center', gap: 4, minWidth: 170 }}>
+                <span style={{ color: v.color }}>{v.label}</span>
+                <button className="legend-btn" onClick={() => setLegendVirtue(v.key)} title={`${v.label} rubric`}>?</button>
+              </div>
+            ))}
+          </div>
+
+          {sortedStudents.map(student => {
+            const absent = isAbsent(student);
+            return (
+              <div key={student.id} className="student-row" style={{ opacity: absent ? 0.4 : 1 }}>
+                <div className="student-name" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <div>
+                    <span>{student.name}</span>
+                    {student.house && <div style={{ fontSize: 10, color: '#9CA3AF' }}>{student.house}</div>}
+                  </div>
+                  <button style={{ background: 'none', border: 'none', color: '#DC2626', cursor: 'pointer', fontSize: 14, padding: '0 2px' }}
+                    title="Remove from class" onClick={() => setConfirmDelete({
+                      msg: `Remove ${student.name} from this class? (They stay in the master roster.)`,
+                      action: () => removeStudentFromClass(selectedClass, student.name)
+                    })}>×</button>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', paddingTop: 4 }}>
+                  <button className={`score-btn absent ${absent ? 'active' : ''}`}
+                    onClick={() => toggleAbsent(student.id)} title="Mark absent">E</button>
+                </div>
+
+                <div className="student-virtues">
+                  {VIRTUES.map(virtue => (
+                    <div key={virtue.key} className="virtue-row">
+                      <span className="virtue-label" style={{ color: virtue.color }}>{virtue.label.substring(0, 4)}</span>
+                      <div className="score-btns">
+                        {[1, 2, 3, 4, 5].map(score => (
+                          <button key={score}
+                            className={`score-btn s${score} ${getScore(student, virtue.key) === score ? 'active' : ''}`}
+                            onClick={() => !absent && saveDailyScore(selectedClass, student.id, date, virtue.key, score)}
+                            disabled={absent}>
+                            {score}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </>
+      )}
+
       {selectedClass && students.length === 0 && (
         <div style={{ padding: 40, textAlign: 'center', color: '#9CA3AF' }}>
           No students in this class. Search the master roster above to add students.
         </div>
       )}
-
-      {students
-        .sort((a, b) => (a.name || '').localeCompare(b.name || ''))
-        .map(student => {
-          const absent = isAbsent(student);
-          return (
-            <div key={student.id} className="student-row" style={{ opacity: absent ? 0.4 : 1 }}>
-              <div className="student-name" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <div>
-                  <span>{student.name}</span>
-                  {student.house && <div style={{ fontSize: 10, color: '#9CA3AF' }}>{student.house}</div>}
-                </div>
-                <button style={{ background: 'none', border: 'none', color: '#DC2626', cursor: 'pointer', fontSize: 14, padding: '0 2px' }}
-                  title="Remove from class" onClick={() => setConfirmDelete({
-                    msg: `Remove ${student.name} from this class? (They stay in the master roster.)`,
-                    action: () => removeStudentFromClass(selectedClass, student.name)
-                  })}>×</button>
-              </div>
-
-              <div style={{ display: 'flex', alignItems: 'center', paddingTop: 4 }}>
-                <button className={`score-btn absent ${absent ? 'active' : ''}`}
-                  onClick={() => toggleAbsent(student.id)} title="Mark absent">E</button>
-              </div>
-
-              <div className="student-virtues">
-                {VIRTUES.map(virtue => (
-                  <div key={virtue.key} className="virtue-row">
-                    <span className="virtue-label" style={{ color: virtue.color }}>{virtue.label.substring(0, 4)}</span>
-                    <div className="score-btns">
-                      {[1, 2, 3, 4, 5].map(score => (
-                        <button key={score}
-                          className={`score-btn s${score} ${getScore(student, virtue.key) === score ? 'active' : ''}`}
-                          onClick={() => !absent && saveDailyScore(selectedClass, student.id, date, virtue.key, score)}
-                          disabled={absent}>
-                          {score}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          );
-        })}
 
       {!selectedClass && classes.length === 0 && (
         <div style={{ padding: 40, textAlign: 'center', color: '#9CA3AF' }}>Create your first class above to get started.</div>
