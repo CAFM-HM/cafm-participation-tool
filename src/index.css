@@ -375,7 +375,6 @@ input:focus, select:focus {
   border-color: transparent;
 }
 
-.score-btn.s0.active { background: #6B7280; }
 .score-btn.s1.active { background: #DC2626; }
 .score-btn.s2.active { background: #EA580C; }
 .score-btn.s3.active { background: #CA8A04; }
@@ -750,6 +749,68 @@ input:focus, select:focus {
   font-size: 18px;
   color: var(--gray-600);
   margin-bottom: 6px;
+}
+
+/* ============================================================
+   QUICK ACTIONS BAR
+   ============================================================ */
+.quick-actions-bar {
+  background: var(--blue-bg);
+  border: 1px solid #BFDBFE;
+  border-radius: var(--radius-md);
+  padding: 10px 16px;
+  margin-bottom: 12px;
+}
+
+.score-all-group {
+  display: flex;
+  gap: 3px;
+  align-items: center;
+  padding-top: 4px;
+}
+
+.score-all-btn {
+  background: var(--gray-100) !important;
+  color: var(--gray-600) !important;
+  border: 1px solid var(--gray-300) !important;
+  font-weight: 600 !important;
+  min-width: 30px;
+  padding: 4px 8px !important;
+  font-size: 12px !important;
+}
+
+.score-all-btn:hover:not(:disabled) {
+  background: var(--gold-light) !important;
+  border-color: var(--gold) !important;
+  color: var(--navy-dark) !important;
+}
+
+.tracker-col-headers {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+  padding-left: 0;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--gray-500);
+}
+
+/* ============================================================
+   GRADEBOOK
+   ============================================================ */
+.gradebook-hint {
+  font-size: 12px;
+  color: var(--gray-400);
+  font-style: italic;
+  margin-bottom: 10px;
+}
+
+.gradebook-grade-cell {
+  font-weight: 700;
+  font-size: 15px;
+  color: var(--navy);
+  background: #FFFBEB;
 }
 
 /* ============================================================
