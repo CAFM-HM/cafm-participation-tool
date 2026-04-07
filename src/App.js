@@ -1,21 +1,18 @@
 import React, { useState } from 'react';
 import { useAuth } from './hooks/useAuth';
-import { useMasterRoster, useAdminData } from './hooks/useFirestore';
+import { useMasterRoster } from './hooks/useFirestore';
+import Home from './components/Home';
 import DailyTracker from './components/DailyTracker';
 import NarrativeBuilder from './components/NarrativeBuilder';
 import Dashboard from './components/Dashboard';
 import HousePoints from './components/HousePoints';
+import Demerits from './components/Demerits';
 import MasterRoster from './components/MasterRoster';
-import AnnouncementBanner from './components/AnnouncementBanner';
 
 function App() {
   const { user, loading, login, logout, isAdmin, displayName } = useAuth();
   const { students: masterStudents, loading: rosterLoading, addStudent, updateStudent, removeStudent, bulkImport, refresh: refreshRoster } = useMasterRoster();
-  const { allTeachers } = useAdminData();
-  const [activeTab, setActiveTab] = useState('daily');
-  const [teacherView, setTeacherView] = useState(false);
-
-  const effectiveAdmin = isAdmin && !teacherView;
+  const [activeTab, setActiveTab] = useState('home');
 
   if (loading || rosterLoading) {
     return (
@@ -46,10 +43,12 @@ function App() {
   }
 
   const tabs = [
+    { id: 'home', label: 'Home' },
     { id: 'daily', label: 'Daily Tracker' },
     { id: 'narrative', label: 'Narrative Builder' },
     { id: 'house', label: 'House Points' },
-    ...(effectiveAdmin ? [
+    { id: 'demerits', label: 'Conduct Log' },
+    ...(isAdmin ? [
       { id: 'dashboard', label: 'Dashboard' },
       { id: 'roster', label: 'Master Roster' },
     ] : []),
@@ -59,25 +58,17 @@ function App() {
     <div>
       <header className="app-header">
         <div className="header-inner">
-          <div className="header-brand">
+          <div className="header-brand" onClick={() => setActiveTab('home')} style={{ cursor: 'pointer' }}>
             <div className="school-name">Chesterton Academy of the Florida Martyrs</div>
             <div className="app-title">Participation Tool</div>
           </div>
           <div className="header-user">
             <span>{displayName}</span>
-            {isAdmin && !teacherView && <span className="badge badge-green">Admin</span>}
-            {isAdmin && (
-              <button className="btn btn-sm btn-secondary" style={{ fontSize: 11 }}
-                onClick={() => { setTeacherView(!teacherView); setActiveTab('daily'); }}>
-                {teacherView ? '← Admin View' : '👁 Teacher View'}
-              </button>
-            )}
+            {isAdmin && <span className="badge badge-green">Admin</span>}
             <button onClick={logout}>Sign Out</button>
           </div>
         </div>
       </header>
-
-      <AnnouncementBanner isAdmin={effectiveAdmin} />
 
       <nav className="tab-nav">
         {tabs.map(tab => (
@@ -93,11 +84,21 @@ function App() {
 
       <main className="main-content">
         <div className="tab-panel">
+          {activeTab === 'home' && (
+            <Home
+              uid={user.uid}
+              isAdmin={isAdmin}
+              displayName={displayName}
+              masterStudents={masterStudents}
+              onNavigate={setActiveTab}
+            />
+          )}
           {activeTab === 'daily' && <DailyTracker uid={user.uid} masterStudents={masterStudents} />}
           {activeTab === 'narrative' && <NarrativeBuilder uid={user.uid} masterStudents={masterStudents} />}
-          {activeTab === 'house' && <HousePoints uid={user.uid} isAdmin={effectiveAdmin} masterStudents={masterStudents} />}
-          {activeTab === 'dashboard' && effectiveAdmin && <Dashboard masterStudents={masterStudents} />}
-          {activeTab === 'roster' && effectiveAdmin && (
+          {activeTab === 'house' && <HousePoints uid={user.uid} isAdmin={isAdmin} masterStudents={masterStudents} />}
+          {activeTab === 'demerits' && <Demerits uid={user.uid} isAdmin={isAdmin} masterStudents={masterStudents} />}
+          {activeTab === 'dashboard' && isAdmin && <Dashboard masterStudents={masterStudents} />}
+          {activeTab === 'roster' && isAdmin && (
             <MasterRoster
               students={masterStudents}
               onAdd={addStudent}
@@ -105,7 +106,6 @@ function App() {
               onRemove={removeStudent}
               onBulkImport={bulkImport}
               onRefresh={refreshRoster}
-              allTeachers={allTeachers}
             />
           )}
         </div>
