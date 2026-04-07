@@ -389,6 +389,7 @@ input:focus, select:focus {
 }
 
 .score-btn.s1.active { background: #DC2626; }
+.score-btn.s0.active { background: #18181B; }
 .score-btn.s2.active { background: #EA580C; }
 .score-btn.s3.active { background: #CA8A04; }
 .score-btn.s4.active { background: #16A34A; }
