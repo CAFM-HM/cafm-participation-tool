@@ -1,10 +1,8 @@
 import React, { useState, useCallback, useMemo } from 'react';
-import { collection, getDocs } from 'firebase/firestore';
-import { db } from '../firebase';
 import { useTeacherData, useNarrativeData } from '../hooks/useFirestore';
 import {
   VIRTUES, VIRTUE_SENTENCES, OPENINGS, CLOSINGS,
-  getBridgingSentences, getOpenings, autoGenerateNarrative
+  getBridgingSentences, getOpenings
 } from '../data/virtueData';
 
 export default function NarrativeBuilder({ uid, masterStudents }) {
@@ -86,10 +84,6 @@ export default function NarrativeBuilder({ uid, masterStudents }) {
     });
   }, [classes, students, getQuarterlyAvg, updateConfig]);
 
-  const removeStudent = useCallback((id) => {
-    updateConfig({ students: students.filter(s => s.id !== id) });
-  }, [students, updateConfig]);
-
   const getOverallScore = (student) => {
     const vals = VIRTUES.map(v => student.scores?.[v.key]).filter(s => s !== null && s !== undefined);
     if (vals.length < 4) return null;
@@ -135,34 +129,20 @@ export default function NarrativeBuilder({ uid, masterStudents }) {
     return [opening, ...virtueParts, ...bridges, closing].filter(Boolean).join(' ');
   };
 
-  // Get best narrative: manual if complete, auto-generated as fallback
-  const getNarrative = (student) => {
-    const manual = buildNarrative(student);
-    if (manual) return { text: manual, type: 'manual' };
-    const auto = autoGenerateNarrative(student.name, config.className, student.pronoun, student.scores);
-    if (auto) return { text: auto, type: 'auto' };
-    return null;
-  };
-
   const completedCount = students.filter(s => buildNarrative(s)).length;
-  const autoCount = students.filter(s => !buildNarrative(s) && autoGenerateNarrative(s.name, config.className, s.pronoun, s.scores)).length;
-  const totalWithNarrative = completedCount + autoCount;
 
   const copyAllNarratives = () => {
     const texts = students
       .map(s => {
-        const n = getNarrative(s);
-        if (!n) return null;
-        const comment = s.comment ? ' ' + s.comment : '';
-        const label = n.type === 'auto' ? ' [Auto-generated]' : '';
-        return `${s.name}${label}\n${n.text}${comment}`;
+        const n = buildNarrative(s);
+        return n ? `${s.name}\n${n}${s.comment ? ' ' + s.comment : ''}` : null;
       })
       .filter(Boolean)
       .join('\n\n---\n\n');
 
     if (texts) {
       navigator.clipboard.writeText(texts).then(() => {
-        alert(`Copied ${totalWithNarrative} narrative(s) to clipboard!`);
+        alert(`Copied ${completedCount} narrative(s) to clipboard!`);
       });
     }
   };
@@ -236,16 +216,14 @@ export default function NarrativeBuilder({ uid, masterStudents }) {
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
         marginBottom: 16, flexWrap: 'wrap', gap: 8
       }}>
-        <div style={{ fontSize: 13, color: '#6B7280' }}>
-          {completedCount} customized{autoCount > 0 && <span> · {autoCount} auto-generated</span>} · {students.length - totalWithNarrative} pending
-        </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          {totalWithNarrative > 0 && (
-            <button className="btn btn-gold" onClick={copyAllNarratives}>
-              📋 Copy All ({totalWithNarrative})
-            </button>
-          )}
-        </div>
+        <span style={{ fontSize: 13, color: '#6B7280' }}>
+          {completedCount}/{students.length} narratives complete
+        </span>
+        {completedCount > 0 && (
+          <button className="btn btn-gold" onClick={copyAllNarratives}>
+            📋 Copy All Narratives
+          </button>
+        )}
       </div>
 
       {/* Students */}
@@ -260,7 +238,6 @@ export default function NarrativeBuilder({ uid, masterStudents }) {
         const overall = getOverallScore(student);
         const progress = getProgress(student);
         const narrative = buildNarrative(student);
-        const narrativeInfo = getNarrative(student);
 
         return (
           <div key={student.id} className="narrative-student">
@@ -286,8 +263,7 @@ export default function NarrativeBuilder({ uid, masterStudents }) {
                     {v.label.substring(0, 1)}:{student.scores?.[v.key] ?? '—'}
                   </span>
                 ))}
-                {narrative && <span style={{ color: '#16A34A', fontSize: 12 }}>✓ Customized</span>}
-                {!narrative && narrativeInfo?.type === 'auto' && <span style={{ color: '#0284C7', fontSize: 12 }}>⚡ Auto</span>}
+                {narrative && <span style={{ color: '#16A34A', fontSize: 12 }}>✓</span>}
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <div className="progress-bar" style={{ width: 60 }}>
@@ -335,16 +311,9 @@ export default function NarrativeBuilder({ uid, masterStudents }) {
                     onChange={e => updateStudent(student.id, { pronoun: e.target.value })}
                     style={{ maxWidth: 120 }}
                   >
-                    <option value="he">Boy</option>
-                    <option value="she">Girl</option>
+                    <option value="he">He/Him</option>
+                    <option value="she">She/Her</option>
                   </select>
-                  <button
-                    className="btn btn-sm btn-danger"
-                    style={{ marginLeft: 8 }}
-                    onClick={() => removeStudent(student.id)}
-                  >
-                    Remove
-                  </button>
                 </div>
 
                 {/* Opening Sentence */}
@@ -452,115 +421,26 @@ export default function NarrativeBuilder({ uid, masterStudents }) {
                   />
                 </div>
 
-                {/* Preview — manual or auto-generated */}
-                {narrativeInfo && (
+                {/* Preview */}
+                {narrative && (
                   <div>
                     <div style={{ fontSize: 12, fontWeight: 600, color: '#6B7280', marginBottom: 8 }}>
-                      {narrativeInfo.type === 'manual' ? 'NARRATIVE PREVIEW' : 'AUTO-GENERATED NARRATIVE'}
-                      {narrativeInfo.type === 'auto' && (
-                        <span style={{ fontWeight: 400, fontStyle: 'italic', marginLeft: 8, color: '#0284C7' }}>
-                          Customize by selecting sentences above
-                        </span>
-                      )}
+                      NARRATIVE PREVIEW
                     </div>
-                    <div className="narrative-preview" style={{
-                      borderLeft: narrativeInfo.type === 'auto' ? '3px solid #0284C7' : undefined,
-                    }}>
-                      {narrativeInfo.text}
+                    <div className="narrative-preview">
+                      {narrative}
                       {student.comment && <span> {student.comment}</span>}
                     </div>
-                    <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-                      <button
-                        className="btn btn-secondary btn-sm"
-                        onClick={() => {
-                          const text = narrativeInfo.text + (student.comment ? ' ' + student.comment : '');
-                          navigator.clipboard.writeText(text);
-                        }}
-                      >
-                        📋 Copy
-                      </button>
-                      <button
-                        className="btn btn-gold btn-sm"
-                        onClick={async () => {
-                          // Fetch merits/demerits for this student
-                          let hpRows = '';
-                          try {
-                            const snap = await getDocs(collection(db, 'housePointEntries'));
-                            const entries = snap.docs.map(d => d.data())
-                              .filter(e => e.studentName?.toLowerCase() === student.name.toLowerCase())
-                              .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
-                            if (entries.length > 0) {
-                              const merits = entries.filter(e => e.type === 'merit' || (!e.type && e.points > 0));
-                              const demerits = entries.filter(e => e.type === 'demerit' || (!e.type && e.points < 0));
-                              const totalHP = entries.reduce((s, e) => s + (e.points || 0), 0);
-                              hpRows = `
-                                <h2>House Points (${totalHP})</h2>
-                                <div style="display:flex;gap:12px;margin-bottom:12px;">
-                                  <div style="flex:1;background:#F0FDF4;border:1px solid #BBF7D0;border-radius:6px;padding:8px;text-align:center;">
-                                    <div style="font-size:20px;font-weight:700;color:#16A34A">${merits.length}</div>
-                                    <div style="font-size:10px;color:#6B7280">Merits</div>
-                                  </div>
-                                  <div style="flex:1;background:${demerits.length > 0 ? '#FEF2F2' : '#F9FAFB'};border:1px solid ${demerits.length > 0 ? '#FECACA' : '#E5E7EB'};border-radius:6px;padding:8px;text-align:center;">
-                                    <div style="font-size:20px;font-weight:700;color:${demerits.length > 0 ? '#DC2626' : '#6B7280'}">${demerits.length}</div>
-                                    <div style="font-size:10px;color:#6B7280">Demerits</div>
-                                  </div>
-                                </div>
-                                ${entries.length > 0 ? `<table><thead><tr><th>Date</th><th>Type</th><th>Category</th><th>Points</th><th>Reason</th></tr></thead><tbody>${entries.map(e => {
-                                  const isMerit = e.type === 'merit' || (!e.type && e.points > 0);
-                                  return `<tr><td>${e.createdAt ? new Date(e.createdAt).toLocaleDateString() : '—'}</td><td style="color:${isMerit ? '#16A34A' : '#DC2626'};font-weight:600">${isMerit ? 'Merit' : 'Demerit'}</td><td>${e.category || '—'}</td><td style="font-weight:600;color:${isMerit ? '#16A34A' : '#DC2626'}">${e.points > 0 ? '+' : ''}${e.points}</td><td>${e.reason || ''}</td></tr>`;
-                                }).join('')}</tbody></table>` : ''}
-                              `;
-                            }
-                          } catch (err) { /* no house points */ }
-
-                          const narrativeText = narrativeInfo.text + (student.comment ? ' ' + student.comment : '');
-                          const master = (masterStudents || []).find(ms => ms.name.toLowerCase() === student.name.toLowerCase());
-                          const w = window.open('', '_blank');
-                          w.document.write(`<!DOCTYPE html><html><head><title>Narrative — ${student.name}</title>
-                            <link href="https://fonts.googleapis.com/css2?family=Libre+Baskerville:wght@400;700&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
-                            <style>
-                              body{font-family:'DM Sans',sans-serif;color:#1F2937;padding:0;margin:0}
-                              .letterhead{background:linear-gradient(135deg,#1B3A5C 0%,#0F2440 100%);color:#fff;padding:24px 40px;display:flex;align-items:center;justify-content:space-between}
-                              .letterhead img{height:50px}
-                              .letterhead .school-info{text-align:right}
-                              .letterhead .school-name{font-family:'Libre Baskerville',serif;font-size:14px;font-weight:700;color:#C9A227}
-                              .letterhead .school-detail{font-size:10px;opacity:0.7;margin-top:2px}
-                              .body{padding:24px 40px 40px;max-width:800px}
-                              h1{font-family:'Libre Baskerville',serif;color:#1B3A5C;font-size:22px;margin:0 0 2px}
-                              h2{font-family:'Libre Baskerville',serif;color:#1B3A5C;font-size:14px;margin-top:24px;margin-bottom:8px;border-bottom:2px solid #1B3A5C;padding-bottom:4px}
-                              .subtitle{font-size:13px;color:#6B7280;margin-bottom:20px}
-                              .narrative{background:#FAF8F2;border-left:3px solid #C9A227;padding:16px;margin-bottom:16px;font-family:'Libre Baskerville',serif;font-size:13px;line-height:1.9;color:#374151}
-                              table{width:100%;border-collapse:collapse;margin-bottom:16px;font-size:12px}
-                              th{text-align:left;padding:6px 8px;background:#F3F4F6;border-bottom:2px solid #D1D5DB;font-size:10px;text-transform:uppercase;color:#6B7280}
-                              td{padding:6px 8px;border-bottom:1px solid #E5E7EB}
-                              .footer{margin-top:32px;padding-top:12px;border-top:1px solid #E5E7EB;font-size:10px;color:#9CA3AF;text-align:center}
-                              @media print{.letterhead{-webkit-print-color-adjust:exact;print-color-adjust:exact}.narrative{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
-                            </style></head><body>
-                            <div class="letterhead">
-                              <img src="https://static.wixstatic.com/media/f61363_bf5fe629d9c14c2380f88ea0a522389f~mv2.png/v1/fill/w_666,h_158,al_c,q_85,usm_0.66_1.00_0.01,enc_avif,quality_auto/Copy%20of%20CSN_CAFM_AltLogo_FULL.png" alt="CAFM" />
-                              <div class="school-info">
-                                <div class="school-name">Chesterton Academy of the Florida Martyrs</div>
-                                <div class="school-detail">A Classical Catholic High School · Pensacola, Florida</div>
-                              </div>
-                            </div>
-                            <div class="body">
-                              <h1>${student.name}</h1>
-                              <div class="subtitle">${config.className || 'Class'} · Participation Narrative · ${new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</div>
-                              <h2>Participation Narrative</h2>
-                              <div class="narrative">${narrativeText}</div>
-                              <h2>Scores</h2>
-                              <table><thead><tr>${VIRTUES.map(v => `<th style="color:${v.color}">${v.label}</th>`).join('')}<th>Average</th><th>Grade</th></tr></thead>
-                              <tbody><tr>${VIRTUES.map(v => `<td style="font-weight:600">${student.scores[v.key] || '—'}</td>`).join('')}<td style="font-weight:600">${student.scores ? (VIRTUES.reduce((s,v) => s + (student.scores[v.key]||0), 0) / VIRTUES.length).toFixed(1) : '—'}</td><td>${student.scores ? Math.round((VIRTUES.reduce((s,v) => s + (student.scores[v.key]||0), 0) / VIRTUES.length / 5) * 100) + '%' : '—'}</td></tr></tbody></table>
-                              ${hpRows}
-                              <div class="footer">Chesterton Academy of the Florida Martyrs · Family Life Center, St. Anne Catholic Church · Pensacola, FL<br/>Report generated ${new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</div>
-                            </div></body></html>`);
-                          w.document.close();
-                          setTimeout(() => w.print(), 500);
-                        }}
-                      >
-                        🖨 Print / PDF
-                      </button>
-                    </div>
+                    <button
+                      className="btn btn-secondary btn-sm"
+                      style={{ marginTop: 8 }}
+                      onClick={() => {
+                        const text = narrative + (student.comment ? ' ' + student.comment : '');
+                        navigator.clipboard.writeText(text);
+                      }}
+                    >
+                      📋 Copy This Narrative
+                    </button>
                   </div>
                 )}
               </div>
