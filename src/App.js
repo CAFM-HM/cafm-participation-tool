@@ -17,7 +17,7 @@ function App() {
   if (loading || rosterLoading) {
     return (
       <div className="login-screen">
-        <div className="school-crest">⚜️</div>
+        <img src={`${process.env.PUBLIC_URL}/logo.png`} alt="CAFM" className="login-logo" />
         <h1>Loading...</h1>
       </div>
     );
@@ -26,9 +26,9 @@ function App() {
   if (!user) {
     return (
       <div className="login-screen">
-        <div className="school-crest">⚜️</div>
+        <img src={`${process.env.PUBLIC_URL}/logo.png`} alt="CAFM" className="login-logo" />
         <h1>Chesterton Academy</h1>
-        <p className="subtitle">Participation Tool</p>
+        <p className="subtitle">Formation Management Portal</p>
         <button className="login-btn" onClick={login}>
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
             <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 01-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4"/>
@@ -59,8 +59,11 @@ function App() {
       <header className="app-header">
         <div className="header-inner">
           <div className="header-brand" onClick={() => setActiveTab('home')} style={{ cursor: 'pointer' }}>
-            <div className="school-name">Chesterton Academy of the Florida Martyrs</div>
-            <div className="app-title">Participation Tool</div>
+            <img src={`${process.env.PUBLIC_URL}/logo.png`} alt="CAFM" className="header-logo" />
+            <div>
+              <div className="school-name">Chesterton Academy of the Florida Martyrs</div>
+              <div className="app-title">Formation Management Portal</div>
+            </div>
           </div>
           <div className="header-user">
             <span>{displayName}</span>
