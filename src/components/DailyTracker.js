@@ -142,7 +142,7 @@ export default function DailyTracker({ uid, masterStudents, adminViewMode, admin
     const student = students.find(s => s.id === studentId);
     if (!student || isAbsent(student)) return;
     const currentScore = getScore(student, virtueKey);
-    saveDailyScore(selectedClass, studentId, date, virtueKey, currentScore === score ? 0 : score);
+    saveDailyScore(selectedClass, studentId, date, virtueKey, currentScore === score ? null : score);
   };
 
   // Score All per student
@@ -232,10 +232,10 @@ export default function DailyTracker({ uid, masterStudents, adminViewMode, admin
           dates.forEach(d => {
             const dayScores = student.scores?.[d];
             if (!dayScores || dayScores.absent) return;
-            const dayVals = VIRTUES.map(v => dayScores[v.key] || 0).filter(x => x > 0);
+            const dayVals = VIRTUES.map(v => dayScores[v.key]).filter(x => x !== null && x !== undefined);
             if (dayVals.length > 0) {
               periodScores.push(dayVals.reduce((a, b) => a + b, 0) / dayVals.length);
-              VIRTUES.forEach(v => { if (dayScores[v.key] > 0) virtueScores[v.key].push(dayScores[v.key]); });
+              VIRTUES.forEach(v => { if (dayScores[v.key] !== null && dayScores[v.key] !== undefined) virtueScores[v.key].push(dayScores[v.key]); });
             }
           });
 
@@ -528,7 +528,7 @@ export default function DailyTracker({ uid, masterStudents, adminViewMode, admin
                       <div key={virtue.key} className="virtue-row">
                         <span className="virtue-label" style={{ color: virtue.color }}>{virtue.label.substring(0, 4)}</span>
                         <div className="score-btns">
-                          {[1, 2, 3, 4, 5].map(score => (
+                          {[0, 1, 2, 3, 4, 5].map(score => (
                             <button key={score}
                               className={`score-btn s${score} ${getScore(student, virtue.key) === score ? 'active' : ''}`}
                               onClick={() => !adminViewMode && handleScoreTap(student.id, virtue.key, score)}
