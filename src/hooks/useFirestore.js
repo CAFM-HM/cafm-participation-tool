@@ -448,3 +448,70 @@ export function useQuickLinks() {
 
   return { links, loading, addLink, removeLink, refresh: load };
 }
+
+// ============================================================
+// SCHEDULE HOOK — single document stores entire schedule config
+// Firestore: schedule/config = { schoolDay, rooms, teachers, studentGroups, classes, grid, published }
+// Firestore: schedule/published = { ...same shape, set when admin hits Publish }
+// ============================================================
+export function useSchedule() {
+  const [config, setConfig] = useState(null);
+  const [published, setPublished] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const configSnap = await getDoc(doc(db, 'schedule', 'config'));
+      if (configSnap.exists()) setConfig(configSnap.data());
+      else setConfig(getDefaultConfig());
+
+      const pubSnap = await getDoc(doc(db, 'schedule', 'published'));
+      if (pubSnap.exists()) setPublished(pubSnap.data());
+    } catch (err) { console.error('Error loading schedule:', err); }
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const saveConfig = useCallback(async (newConfig) => {
+    setConfig(newConfig);
+    await setDoc(doc(db, 'schedule', 'config'), newConfig);
+  }, []);
+
+  const publish = useCallback(async (configToPublish) => {
+    const pubData = { ...configToPublish, publishedAt: new Date().toISOString() };
+    await setDoc(doc(db, 'schedule', 'published'), pubData);
+    setPublished(pubData);
+  }, []);
+
+  return { config, published, loading, saveConfig, publish, refresh: load };
+}
+
+function getDefaultConfig() {
+  return {
+    schoolDay: {
+      startTime: '08:00',
+      endTime: '15:00',
+      periodMinutes: 45,
+      passingMinutes: 5,
+      lunchAfterPeriod: 4,
+      lunchMinutes: 30,
+    },
+    rooms: [
+      { id: 'r1', name: 'Room 1', capacity: 10, notes: 'Small classes only' },
+      { id: 'r2', name: 'Room 2', capacity: 25, notes: '' },
+      { id: 'r3', name: 'Room 3', capacity: 25, notes: '' },
+      { id: 'r4', name: 'Room 4', capacity: 25, notes: '' },
+    ],
+    teachers: [],
+    studentGroups: [
+      { id: 'g9', name: 'Grade 9', color: '#1B3A5C' },
+      { id: 'g10', name: 'Grade 10', color: '#8B2252' },
+      { id: 'g11-12', name: 'Grade 11/12', color: '#2E7D5B' },
+    ],
+    classes: [],
+    grid: {}, // grid[periodIndex] = { classId, roomId }
+    publishedAt: null,
+  };
+}
