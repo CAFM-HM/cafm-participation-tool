@@ -412,8 +412,103 @@ input:focus, select:focus {
 }
 
 /* ============================================================
-   STUDENT ROWS
+   STUDENT ROWS — Scoring Grid
    ============================================================ */
+.student-scoring-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--gray-100);
+}
+
+.student-scoring-row:last-child {
+  border-bottom: none;
+}
+
+.student-scoring-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 220px;
+  flex-shrink: 0;
+  padding-top: 2px;
+}
+
+.student-name-block {
+  min-width: 120px;
+}
+
+.student-name-text {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--navy);
+}
+
+.student-house-label {
+  font-size: 10px;
+  color: var(--gray-400);
+  margin-top: 1px;
+}
+
+.remove-btn {
+  background: none;
+  border: none;
+  color: var(--red);
+  cursor: pointer;
+  font-size: 14px;
+  padding: 0 2px;
+  line-height: 1;
+}
+
+.score-all-group {
+  display: flex;
+  gap: 3px;
+  align-items: center;
+}
+
+.score-all-chip {
+  width: 28px;
+  height: 26px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--gray-300);
+  background: var(--gray-50);
+  color: var(--gray-600);
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+}
+
+.score-all-chip:hover:not(:disabled) {
+  background: var(--gold-light);
+  border-color: var(--gold);
+  color: var(--navy-dark);
+}
+
+.score-all-chip:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.student-virtues {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+}
+
+.field-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--gray-500);
+}
+
+/* Legacy .student-row kept for other components */
 .student-row {
   display: flex;
   align-items: flex-start;
@@ -432,13 +527,6 @@ input:focus, select:focus {
   font-size: 14px;
   color: var(--navy);
   padding-top: 4px;
-}
-
-.student-virtues {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  flex: 1;
 }
 
 /* ============================================================
@@ -759,41 +847,7 @@ input:focus, select:focus {
   border: 1px solid #BFDBFE;
   border-radius: var(--radius-md);
   padding: 10px 16px;
-  margin-bottom: 12px;
-}
-
-.score-all-group {
-  display: flex;
-  gap: 3px;
-  align-items: center;
-  padding-top: 4px;
-}
-
-.score-all-btn {
-  background: var(--gray-100) !important;
-  color: var(--gray-600) !important;
-  border: 1px solid var(--gray-300) !important;
-  font-weight: 600 !important;
-  min-width: 30px;
-  padding: 4px 8px !important;
-  font-size: 12px !important;
-}
-
-.score-all-btn:hover:not(:disabled) {
-  background: var(--gold-light) !important;
-  border-color: var(--gold) !important;
-  color: var(--navy-dark) !important;
-}
-
-.tracker-col-headers {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 8px;
-  padding-left: 0;
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--gray-500);
+  margin-bottom: 14px;
 }
 
 /* ============================================================
@@ -806,11 +860,41 @@ input:focus, select:focus {
   margin-bottom: 10px;
 }
 
+.gradebook-grade-header {
+  background: #FFFBEB !important;
+}
+
 .gradebook-grade-cell {
   font-weight: 700;
   font-size: 15px;
   color: var(--navy);
   background: #FFFBEB;
+}
+
+.gradebook-overall-box {
+  margin-top: 20px;
+  padding: 16px;
+  background: var(--gray-50);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--gray-200);
+}
+
+.period-nav {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  margin-bottom: 16px;
+  padding: 10px 0;
+}
+
+.period-nav-label {
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--navy);
+  min-width: 180px;
+  text-align: center;
 }
 
 /* ============================================================
@@ -825,8 +909,12 @@ input:focus, select:focus {
   .main-content { padding: 0 16px 24px; }
   .tab-panel { padding: 16px; }
   .student-row { flex-direction: column; gap: 6px; }
+  .student-scoring-row { flex-direction: column; gap: 8px; }
+  .student-scoring-left { min-width: unset; flex-wrap: wrap; }
   .student-name { min-width: unset; }
   .virtue-label { min-width: 55px; font-size: 10px; }
   .score-btn { width: 28px; height: 28px; font-size: 12px; }
   .setup-row { flex-direction: column; }
+  .period-nav { gap: 8px; }
+  .period-nav-label { min-width: 140px; font-size: 13px; }
 }
