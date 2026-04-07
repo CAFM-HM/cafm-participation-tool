@@ -3,20 +3,31 @@ import { doc, getDoc, setDoc, updateDoc, deleteDoc, collection, getDocs, addDoc,
 import { db } from '../firebase';
 
 // ============================================================
-// VIRTUE KEY MAPPING
+// VIRTUE KEY MAPPING — old format uses single letters
 // ============================================================
 const VIRTUE_SHORT = { discipline: 'D', attention: 'A', charity: 'C', inquiry: 'I' };
 const VIRTUE_LONG = { D: 'discipline', A: 'attention', C: 'charity', I: 'inquiry' };
 
+function useDebouncedSave(delay = 800) {
+  const timer = useRef(null);
+  return useCallback((fn) => {
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(fn, delay);
+  }, [delay]);
+}
+
 function parseStudentScores(allScores, studentName) {
   const result = {};
   for (const [dateStr, dateData] of Object.entries(allScores || {})) {
-    const sd = dateData?.[studentName];
-    if (sd) {
+    const studentData = dateData?.[studentName];
+    if (studentData) {
       result[dateStr] = {};
-      for (const [k, v] of Object.entries(sd)) {
-        if (VIRTUE_LONG[k]) result[dateStr][VIRTUE_LONG[k]] = v;
-        else if (k === 'E') result[dateStr].absent = v;
+      for (const [shortKey, value] of Object.entries(studentData)) {
+        if (VIRTUE_LONG[shortKey]) {
+          result[dateStr][VIRTUE_LONG[shortKey]] = value;
+        } else if (shortKey === 'E') {
+          result[dateStr].absent = value;
+        }
       }
     }
   }
@@ -24,7 +35,8 @@ function parseStudentScores(allScores, studentName) {
 }
 
 // ============================================================
-// MASTER ROSTER HOOK
+// MASTER ROSTER HOOK — school-wide student list (admin-managed)
+// Firestore: students/{studentId} = { name, house, gender, parentEmail, studentEmail }
 // ============================================================
 export function useMasterRoster() {
   const [students, setStudents] = useState([]);
@@ -34,18 +46,22 @@ export function useMasterRoster() {
   const loadStudents = useCallback(async () => {
     setLoading(true);
     try {
-      const snap = await getDocs(collection(db, 'students'));
+      const ref = collection(db, 'students');
+      const snap = await getDocs(ref);
       const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       data.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
       setStudents(data);
-    } catch (err) { console.error('Error loading master roster:', err); }
+    } catch (err) {
+      console.error('Error loading master roster:', err);
+    }
     setLoading(false);
   }, []);
 
   useEffect(() => { loadStudents(); }, [loadStudents, refreshKey]);
 
   const addStudent = useCallback(async (studentData) => {
-    await addDoc(collection(db, 'students'), {
+    const ref = collection(db, 'students');
+    await addDoc(ref, {
       name: studentData.name.trim(),
       house: studentData.house || '',
       gender: studentData.gender || 'he',
@@ -57,23 +73,31 @@ export function useMasterRoster() {
   }, []);
 
   const updateStudent = useCallback(async (studentId, updates) => {
-    await updateDoc(doc(db, 'students', studentId), updates);
+    const ref = doc(db, 'students', studentId);
+    await updateDoc(ref, updates);
     setRefreshKey(k => k + 1);
   }, []);
 
   const removeStudent = useCallback(async (studentId) => {
-    await deleteDoc(doc(db, 'students', studentId));
+    const ref = doc(db, 'students', studentId);
+    await deleteDoc(ref);
     setRefreshKey(k => k + 1);
   }, []);
 
+  // Bulk import from old roster data
   const bulkImport = useCallback(async (names, house) => {
     for (const name of names) {
       if (!name.trim()) continue;
+      // Check if already exists
       const existing = students.find(s => s.name.toLowerCase() === name.trim().toLowerCase());
       if (!existing) {
         await addDoc(collection(db, 'students'), {
-          name: name.trim(), house: house || '', gender: 'he',
-          parentEmail: '', studentEmail: '', createdAt: new Date().toISOString(),
+          name: name.trim(),
+          house: house || '',
+          gender: 'he',
+          parentEmail: '',
+          studentEmail: '',
+          createdAt: new Date().toISOString(),
         });
       }
     }
@@ -84,37 +108,33 @@ export function useMasterRoster() {
 }
 
 // ============================================================
-// TEACHER DATA HOOK — FIXED: immediate saves, stable loading
+// TEACHER DATA HOOK — reads old HTML format + master roster
 // ============================================================
 export function useTeacherData(uid, masterStudents) {
   const [classes, setClasses] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshKey, setRefreshKey] = useState(0);
-  const masterStudentsRef = useRef(masterStudents);
-  const pendingSaves = useRef(new Map()); // Track pending saves to prevent overwrite
-
-  // Update ref without triggering reload
-  useEffect(() => {
-    masterStudentsRef.current = masterStudents;
-  }, [masterStudents]);
+  const debouncedSave = useDebouncedSave();
 
   const loadClasses = useCallback(async () => {
     if (!uid) return;
     setLoading(true);
     try {
-      const snap = await getDocs(collection(db, 'teachers', uid, 'classes'));
+      const classesRef = collection(db, 'teachers', uid, 'classes');
+      const snap = await getDocs(classesRef);
       const data = [];
       for (const d of snap.docs) {
         const raw = d.data();
         const roster = raw.roster || [];
-        data.push({
+        const classData = {
           id: d.id,
           name: raw.cls || raw.name || 'Unnamed Class',
           quarter: raw.quarter || 'Q4',
           roster,
           rawScores: raw.scores || {},
           students: roster.map((name, idx) => {
-            const master = (masterStudentsRef.current || []).find(
+            // Look up in master roster for house/gender
+            const master = (masterStudents || []).find(
               s => s.name.toLowerCase() === name.toLowerCase()
             );
             return {
@@ -125,19 +145,22 @@ export function useTeacherData(uid, masterStudents) {
               scores: parseStudentScores(raw.scores, name),
             };
           }),
-        });
+        };
+        data.push(classData);
       }
       setClasses(data);
-    } catch (err) { console.error('Error loading classes:', err); }
+    } catch (err) {
+      console.error('Error loading classes:', err);
+    }
     setLoading(false);
-    // Note: depends only on uid and refreshKey, NOT masterStudents
-  }, [uid, refreshKey]);
+  }, [uid, masterStudents]);
 
-  useEffect(() => { loadClasses(); }, [loadClasses]);
+  useEffect(() => { loadClasses(); }, [loadClasses, refreshKey]);
 
   const addClass = useCallback(async (className) => {
     if (!uid || !className.trim()) return;
-    const newRef = doc(collection(db, 'teachers', uid, 'classes'));
+    const classesRef = collection(db, 'teachers', uid, 'classes');
+    const newRef = doc(classesRef);
     await setDoc(newRef, { cls: className.trim(), quarter: 'Q4', roster: [], scores: {} });
     setRefreshKey(k => k + 1);
     return newRef.id;
@@ -147,9 +170,10 @@ export function useTeacherData(uid, masterStudents) {
     if (!uid || !studentName.trim()) return;
     const cls = classes.find(c => c.id === classId);
     if (!cls) return;
-    if (cls.roster.includes(studentName.trim())) return;
+    if (cls.roster.includes(studentName.trim())) return; // Already in class
     const newRoster = [...cls.roster, studentName.trim()];
-    await updateDoc(doc(db, 'teachers', uid, 'classes', classId), { roster: newRoster });
+    const ref = doc(db, 'teachers', uid, 'classes', classId);
+    await updateDoc(ref, { roster: newRoster });
     setRefreshKey(k => k + 1);
   }, [uid, classes]);
 
@@ -158,19 +182,30 @@ export function useTeacherData(uid, masterStudents) {
     const cls = classes.find(c => c.id === classId);
     if (!cls) return;
     const newRoster = cls.roster.filter(n => n !== studentName);
-    await updateDoc(doc(db, 'teachers', uid, 'classes', classId), { roster: newRoster });
+    const ref = doc(db, 'teachers', uid, 'classes', classId);
+    await updateDoc(ref, { roster: newRoster });
     setRefreshKey(k => k + 1);
   }, [uid, classes]);
 
-  // FIXED: Save immediately, no debounce. Each score is a single field update.
-  const saveDailyScore = useCallback(async (classId, studentId, date, virtueKey, score) => {
+  const saveDailyScore = useCallback((classId, studentId, date, virtueKey, score) => {
     if (!uid) return;
     const cls = classes.find(c => c.id === classId);
     if (!cls) return;
     const student = cls.students.find(s => s.id === studentId);
     if (!student) return;
 
-    // Optimistic update first
+    debouncedSave(async () => {
+      const ref = doc(db, 'teachers', uid, 'classes', classId);
+      if (virtueKey === 'absent') {
+        await updateDoc(ref, { [`scores.${date}.${student.name}.E`]: score });
+      } else {
+        const shortKey = VIRTUE_SHORT[virtueKey];
+        if (shortKey) {
+          await updateDoc(ref, { [`scores.${date}.${student.name}.${shortKey}`]: score });
+        }
+      }
+    });
+
     setClasses(prev => prev.map(c => {
       if (c.id !== classId) return c;
       return {
@@ -185,22 +220,7 @@ export function useTeacherData(uid, masterStudents) {
         })
       };
     }));
-
-    // Save to Firestore immediately
-    try {
-      const ref = doc(db, 'teachers', uid, 'classes', classId);
-      if (virtueKey === 'absent') {
-        await updateDoc(ref, { [`scores.${date}.${student.name}.E`]: score });
-      } else {
-        const shortKey = VIRTUE_SHORT[virtueKey];
-        if (shortKey) {
-          await updateDoc(ref, { [`scores.${date}.${student.name}.${shortKey}`]: score });
-        }
-      }
-    } catch (err) {
-      console.error('Error saving score:', err);
-    }
-  }, [uid, classes]);
+  }, [uid, classes, debouncedSave]);
 
   const deleteClass = useCallback(async (classId) => {
     if (!uid) return;
@@ -222,7 +242,7 @@ export function useNarrativeData(uid) {
     teacherName: '', className: '', quarter: 'Q4', students: [],
   });
   const [loading, setLoading] = useState(true);
-  const saveTimer = useRef(null);
+  const debouncedSave = useDebouncedSave();
 
   useEffect(() => {
     if (!uid) return;
@@ -236,11 +256,10 @@ export function useNarrativeData(uid) {
   const saveNarrative = useCallback((data) => {
     if (!uid) return;
     setNarrativeConfig(data);
-    if (saveTimer.current) clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(async () => {
+    debouncedSave(async () => {
       await setDoc(doc(db, 'teachers', uid, 'config', 'narrative'), data);
-    }, 800);
-  }, [uid]);
+    });
+  }, [uid, debouncedSave]);
 
   return { narrativeConfig, setNarrativeConfig: saveNarrative, loading };
 }
@@ -271,37 +290,40 @@ export function useHousePoints() {
     await load();
   }, [load]);
 
-  const deleteEntry = useCallback(async (entryId) => {
-    await deleteDoc(doc(db, 'housePointEntries', entryId));
-    await load();
-  }, [load]);
-
-  const updateEntry = useCallback(async (entryId, updates) => {
-    await updateDoc(doc(db, 'housePointEntries', entryId), updates);
-    await load();
-  }, [load]);
-
-  const resetAll = useCallback(async () => {
-    const snap = await getDocs(collection(db, 'housePointEntries'));
-    for (const d of snap.docs) {
-      await deleteDoc(doc(db, 'housePointEntries', d.id));
-    }
-    await load();
-  }, [load]);
-
-  return { entries, loading, addEntry, deleteEntry, updateEntry, resetAll, refresh: load };
+  return { entries, loading, addEntry, refresh: load };
 }
 
 // ============================================================
-// CONDUCT ENTRIES HOOK (kept for backward compat, reads from housePointEntries)
+// CONDUCT ENTRIES HOOK
 // ============================================================
 export function useConductEntries() {
-  const { entries, loading, addEntry, refresh } = useHousePoints();
-  return { entries, loading, addEntry, refresh };
+  const [entries, setEntries] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const q = query(collection(db, 'conductEntries'), orderBy('date', 'desc'), limit(500));
+      const snap = await getDocs(q);
+      setEntries(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    } catch (err) { console.error(err); }
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const addEntry = useCallback(async (entry) => {
+    await addDoc(collection(db, 'conductEntries'), {
+      ...entry, createdAt: new Date().toISOString(),
+    });
+    await load();
+  }, [load]);
+
+  return { entries, loading, addEntry, refresh: load };
 }
 
 // ============================================================
-// ADMIN DATA HOOK
+// ADMIN DATA HOOK — reads all teachers' data
 // ============================================================
 export function useAdminData() {
   const [allTeachers, setAllTeachers] = useState([]);
@@ -316,6 +338,7 @@ export function useAdminData() {
         'hvThHfEBFAY7VrG3YQ3djt0Icxi1',
         'xn858oNYT3XOP6afwXh9qnT06cx2'
       ];
+
       for (const uid of teacherIds) {
         const teacherData = { uid, classes: [] };
         try {
@@ -332,7 +355,9 @@ export function useAdminData() {
             });
           }
           knownTeachers.push(teacherData);
-        } catch (e) { console.warn('Could not read teacher:', uid); }
+        } catch (e) {
+          console.warn('Could not read teacher:', uid);
+        }
       }
       setAllTeachers(knownTeachers);
     } catch (err) { console.error(err); }
@@ -341,4 +366,85 @@ export function useAdminData() {
 
   useEffect(() => { loadAll(); }, [loadAll]);
   return { allTeachers, loading, refresh: loadAll };
+}
+
+// ============================================================
+// ANNOUNCEMENTS HOOK — admin posts, everyone reads
+// Firestore: announcements/{id} = { title, body, postedBy, postedAt, pinned }
+// ============================================================
+export function useAnnouncements() {
+  const [announcements, setAnnouncements] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const q = query(collection(db, 'announcements'), orderBy('postedAt', 'desc'), limit(50));
+      const snap = await getDocs(q);
+      setAnnouncements(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    } catch (err) { console.error(err); }
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const addAnnouncement = useCallback(async (data) => {
+    await addDoc(collection(db, 'announcements'), {
+      title: data.title,
+      body: data.body,
+      postedBy: data.postedBy || '',
+      postedByName: data.postedByName || '',
+      postedAt: new Date().toISOString(),
+      pinned: data.pinned || false,
+    });
+    await load();
+  }, [load]);
+
+  const removeAnnouncement = useCallback(async (id) => {
+    await deleteDoc(doc(db, 'announcements', id));
+    await load();
+  }, [load]);
+
+  const togglePin = useCallback(async (id, currentPinned) => {
+    await updateDoc(doc(db, 'announcements', id), { pinned: !currentPinned });
+    await load();
+  }, [load]);
+
+  return { announcements, loading, addAnnouncement, removeAnnouncement, togglePin, refresh: load };
+}
+
+// ============================================================
+// QUICK LINKS HOOK — admin manages, everyone sees
+// Firestore: quickLinks/{id} = { label, url, order }
+// ============================================================
+export function useQuickLinks() {
+  const [links, setLinks] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const q = query(collection(db, 'quickLinks'), orderBy('order', 'asc'));
+      const snap = await getDocs(q);
+      setLinks(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    } catch (err) { console.error(err); }
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const addLink = useCallback(async (data) => {
+    const maxOrder = links.reduce((max, l) => Math.max(max, l.order || 0), 0);
+    await addDoc(collection(db, 'quickLinks'), {
+      label: data.label, url: data.url, order: maxOrder + 1,
+    });
+    await load();
+  }, [load, links]);
+
+  const removeLink = useCallback(async (id) => {
+    await deleteDoc(doc(db, 'quickLinks', id));
+    await load();
+  }, [load]);
+
+  return { links, loading, addLink, removeLink, refresh: load };
 }
