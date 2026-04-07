@@ -382,7 +382,16 @@ export function useAnnouncements() {
       const q = query(collection(db, 'announcements'), orderBy('postedAt', 'desc'), limit(50));
       const snap = await getDocs(q);
       setAnnouncements(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-    } catch (err) { console.error(err); }
+    } catch (err) {
+      // If index not ready, try without ordering
+      console.warn('Announcements ordered query failed, trying unordered:', err.message);
+      try {
+        const snap = await getDocs(collection(db, 'announcements'));
+        const docs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        docs.sort((a, b) => (b.postedAt || '').localeCompare(a.postedAt || ''));
+        setAnnouncements(docs);
+      } catch (err2) { console.error('Announcements load failed:', err2); }
+    }
     setLoading(false);
   }, []);
 
