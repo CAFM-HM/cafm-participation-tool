@@ -1177,6 +1177,211 @@ input:focus, select:focus {
 }
 
 /* ============================================================
+   SCHEDULE BUILDER
+   ============================================================ */
+.sched-form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.sched-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.sched-field label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--gray-500);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.sched-field input[type="number"] {
+  width: 100%;
+}
+
+.sched-inline-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+  flex-wrap: wrap;
+}
+
+.sched-teacher-card {
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-md);
+  margin-bottom: 8px;
+  overflow: hidden;
+}
+
+.sched-teacher-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: var(--gray-50);
+  cursor: pointer;
+  user-select: none;
+}
+
+.sched-teacher-header:hover {
+  background: var(--gray-100);
+}
+
+.sched-teacher-body {
+  padding: 14px 16px;
+  border-top: 1px solid var(--gray-200);
+}
+
+/* Schedule grid */
+.schedule-grid-container {
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.schedule-grid-row {
+  display: flex;
+  border-bottom: 1px solid var(--gray-200);
+  min-height: 64px;
+}
+
+.schedule-grid-row:last-child {
+  border-bottom: none;
+}
+
+.schedule-grid-row.lunch {
+  background: var(--gray-50);
+  min-height: 48px;
+}
+
+.schedule-grid-row.has-conflict {
+  background: #FEF2F2;
+}
+
+.schedule-grid-time {
+  min-width: 110px;
+  padding: 10px 12px;
+  border-right: 1px solid var(--gray-200);
+  background: var(--gray-50);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.schedule-grid-period-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--navy);
+}
+
+.schedule-grid-time-range {
+  font-size: 11px;
+  color: var(--gray-400);
+}
+
+.schedule-grid-content {
+  flex: 1;
+  padding: 8px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  justify-content: center;
+}
+
+.schedule-lunch-label {
+  font-weight: 600;
+  color: var(--gray-500);
+  font-style: italic;
+  text-align: center;
+}
+
+.schedule-grid-class {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  background: var(--blue-bg);
+  border: 1px solid #BFDBFE;
+  border-radius: var(--radius-sm);
+}
+
+.schedule-grid-class-name {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--navy);
+}
+
+.schedule-grid-class-detail {
+  font-size: 11px;
+  color: var(--gray-500);
+  margin-left: 8px;
+}
+
+.schedule-grid-class-info {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.schedule-add-btn {
+  background: none;
+  border: 1px dashed var(--gray-300);
+  border-radius: var(--radius-sm);
+  padding: 6px 12px;
+  color: var(--gray-400);
+  font-size: 12px;
+  cursor: pointer;
+  font-family: var(--font-body);
+  transition: all 0.15s;
+}
+
+.schedule-add-btn:hover {
+  border-color: var(--navy);
+  color: var(--navy);
+  background: var(--blue-bg);
+}
+
+.schedule-conflict-list {
+  margin-top: 4px;
+}
+
+.schedule-conflict-item {
+  font-size: 11px;
+  color: var(--red);
+  padding: 2px 0;
+}
+
+.schedule-warnings {
+  background: var(--red-bg);
+  border: 1px solid #FECACA;
+  border-radius: var(--radius-md);
+  padding: 10px 14px;
+  margin-bottom: 14px;
+}
+
+.schedule-warning-item {
+  font-size: 13px;
+  color: var(--red);
+  padding: 2px 0;
+}
+
+.schedule-preview-table th {
+  text-align: center;
+}
+
+.schedule-preview-table td {
+  text-align: center;
+  vertical-align: top;
+}
+
+/* ============================================================
    RESPONSIVE
    ============================================================ */
 @media (max-width: 640px) {
