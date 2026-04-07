@@ -70,6 +70,18 @@ body {
   flex-wrap: wrap;
 }
 
+.header-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.header-logo {
+  height: 40px;
+  width: auto;
+  filter: brightness(0) invert(1);
+}
+
 .header-brand .school-name {
   font-family: var(--font-display);
   font-size: 13px;
@@ -174,8 +186,9 @@ body {
   padding: 40px 24px;
 }
 
-.login-screen .school-crest {
-  font-size: 48px;
+.login-screen .login-logo {
+  height: 80px;
+  width: auto;
   margin-bottom: 16px;
 }
 
