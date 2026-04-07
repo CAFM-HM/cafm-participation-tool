@@ -320,7 +320,6 @@ export default function Home({ uid, isAdmin, displayName, masterStudents, onNavi
               <button className="quick-nav-btn" onClick={() => onNavigate('daily')}>Daily Scoring</button>
               <button className="quick-nav-btn" onClick={() => onNavigate('narrative')}>Narrative Builder</button>
               <button className="quick-nav-btn" onClick={() => onNavigate('house')}>House Points</button>
-              <button className="quick-nav-btn" onClick={() => onNavigate('demerits')}>Conduct Log</button>
               {isAdmin && <button className="quick-nav-btn" onClick={() => onNavigate('dashboard')}>Admin Dashboard</button>}
               {isAdmin && <button className="quick-nav-btn" onClick={() => onNavigate('roster')}>Master Roster</button>}
             </div>
