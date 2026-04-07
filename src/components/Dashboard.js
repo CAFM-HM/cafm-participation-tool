@@ -1,32 +1,18 @@
 import React, { useState, useMemo } from 'react';
-import { useAdminData, useHousePoints } from '../hooks/useFirestore';
+import { useAdminData } from '../hooks/useFirestore';
 import { VIRTUES } from '../data/virtueData';
 import { teacherDisplayName, UID_MAP } from '../firebase';
 import StudentReport from './StudentReport';
-import RosterManager from './RosterManager';
+import DailyTracker from './DailyTracker';
 
 export default function Dashboard({ masterStudents }) {
   const { allTeachers, loading, refresh } = useAdminData();
-  const { entries: houseEntries, loading: houseLoading } = useHousePoints();
   const [view, setView] = useState('summary');
   const [reportStudent, setReportStudent] = useState(null);
-
-  // Count demerits per student
-  const demeritCounts = useMemo(() => {
-    const counts = {};
-    (houseEntries || []).forEach(e => {
-      if ((e.type === 'demerit' || (!e.type && e.points < 0)) && e.studentName) {
-        const key = e.studentName.toLowerCase();
-        counts[key] = (counts[key] || 0) + 1;
-      }
-    });
-    return counts;
-  }, [houseEntries]);
+  const [teacherViewUid, setTeacherViewUid] = useState(null);
 
   const stats = useMemo(() => {
-    let totalClasses = 0, totalTeachers = allTeachers.length;
-    const uniqueStudents = new Set();
-    const belowThreeStudents = new Set();
+    let totalStudents = 0, totalClasses = 0, totalTeachers = allTeachers.length, belowThree = 0;
     const teacherSummaries = [], classSummaries = [], studentRows = [];
 
     for (const teacher of allTeachers) {
@@ -35,7 +21,7 @@ export default function Dashboard({ masterStudents }) {
         totalClasses++;
         const classScores = [];
         for (const stu of cls.students || []) {
-          uniqueStudents.add(stu.name.toLowerCase());
+          totalStudents++;
           const allDayScores = [];
           for (const [dateStr, dayScores] of Object.entries(stu.scores || {})) {
             if (dayScores.absent) continue;
@@ -43,7 +29,7 @@ export default function Dashboard({ masterStudents }) {
             if (dayAvg > 0) { allDayScores.push(dayAvg); teacherDays++; if (!lastActive || dateStr > lastActive) lastActive = dateStr; }
           }
           const overallAvg = allDayScores.length > 0 ? allDayScores.reduce((a, b) => a + b, 0) / allDayScores.length : null;
-          if (overallAvg !== null && overallAvg < 3) belowThreeStudents.add(stu.name.toLowerCase());
+          if (overallAvg !== null && overallAvg < 3) belowThree++;
           classScores.push(overallAvg);
           const virtueAvgs = {};
           VIRTUES.forEach(v => {
@@ -52,7 +38,6 @@ export default function Dashboard({ masterStudents }) {
             virtueAvgs[v.key] = vals.length > 0 ? (vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(1) : '—';
           });
           const masterStudent = (masterStudents || []).find(ms => ms.name.toLowerCase() === stu.name.toLowerCase());
-          const stuDemerits = demeritCounts[stu.name.toLowerCase()] || 0;
           studentRows.push({
             name: stu.name, house: masterStudent?.house || '', className: cls.name,
             teacher: teacherDisplayName(teacher.uid),
@@ -60,160 +45,76 @@ export default function Dashboard({ masterStudents }) {
             gradePct: overallAvg !== null ? Math.round((overallAvg / 5) * 100) + '%' : '—',
             daysScored: allDayScores.length, ...virtueAvgs,
             isBelowThree: overallAvg !== null && overallAvg < 3,
-            demerits: stuDemerits,
           });
         }
         const validScores = classScores.filter(s => s !== null);
         const classAvg = validScores.length > 0 ? validScores.reduce((a, b) => a + b, 0) / validScores.length : null;
         classSummaries.push({
-          name: cls.name, teacher: teacherDisplayName(teacher.uid), studentCount: cls.students?.length || 0,
+          name: cls.name, teacher: teacherDisplayName(teacher.uid), teacherUid: teacher.uid,
+          studentCount: cls.students?.length || 0,
           avg: classAvg !== null ? classAvg.toFixed(2) : '—', gradePct: classAvg !== null ? Math.round((classAvg / 5) * 100) + '%' : '—',
           isBelowThree: classAvg !== null && classAvg < 3,
         });
       }
       let status = 'Inactive';
       if (lastActive) { const d = Math.floor((Date.now() - new Date(lastActive).getTime()) / 86400000); if (d <= 3) status = 'Active'; else if (d <= 10) status = 'Stale'; }
-      teacherSummaries.push({ name: teacherDisplayName(teacher.uid), email: UID_MAP[teacher.uid] || teacher.uid, classCount: (teacher.classes || []).length, daysScored: teacherDays, lastActive, status });
+      teacherSummaries.push({ name: teacherDisplayName(teacher.uid), uid: teacher.uid, email: UID_MAP[teacher.uid] || teacher.uid, classCount: (teacher.classes || []).length, daysScored: teacherDays, lastActive, status });
     }
     classSummaries.sort((a, b) => { if (a.avg === '—') return 1; if (b.avg === '—') return -1; return parseFloat(a.avg) - parseFloat(b.avg); });
     studentRows.sort((a, b) => a.name.localeCompare(b.name));
-    return { totalStudents: uniqueStudents.size, totalClasses, totalTeachers, belowThree: belowThreeStudents.size, teacherSummaries, classSummaries, studentRows };
-  }, [allTeachers, masterStudents, demeritCounts]);
-
-  // Attention Needed: students below 3.0 OR 3+ demerits (deduplicated by name)
-  const attentionNeeded = useMemo(() => {
-    const seen = new Set();
-    const flagged = [];
-    stats.studentRows.forEach(s => {
-      const reasons = [];
-      if (s.isBelowThree) reasons.push(`Avg ${s.overallAvg} (below 3.0)`);
-      if (s.demerits >= 3) reasons.push(`${s.demerits} demerits`);
-      if (reasons.length > 0 && !seen.has(s.name.toLowerCase())) {
-        seen.add(s.name.toLowerCase());
-        flagged.push({ ...s, reasons });
-      }
-    });
-    return flagged;
-  }, [stats.studentRows]);
+    return { totalStudents, totalClasses, totalTeachers, belowThree, teacherSummaries, classSummaries, studentRows };
+  }, [allTeachers, masterStudents]);
 
   const exportCSV = () => {
-    const headers = ['Student', 'House', 'Class', 'Teacher', 'Overall Avg', 'Grade %', 'Days Scored', 'Demerits', ...VIRTUES.map(v => v.label)];
-    const rows = stats.studentRows.map(s => [s.name, s.house, s.className, s.teacher, s.overallAvg, s.gradePct, s.daysScored, s.demerits, ...VIRTUES.map(v => s[v.key])]);
+    const headers = ['Student', 'House', 'Class', 'Teacher', 'Overall Avg', 'Grade %', 'Days Scored', ...VIRTUES.map(v => v.label)];
+    const rows = stats.studentRows.map(s => [s.name, s.house, s.className, s.teacher, s.overallAvg, s.gradePct, s.daysScored, ...VIRTUES.map(v => s[v.key])]);
     const csv = [headers, ...rows].map(r => r.map(c => `"${c}"`).join(',')).join('\n');
     const blob = new Blob([csv], { type: 'text/csv' });
     const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
     a.download = `cafm-dashboard-${new Date().toISOString().split('T')[0]}.csv`; a.click();
   };
 
-  const sendWeeklySummary = () => {
-    const weekOf = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+  if (loading) return <div style={{ padding: 40, textAlign: 'center', color: '#9CA3AF' }}>Loading dashboard...</div>;
 
-    for (const teacher of stats.teacherSummaries) {
-      // Find this teacher's students with concerns
-      const teacherStudents = stats.studentRows.filter(s => s.teacher === teacher.name);
-      const belowThree = teacherStudents.filter(s => s.isBelowThree);
-      const withDemerits = teacherStudents.filter(s => s.demerits >= 3);
+  // ============================================================
+  // TEACHER VIEW MODE — show their DailyTracker + Gradebook
+  // ============================================================
+  if (teacherViewUid) {
+    const teacherName = teacherDisplayName(teacherViewUid);
+    return (
+      <div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
+          <button className="btn btn-secondary" onClick={() => setTeacherViewUid(null)}>
+            ← Back to Dashboard
+          </button>
+          <h2 className="section-title">
+            Viewing as: {teacherName}
+          </h2>
+          <span className="badge badge-green">Teacher View</span>
+        </div>
+        <DailyTracker
+          uid={null}
+          masterStudents={masterStudents}
+          adminViewMode={true}
+          adminUid={teacherViewUid}
+        />
+      </div>
+    );
+  }
 
-      // Find this teacher's classes
-      const teacherClasses = stats.classSummaries.filter(c => c.teacher === teacher.name);
-
-      let body = `Hi ${teacher.name},\n\n`;
-      body += `Here is your weekly participation summary for the week of ${weekOf}.\n\n`;
-
-      body += `SCORING ACTIVITY\n`;
-      body += `Days scored this period: ${teacher.daysScored}\n`;
-      body += `Classes: ${teacher.classCount}\n`;
-      body += `Status: ${teacher.status}\n\n`;
-
-      if (teacherClasses.length > 0) {
-        body += `CLASS AVERAGES\n`;
-        teacherClasses.forEach(c => {
-          body += `  ${c.name}: ${c.avg} (${c.gradePct})\n`;
-        });
-        body += '\n';
-      }
-
-      if (belowThree.length > 0) {
-        body += `STUDENTS BELOW 3.0 (need attention)\n`;
-        belowThree.forEach(s => {
-          body += `  ${s.name} — ${s.overallAvg} avg (${s.gradePct}) in ${s.className}\n`;
-        });
-        body += '\n';
-      }
-
-      if (withDemerits.length > 0) {
-        body += `STUDENTS WITH 3+ DEMERITS\n`;
-        withDemerits.forEach(s => {
-          body += `  ${s.name} — ${s.demerits} demerits\n`;
-        });
-        body += '\n';
-      }
-
-      if (belowThree.length === 0 && withDemerits.length === 0) {
-        body += `No students flagged for concern this week. Great work!\n\n`;
-      }
-
-      body += `Please make sure participation scores are up to date. You can access the tool at:\nhttps://cafm-hm.github.io/cafm-participation-tool/\n\n`;
-      body += `God bless,\nCAFM Administration`;
-
-      const subject = `Weekly Participation Summary — ${weekOf}`;
-      const mailto = `https://mail.google.com/mail/?view=cm&to=${encodeURIComponent(teacher.email)}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-      window.open(mailto, '_blank');
-    }
-  };
-
-  if (loading || houseLoading) return <div style={{ padding: 40, textAlign: 'center', color: '#9CA3AF' }}>Loading dashboard...</div>;
-
+  // ============================================================
+  // NORMAL DASHBOARD
+  // ============================================================
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20, flexWrap: 'wrap', gap: 8 }}>
         <h2 className="section-title">Admin Dashboard</h2>
         <div style={{ display: 'flex', gap: 8 }}>
           <button className="btn btn-secondary" onClick={refresh}>↻ Refresh</button>
-          <button className="btn btn-secondary" onClick={sendWeeklySummary}>✉ Email Summaries</button>
           <button className="btn btn-gold" onClick={exportCSV}>Export CSV</button>
         </div>
       </div>
 
-      {/* Attention Needed */}
-      {attentionNeeded.length > 0 && (
-        <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 10, padding: 16, marginBottom: 20 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-            <span style={{ fontSize: 20 }}>⚠️</span>
-            <span style={{ fontFamily: 'var(--font-display)', fontSize: 15, fontWeight: 700, color: '#991B1B' }}>
-              Attention Needed ({attentionNeeded.length} student{attentionNeeded.length !== 1 ? 's' : ''})
-            </span>
-          </div>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-            <thead>
-              <tr>
-                <th style={{ textAlign: 'left', padding: '6px 8px', borderBottom: '1px solid #FECACA', fontSize: 11, textTransform: 'uppercase', color: '#991B1B' }}>Student</th>
-                <th style={{ textAlign: 'left', padding: '6px 8px', borderBottom: '1px solid #FECACA', fontSize: 11, textTransform: 'uppercase', color: '#991B1B' }}>House</th>
-                <th style={{ textAlign: 'left', padding: '6px 8px', borderBottom: '1px solid #FECACA', fontSize: 11, textTransform: 'uppercase', color: '#991B1B' }}>Concern</th>
-                <th style={{ padding: '6px 8px', borderBottom: '1px solid #FECACA' }}></th>
-              </tr>
-            </thead>
-            <tbody>
-              {attentionNeeded.map((s, i) => (
-                <tr key={i}>
-                  <td style={{ padding: '6px 8px', borderBottom: '1px solid #FEE2E2', fontWeight: 600, color: '#991B1B' }}>{s.name}</td>
-                  <td style={{ padding: '6px 8px', borderBottom: '1px solid #FEE2E2' }}>{s.house || '—'}</td>
-                  <td style={{ padding: '6px 8px', borderBottom: '1px solid #FEE2E2' }}>
-                    {s.reasons.map((r, j) => (
-                      <span key={j} className="badge badge-red" style={{ marginRight: 4 }}>{r}</span>
-                    ))}
-                  </td>
-                  <td style={{ padding: '6px 8px', borderBottom: '1px solid #FEE2E2' }}>
-                    <button className="btn btn-sm btn-secondary" onClick={() => setReportStudent(s.name)}>Report</button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {/* Summary Stats */}
       <div className="stats-grid">
         <div className="stat-card"><div className="stat-value">{stats.totalStudents}</div><div className="stat-label">Students</div></div>
         <div className="stat-card"><div className="stat-value">{stats.totalClasses}</div><div className="stat-label">Classes</div></div>
@@ -221,47 +122,67 @@ export default function Dashboard({ masterStudents }) {
         <div className={`stat-card ${stats.belowThree > 0 ? 'alert' : ''}`}><div className="stat-value">{stats.belowThree}</div><div className="stat-label">Below 3.0</div></div>
       </div>
 
-      {/* View Tabs */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
-        {[{ id: 'summary', label: 'Teacher Usage' }, { id: 'classes', label: 'Class Averages' }, { id: 'students', label: 'Student Overview' }, { id: 'rosters', label: 'Manage Rosters' }].map(v => (
+        {[
+          { id: 'summary', label: 'Teacher Usage' },
+          { id: 'classes', label: 'Class Averages' },
+          { id: 'students', label: 'Student Overview' },
+        ].map(v => (
           <button key={v.id} className={`btn ${view === v.id ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setView(v.id)}>{v.label}</button>
         ))}
       </div>
 
-      {/* Teacher Usage */}
       {view === 'summary' && (
         <div style={{ overflowX: 'auto' }}>
           <table className="data-table">
-            <thead><tr><th>Teacher</th><th>Email</th><th>Classes</th><th>Days Scored</th><th>Last Active</th><th>Status</th></tr></thead>
+            <thead><tr><th>Teacher</th><th>Email</th><th>Classes</th><th>Days Scored</th><th>Last Active</th><th>Status</th><th></th></tr></thead>
             <tbody>{stats.teacherSummaries.map((t, i) => (
-              <tr key={i}><td style={{ fontWeight: 500 }}>{t.name}</td><td style={{ fontSize: 12, color: '#6B7280' }}>{t.email}</td><td>{t.classCount}</td><td>{t.daysScored}</td><td>{t.lastActive || '—'}</td>
-              <td><span className={`badge ${t.status === 'Active' ? 'badge-green' : t.status === 'Stale' ? 'badge-gray' : 'badge-red'}`}>{t.status}</span></td></tr>
+              <tr key={i}>
+                <td style={{ fontWeight: 500 }}>{t.name}</td>
+                <td style={{ fontSize: 12, color: '#6B7280' }}>{t.email}</td>
+                <td>{t.classCount}</td>
+                <td>{t.daysScored}</td>
+                <td>{t.lastActive || '—'}</td>
+                <td><span className={`badge ${t.status === 'Active' ? 'badge-green' : t.status === 'Stale' ? 'badge-gray' : 'badge-red'}`}>{t.status}</span></td>
+                <td>
+                  <button className="btn btn-sm btn-primary" onClick={() => setTeacherViewUid(t.uid)}>
+                    View Classes
+                  </button>
+                </td>
+              </tr>
             ))}</tbody>
           </table>
         </div>
       )}
 
-      {/* Class Averages */}
       {view === 'classes' && (
         <div style={{ overflowX: 'auto' }}>
           <table className="data-table">
-            <thead><tr><th>Class</th><th>Teacher</th><th>Students</th><th>Avg Score</th><th>Grade %</th></tr></thead>
+            <thead><tr><th>Class</th><th>Teacher</th><th>Students</th><th>Avg Score</th><th>Grade %</th><th></th></tr></thead>
             <tbody>{stats.classSummaries.map((c, i) => (
-              <tr key={i}><td style={{ fontWeight: 500 }}>{c.name}</td><td>{c.teacher}</td><td>{c.studentCount}</td>
-              <td style={{ color: c.isBelowThree ? '#DC2626' : undefined, fontWeight: c.isBelowThree ? 600 : undefined }}>{c.avg}</td>
-              <td style={{ color: c.isBelowThree ? '#DC2626' : undefined }}>{c.gradePct}</td></tr>
+              <tr key={i}>
+                <td style={{ fontWeight: 500 }}>{c.name}</td>
+                <td>{c.teacher}</td>
+                <td>{c.studentCount}</td>
+                <td style={{ color: c.isBelowThree ? '#DC2626' : undefined, fontWeight: c.isBelowThree ? 600 : undefined }}>{c.avg}</td>
+                <td style={{ color: c.isBelowThree ? '#DC2626' : undefined }}>{c.gradePct}</td>
+                <td>
+                  <button className="btn btn-sm btn-secondary" onClick={() => setTeacherViewUid(c.teacherUid)}>
+                    View
+                  </button>
+                </td>
+              </tr>
             ))}</tbody>
           </table>
         </div>
       )}
 
-      {/* Student Overview */}
       {view === 'students' && (
         <div style={{ overflowX: 'auto' }}>
           <table className="data-table">
             <thead><tr><th>Student</th><th>Class</th><th>House</th><th>Days</th>
               {VIRTUES.map(v => <th key={v.key} style={{ color: v.color }}>{v.label.substring(0, 4)}</th>)}
-              <th>Avg</th><th>Grade</th><th>Dem.</th><th></th></tr></thead>
+              <th>Avg</th><th>Grade</th><th></th></tr></thead>
             <tbody>{stats.studentRows.map((s, i) => (
               <tr key={i}>
                 <td style={{ fontWeight: 500, color: s.isBelowThree ? '#DC2626' : undefined }}>{s.name}</td>
@@ -269,16 +190,11 @@ export default function Dashboard({ masterStudents }) {
                 {VIRTUES.map(v => <td key={v.key}>{s[v.key]}</td>)}
                 <td style={{ color: s.isBelowThree ? '#DC2626' : undefined, fontWeight: s.isBelowThree ? 600 : undefined }}>{s.overallAvg}</td>
                 <td>{s.gradePct}</td>
-                <td style={{ color: s.demerits >= 3 ? '#DC2626' : undefined, fontWeight: s.demerits >= 3 ? 600 : undefined }}>{s.demerits || '—'}</td>
                 <td><button className="btn btn-sm btn-secondary" onClick={() => setReportStudent(s.name)}>Report</button></td>
               </tr>
             ))}</tbody>
           </table>
         </div>
-      )}
-
-      {view === 'rosters' && (
-        <RosterManager allTeachers={allTeachers} onRefresh={refresh} />
       )}
 
       {reportStudent && <StudentReport studentName={reportStudent} onClose={() => setReportStudent(null)} />}
