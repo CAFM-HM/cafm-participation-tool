@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { useCommandCenter, useBudget } from '../hooks/useFirestore';
 import BudgetTool from './BudgetTool';
+import FinancialPlanning from './FinancialPlanning';
 
 // ============================================================
 // BOARD TIMELINE DATA
@@ -56,7 +57,7 @@ export default function CommandCenter() {
       </div>
 
       <div style={{ display: 'flex', gap: 6, marginBottom: 16, flexWrap: 'wrap' }}>
-        {[{ id: 'overview', label: 'Overview' }, { id: 'timeline', label: 'Timeline' }, { id: 'directory', label: 'Directory' }, { id: 'documents', label: 'Documents' }, { id: 'budget', label: 'Budget' }].map(t => (
+        {[{ id: 'overview', label: 'Overview' }, { id: 'timeline', label: 'Timeline' }, { id: 'directory', label: 'Directory' }, { id: 'documents', label: 'Documents' }, { id: 'budget', label: 'Budget' }, { id: 'financial', label: 'Financial Planning' }].map(t => (
           <button key={t.id} className={`btn btn-sm ${tab === t.id ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setTab(t.id)}>{t.label}</button>
         ))}
       </div>
@@ -66,6 +67,7 @@ export default function CommandCenter() {
       {tab === 'directory' && <BoardDirectory data={local} update={update} />}
       {tab === 'documents' && <BoardDocuments data={local} update={update} />}
       {tab === 'budget' && <BudgetTool />}
+      {tab === 'financial' && <FinancialPlanning />}
     </div>
   );
 }
