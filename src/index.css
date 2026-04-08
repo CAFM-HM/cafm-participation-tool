@@ -1382,6 +1382,84 @@ input:focus, select:focus {
   vertical-align: top;
 }
 
+/* M-F Schedule Grid Table */
+.sched-grid-wrapper {
+  overflow-x: auto;
+  margin-bottom: 16px;
+}
+
+.sched-grid-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  min-width: 700px;
+}
+
+.sched-grid-table th {
+  text-align: center;
+  padding: 10px 8px;
+  background: var(--gray-50);
+  border: 1px solid var(--gray-200);
+  font-weight: 600;
+  color: var(--navy);
+  font-size: 12px;
+}
+
+.sched-grid-time-col {
+  width: 110px;
+  text-align: left !important;
+}
+
+.sched-grid-day-col {
+  width: 18%;
+}
+
+.sched-grid-table td {
+  border: 1px solid var(--gray-200);
+  padding: 6px 8px;
+  vertical-align: top;
+}
+
+.sched-grid-time-cell {
+  background: var(--gray-50);
+}
+
+.sched-grid-cell {
+  min-height: 50px;
+  position: relative;
+}
+
+.sched-grid-cell.has-conflict {
+  background: #FEF2F2;
+}
+
+.sched-grid-lunch-row td {
+  background: var(--gray-50);
+}
+
+.sched-grid-class-chip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 8px;
+  background: var(--blue-bg);
+  border: 1px solid #BFDBFE;
+  border-radius: 4px;
+  margin-bottom: 3px;
+}
+
+.sched-grid-class-chip.double {
+  border-color: var(--gold);
+  background: #FFFBEB;
+}
+
+.sched-grid-double-cont {
+  padding: 8px;
+  background: #FFFBEB;
+  border-radius: 4px;
+  text-align: center;
+}
+
 /* ============================================================
    RESPONSIVE
    ============================================================ */
