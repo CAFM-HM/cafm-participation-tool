@@ -217,9 +217,66 @@ function BoardTimeline({ data, update }) {
     return [];
   };
 
+  const exportPDF = () => {
+    const w = window.open('', '_blank');
+    const schoolYear = `${new Date().getFullYear()}–${new Date().getFullYear() + 1}`;
+
+    const monthsHtml = ordered.map(m => {
+      const sections = CATEGORIES.map(cat => {
+        const base = getBaseItems(m, cat.key);
+        const custom = getCustomForSection(m.month, cat.key);
+        const all = [...base, ...custom.map(c => c.text)];
+        if (all.length === 0) return '';
+        const colorMap = { discuss: '#1D4ED8', decide: '#B45309', event: '#047857' };
+        const bgMap = { discuss: '#EFF6FF', decide: '#FFFBEB', event: '#ECFDF5' };
+        return `
+          <div style="margin-bottom:6px;">
+            <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:${colorMap[cat.key]};background:${bgMap[cat.key]};display:inline-block;padding:1px 6px;border-radius:3px;margin-bottom:3px;">${cat.label}</div>
+            ${all.map(item => {
+              const done = isCompleted(m.month, item, cat.key);
+              return `<div style="font-size:11px;padding:2px 0;${done ? 'text-decoration:line-through;color:#9CA3AF;' : 'color:#374151;'}">
+                <span style="margin-right:4px;">${done ? '✓' : '○'}</span>${item}
+              </div>`;
+            }).join('')}
+          </div>
+        `;
+      }).join('');
+
+      const isCurrent = m.month === currentMonth;
+      return `
+        <div style="break-inside:avoid;border:1px solid ${isCurrent ? '#1B3A5C' : '#E5E7EB'};border-radius:8px;padding:12px;${isCurrent ? 'background:#EFF6FF;border-width:2px;' : m.meetingMonth ? '' : 'background:#F9FAFB;'}">
+          <div style="font-family:Georgia,serif;font-size:14px;font-weight:700;color:#1B3A5C;margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid #E5E7EB;display:flex;justify-content:space-between;align-items:center;">
+            <span>${m.month}</span>
+            ${isCurrent ? '<span style="font-family:sans-serif;font-size:9px;background:#1B3A5C;color:white;padding:2px 8px;border-radius:10px;">CURRENT</span>' : ''}
+            ${!m.meetingMonth ? '<span style="font-size:9px;color:#9CA3AF;font-style:italic;">No meeting</span>' : ''}
+          </div>
+          ${sections || (m.note ? `<div style="font-size:11px;color:#9CA3AF;font-style:italic;">${m.note}</div>` : '')}
+        </div>
+      `;
+    }).join('');
+
+    w.document.write(`<!DOCTYPE html><html><head><title>CAFM Board Timeline ${schoolYear}</title>
+      <style>
+        body { font-family: 'Segoe UI', sans-serif; color: #1F2937; max-width: 900px; margin: 0 auto; padding: 32px; }
+        h1 { font-family: Georgia, serif; color: #1B3A5C; font-size: 20px; margin-bottom: 2px; }
+        .subtitle { font-size: 12px; color: #6B7280; margin-bottom: 24px; }
+        .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+        @media print { body { padding: 16px; } .grid { grid-template-columns: repeat(3, 1fr); } }
+      </style></head><body>
+      <h1>CAFM Board of Directors — Annual Timeline</h1>
+      <div class="subtitle">Chesterton Academy of the Florida Martyrs · ${schoolYear} · Generated ${new Date().toLocaleDateString()}</div>
+      <div class="grid">${monthsHtml}</div>
+    </body></html>`);
+    w.document.close();
+    setTimeout(() => w.print(), 300);
+  };
+
   return (
     <div>
-      <h3 className="section-title" style={{ marginBottom: 4 }}>Annual Board Timeline</h3>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+        <h3 className="section-title">Annual Board Timeline</h3>
+        <button className="btn btn-sm btn-gold" onClick={exportPDF}>Export PDF</button>
+      </div>
       <div style={{ fontSize: 12, color: '#9CA3AF', marginBottom: 16 }}>
         Click items to mark as completed. Use + to add custom items to any month.
       </div>
