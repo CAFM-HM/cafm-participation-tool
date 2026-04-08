@@ -9,12 +9,12 @@ const BOARD_TIMELINE = [
     month: 'July', meetingMonth: true,
     discussion: ['Annual Fundraising Plan', 'Annual Recruiting Plan', 'Family Handbook'],
     decision: [],
-    events: ['Mass at First Day of School'],
+    events: [],
   },
   {
     month: 'August', meetingMonth: false,
     discussion: [], decision: [],
-    events: [],
+    events: ['Mass at First Day of School'],
     note: 'No board meeting',
   },
   {
