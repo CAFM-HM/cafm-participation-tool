@@ -541,6 +541,34 @@ export function useDocuments() {
   return { documents, loading, addDocument, removeDocument, refresh: load };
 }
 
+// ============================================================
+// COMMAND CENTER HOOK — single document stores board data
+// Firestore: commandCenter/data = { directors, completedMonths, boardDocs }
+// ============================================================
+export function useCommandCenter() {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const snap = await getDoc(doc(db, 'commandCenter', 'data'));
+      if (snap.exists()) setData(snap.data());
+      else setData({ directors: [], completedMonths: [], boardDocs: [] });
+    } catch (err) { console.error('Error loading command center:', err); setData({ directors: [], completedMonths: [], boardDocs: [] }); }
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const saveData = useCallback(async (newData) => {
+    setData(newData);
+    await setDoc(doc(db, 'commandCenter', 'data'), newData);
+  }, []);
+
+  return { data, loading, saveData, refresh: load };
+}
+
 function getDefaultConfig() {
   return {
     schoolDay: {
