@@ -1754,6 +1754,69 @@ input:focus, select:focus {
   font-size: 16px;
 }
 
+/* Budget Tool */
+.budget-category-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.budget-category-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 14px;
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-sm);
+  background: var(--white);
+}
+
+.budget-category-row.over-budget {
+  border-color: #FECACA;
+  background: #FEF2F2;
+}
+
+.budget-cat-info {
+  min-width: 200px;
+  flex-shrink: 0;
+}
+
+.budget-cat-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--navy);
+}
+
+.budget-cat-owner {
+  font-size: 11px;
+  color: var(--gray-400);
+}
+
+.budget-cat-bar-area {
+  flex: 1;
+}
+
+.budget-cat-bar-track {
+  height: 8px;
+  background: var(--gray-100);
+  border-radius: 4px;
+  overflow: hidden;
+  margin-bottom: 4px;
+}
+
+.budget-cat-bar-fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.3s;
+}
+
+.budget-cat-numbers {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--gray-500);
+}
+
 /* ============================================================
    RESPONSIVE
    ============================================================ */
