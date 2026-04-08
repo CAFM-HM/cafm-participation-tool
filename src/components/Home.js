@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { useAnnouncements, useQuickLinks, useTeacherData } from '../hooks/useFirestore';
+import { useAnnouncements, useQuickLinks, useDocuments, useTeacherData } from '../hooks/useFirestore';
 import { VIRTUES } from '../data/virtueData';
 
 const TODAY = new Date().toISOString().split('T')[0];
@@ -36,12 +36,16 @@ function timeAgo(isoStr) {
 export default function Home({ uid, isAdmin, displayName, masterStudents, onNavigate }) {
   const { announcements, loading: annLoading, addAnnouncement, removeAnnouncement, togglePin } = useAnnouncements();
   const { links, loading: linksLoading, addLink, removeLink } = useQuickLinks();
+  const { documents, loading: docsLoading, addDocument, removeDocument } = useDocuments();
   const { classes, loading: classesLoading } = useTeacherData(uid, masterStudents);
 
   const [showPostForm, setShowPostForm] = useState(false);
   const [newAnn, setNewAnn] = useState({ title: '', body: '', pinned: false });
   const [showLinkForm, setShowLinkForm] = useState(false);
   const [newLink, setNewLink] = useState({ label: '', url: '' });
+  const [showDocForm, setShowDocForm] = useState(false);
+  const [newDoc, setNewDoc] = useState({ label: '', url: '' });
+  const [activeDocId, setActiveDocId] = useState(null);
 
   // ============================================================
   // SCORING STATUS — this week
@@ -101,7 +105,21 @@ export default function Home({ uid, isAdmin, displayName, masterStudents, onNavi
     setShowLinkForm(false);
   };
 
-  const loading = annLoading || linksLoading || classesLoading;
+  const handleAddDoc = async () => {
+    if (!newDoc.label.trim() || !newDoc.url.trim()) return;
+    let url = newDoc.url.trim();
+    if (!url.startsWith('http')) url = 'https://' + url;
+    await addDocument({ label: newDoc.label.trim(), url });
+    setNewDoc({ label: '', url: '' });
+    setShowDocForm(false);
+  };
+
+  const loading = annLoading || linksLoading || docsLoading || classesLoading;
+
+  // Set first doc as active if none selected
+  if (!activeDocId && documents.length > 0) {
+    setActiveDocId(documents[0].id);
+  }
 
   // Sort announcements: pinned first, then by date
   const sortedAnnouncements = [...announcements].sort((a, b) => {
@@ -262,6 +280,72 @@ export default function Home({ uid, isAdmin, displayName, masterStudents, onNavi
                   </div>
                 ))}
               </div>
+            )}
+          </div>
+
+          {/* Documents Viewer */}
+          <div className="home-card">
+            <div className="home-card-header">
+              <h3>Documents</h3>
+              {isAdmin && (
+                <button className="btn btn-sm btn-secondary" onClick={() => setShowDocForm(!showDocForm)}>
+                  {showDocForm ? 'Cancel' : '+ Add'}
+                </button>
+              )}
+            </div>
+
+            {isAdmin && showDocForm && (
+              <div style={{ marginBottom: 12, padding: 12, background: '#F9FAFB', borderRadius: 8, border: '1px solid #E5E7EB' }}>
+                <input type="text" placeholder="Document name (e.g. School Calendar)" value={newDoc.label}
+                  onChange={e => setNewDoc({ ...newDoc, label: e.target.value })} style={{ marginBottom: 6 }} />
+                <input type="text" placeholder="PDF URL (or path like /docs/calendar.pdf)" value={newDoc.url}
+                  onChange={e => setNewDoc({ ...newDoc, url: e.target.value })}
+                  onKeyDown={e => e.key === 'Enter' && handleAddDoc()} style={{ marginBottom: 8 }} />
+                <div style={{ fontSize: 11, color: '#9CA3AF', marginBottom: 8 }}>
+                  Upload PDFs to your repo's public/docs/ folder, then enter the path as: {window.location.origin}/cafm-participation-tool/docs/filename.pdf
+                </div>
+                <button className="btn btn-sm btn-gold" onClick={handleAddDoc}>Add Document</button>
+              </div>
+            )}
+
+            {documents.length === 0 ? (
+              <div style={{ padding: 16, textAlign: 'center', color: '#9CA3AF', fontStyle: 'italic', fontSize: 13 }}>
+                {isAdmin ? 'Add documents for your team to view.' : 'No documents added yet.'}
+              </div>
+            ) : (
+              <>
+                {/* Document tabs */}
+                <div style={{ display: 'flex', gap: 4, marginBottom: 12, flexWrap: 'wrap' }}>
+                  {documents.map(doc => (
+                    <div key={doc.id} style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                      <button
+                        className={`btn btn-sm ${activeDocId === doc.id ? 'btn-primary' : 'btn-secondary'}`}
+                        onClick={() => setActiveDocId(doc.id)}>
+                        {doc.label}
+                      </button>
+                      {isAdmin && (
+                        <button className="remove-btn" style={{ fontSize: 11 }}
+                          onClick={() => window.confirm(`Remove "${doc.label}"?`) && removeDocument(doc.id)}>×</button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+
+                {/* PDF viewer */}
+                {(() => {
+                  const activeDoc = documents.find(d => d.id === activeDocId);
+                  if (!activeDoc) return null;
+                  return (
+                    <div className="doc-viewer-container">
+                      <iframe
+                        src={activeDoc.url}
+                        title={activeDoc.label}
+                        className="doc-viewer-iframe"
+                      />
+                    </div>
+                  );
+                })()}
+              </>
             )}
           </div>
         </div>
