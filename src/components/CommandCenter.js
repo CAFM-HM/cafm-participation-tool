@@ -146,11 +146,14 @@ export default function CommandCenter() {
 }
 
 // ============================================================
-// BOARD TIMELINE — interactive annual view
+// BOARD TIMELINE — interactive annual view with custom items
 // ============================================================
 function BoardTimeline({ data, update }) {
   const currentMonth = getCurrentMonthName();
   const completedMonths = data.completedMonths || [];
+  const customItems = data.customTimelineItems || []; // { id, month, category, text }
+  const [addingTo, setAddingTo] = useState(null); // "month-category"
+  const [newItemText, setNewItemText] = useState('');
 
   const toggleCompleted = (month, item, category) => {
     const key = `${month}-${category}-${item}`;
@@ -168,22 +171,63 @@ function BoardTimeline({ data, update }) {
     return completedMonths.includes(`${month}-${category}-${item}`);
   };
 
+  const addCustomItem = (month, category) => {
+    if (!newItemText.trim()) return;
+    update(c => {
+      if (!c.customTimelineItems) c.customTimelineItems = [];
+      c.customTimelineItems.push({
+        id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+        month, category, text: newItemText.trim(),
+      });
+    });
+    setNewItemText('');
+    setAddingTo(null);
+  };
+
+  const removeCustomItem = (id) => {
+    update(c => {
+      c.customTimelineItems = (c.customTimelineItems || []).filter(i => i.id !== id);
+      // Also remove any completion status for this item
+      const item = customItems.find(i => i.id === id);
+      if (item) {
+        const key = `${item.month}-${item.category}-${item.text}`;
+        c.completedMonths = (c.completedMonths || []).filter(k => k !== key);
+      }
+    });
+  };
+
+  const getCustomForSection = (month, category) => {
+    return customItems.filter(i => i.month === month && i.category === category);
+  };
+
   // Reorder to start from July (fiscal year)
   const julyIdx = BOARD_TIMELINE.findIndex(m => m.month === 'July');
   const ordered = [...BOARD_TIMELINE.slice(julyIdx), ...BOARD_TIMELINE.slice(0, julyIdx)];
+
+  const CATEGORIES = [
+    { key: 'discuss', label: 'For Discussion', cssClass: 'discuss' },
+    { key: 'decide', label: 'For Decision', cssClass: 'decide' },
+    { key: 'event', label: 'Events', cssClass: 'events' },
+  ];
+
+  const getBaseItems = (m, catKey) => {
+    if (catKey === 'discuss') return m.discussion;
+    if (catKey === 'decide') return m.decision;
+    if (catKey === 'event') return m.events;
+    return [];
+  };
 
   return (
     <div>
       <h3 className="section-title" style={{ marginBottom: 4 }}>Annual Board Timeline</h3>
       <div style={{ fontSize: 12, color: '#9CA3AF', marginBottom: 16 }}>
-        Click items to mark as completed. Current month is highlighted.
+        Click items to mark as completed. Use + to add custom items to any month.
       </div>
 
       <div className="cc-timeline-grid">
         {ordered.map(m => {
           const isCurrent = m.month === currentMonth;
           const isPast = MONTH_NAMES.indexOf(m.month) < MONTH_NAMES.indexOf(currentMonth);
-          const hasContent = m.discussion.length > 0 || m.decision.length > 0 || m.events.length > 0;
 
           return (
             <div key={m.month} className={`cc-timeline-card ${isCurrent ? 'current' : ''} ${isPast ? 'past' : ''} ${!m.meetingMonth ? 'no-meeting' : ''}`}>
@@ -193,47 +237,65 @@ function BoardTimeline({ data, update }) {
                 {!m.meetingMonth && <span style={{ fontSize: 10, color: '#9CA3AF', fontStyle: 'italic' }}>No meeting</span>}
               </div>
 
-              {m.discussion.length > 0 && (
-                <div className="cc-timeline-section">
-                  <div className="cc-timeline-section-label discuss">For Discussion</div>
-                  {m.discussion.map(item => (
-                    <div key={item} className={`cc-timeline-item ${isCompleted(m.month, item, 'discuss') ? 'completed' : ''}`}
-                      onClick={() => toggleCompleted(m.month, item, 'discuss')}>
-                      <span className="cc-check">{isCompleted(m.month, item, 'discuss') ? '✓' : '○'}</span>
-                      <span>{item}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
+              {CATEGORIES.map(cat => {
+                const baseItems = getBaseItems(m, cat.key);
+                const custom = getCustomForSection(m.month, cat.key);
+                const allItems = [...baseItems.map(text => ({ text, isCustom: false })), ...custom.map(c => ({ text: c.text, isCustom: true, id: c.id }))];
+                const addKey = `${m.month}-${cat.key}`;
 
-              {m.decision.length > 0 && (
-                <div className="cc-timeline-section">
-                  <div className="cc-timeline-section-label decide">For Decision</div>
-                  {m.decision.map(item => (
-                    <div key={item} className={`cc-timeline-item ${isCompleted(m.month, item, 'decide') ? 'completed' : ''}`}
-                      onClick={() => toggleCompleted(m.month, item, 'decide')}>
-                      <span className="cc-check">{isCompleted(m.month, item, 'decide') ? '✓' : '○'}</span>
-                      <span>{item}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
+                if (allItems.length === 0 && addingTo !== addKey) return null;
 
-              {m.events.length > 0 && (
-                <div className="cc-timeline-section">
-                  <div className="cc-timeline-section-label events">Events</div>
-                  {m.events.map(item => (
-                    <div key={item} className={`cc-timeline-item ${isCompleted(m.month, item, 'event') ? 'completed' : ''}`}
-                      onClick={() => toggleCompleted(m.month, item, 'event')}>
-                      <span className="cc-check">{isCompleted(m.month, item, 'event') ? '✓' : '○'}</span>
-                      <span>{item}</span>
+                return (
+                  <div key={cat.key} className="cc-timeline-section">
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <div className={`cc-timeline-section-label ${cat.cssClass}`}>{cat.label}</div>
+                      <button className="cc-add-item-btn" onClick={() => { setAddingTo(addingTo === addKey ? null : addKey); setNewItemText(''); }}
+                        title={`Add ${cat.label.toLowerCase()} item`}>+</button>
                     </div>
-                  ))}
-                </div>
-              )}
+                    {allItems.map((item, idx) => (
+                      <div key={idx} className={`cc-timeline-item ${isCompleted(m.month, item.text, cat.key) ? 'completed' : ''}`}>
+                        <span className="cc-check" onClick={() => toggleCompleted(m.month, item.text, cat.key)}>
+                          {isCompleted(m.month, item.text, cat.key) ? '✓' : '○'}
+                        </span>
+                        <span onClick={() => toggleCompleted(m.month, item.text, cat.key)} style={{ flex: 1, cursor: 'pointer' }}>{item.text}</span>
+                        {item.isCustom && (
+                          <button className="remove-btn" style={{ fontSize: 11, marginLeft: 4 }}
+                            onClick={(e) => { e.stopPropagation(); removeCustomItem(item.id); }}>×</button>
+                        )}
+                      </div>
+                    ))}
+                    {addingTo === addKey && (
+                      <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
+                        <input type="text" value={newItemText} placeholder="New item..."
+                          onChange={e => setNewItemText(e.target.value)}
+                          onKeyDown={e => e.key === 'Enter' && addCustomItem(m.month, cat.key)}
+                          style={{ flex: 1, fontSize: 12, padding: '4px 8px' }}
+                          autoFocus />
+                        <button className="btn btn-sm btn-primary" style={{ fontSize: 11, padding: '3px 8px' }}
+                          onClick={() => addCustomItem(m.month, cat.key)}>Add</button>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
 
-              {!hasContent && m.note && (
-                <div style={{ fontSize: 12, color: '#9CA3AF', fontStyle: 'italic', padding: '8px 0' }}>{m.note}</div>
+              {/* Show + buttons for empty categories */}
+              {CATEGORIES.map(cat => {
+                const baseItems = getBaseItems(m, cat.key);
+                const custom = getCustomForSection(m.month, cat.key);
+                const addKey = `${m.month}-${cat.key}`;
+                if (baseItems.length > 0 || custom.length > 0 || addingTo === addKey) return null;
+
+                return addingTo === addKey ? null : (
+                  <button key={cat.key} className="cc-add-section-btn"
+                    onClick={() => { setAddingTo(addKey); setNewItemText(''); }}>
+                    + Add {cat.label.toLowerCase()}
+                  </button>
+                );
+              })}
+
+              {m.note && !m.meetingMonth && getBaseItems(m, 'discuss').length === 0 && getBaseItems(m, 'decide').length === 0 && getBaseItems(m, 'event').length === 0 && getCustomForSection(m.month, 'discuss').length === 0 && getCustomForSection(m.month, 'decide').length === 0 && getCustomForSection(m.month, 'event').length === 0 && (
+                <div style={{ fontSize: 12, color: '#9CA3AF', fontStyle: 'italic', padding: '4px 0' }}>{m.note}</div>
               )}
             </div>
           );
