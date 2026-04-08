@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { useCommandCenter } from '../hooks/useFirestore';
+import BudgetTool from './BudgetTool';
 
 // ============================================================
 // BOARD TIMELINE DATA — from the Annual Board Schedule PDF
@@ -132,6 +133,7 @@ export default function CommandCenter() {
           { id: 'timeline', label: 'Board Timeline' },
           { id: 'directory', label: 'Board Directory' },
           { id: 'documents', label: 'Board Documents' },
+          { id: 'budget', label: 'Budget' },
         ].map(t => (
           <button key={t.id} className={`btn btn-sm ${tab === t.id ? 'btn-primary' : 'btn-secondary'}`}
             onClick={() => setTab(t.id)}>{t.label}</button>
@@ -141,6 +143,7 @@ export default function CommandCenter() {
       {tab === 'timeline' && <BoardTimeline data={local} update={update} />}
       {tab === 'directory' && <BoardDirectory data={local} update={update} />}
       {tab === 'documents' && <BoardDocuments data={local} update={update} />}
+      {tab === 'budget' && <BudgetTool />}
     </div>
   );
 }
