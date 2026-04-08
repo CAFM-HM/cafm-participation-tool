@@ -49,7 +49,7 @@ function App() {
     { id: 'narrative', label: 'Narrative Builder' },
     { id: 'house', label: 'House Points' },
     { id: 'schedule', label: isAdmin ? 'Schedule Builder' : 'Schedule' },
-    ...(isBoardMember ? [{ id: 'command', label: 'Command Center' }] : []),
+    ...(isBoardMember ? [{ id: 'command', label: 'Board' }] : []),
     ...(isAdmin ? [
       { id: 'dashboard', label: 'Dashboard' },
       { id: 'roster', label: 'Master Roster' },
