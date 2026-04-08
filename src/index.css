@@ -1634,6 +1634,75 @@ input:focus, select:focus {
   color: var(--navy);
 }
 
+/* Meeting Details */
+.cc-meeting-add-btn {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: 1px dashed var(--gray-300);
+  border-radius: var(--radius-sm);
+  padding: 6px 10px;
+  font-family: var(--font-body);
+  font-size: 11px;
+  color: var(--gray-400);
+  cursor: pointer;
+  margin-bottom: 8px;
+  transition: all 0.15s;
+}
+
+.cc-meeting-add-btn:hover {
+  border-color: var(--navy);
+  color: var(--navy);
+  background: var(--blue-bg);
+}
+
+.cc-meeting-edit {
+  background: var(--blue-bg);
+  border: 1px solid #BFDBFE;
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  margin-bottom: 8px;
+}
+
+.cc-meeting-info {
+  background: var(--gray-50);
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  margin-bottom: 8px;
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+
+.cc-meeting-info:hover {
+  border-color: var(--navy);
+}
+
+.cc-meeting-datetime {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--navy);
+}
+
+.cc-meeting-location {
+  font-size: 11px;
+  color: var(--gray-500);
+  margin-top: 2px;
+}
+
+.cc-meeting-link {
+  font-size: 11px;
+  color: #1D4ED8;
+  text-decoration: none;
+  margin-top: 3px;
+  display: inline-block;
+}
+
+.cc-meeting-link:hover {
+  text-decoration: underline;
+}
+
 /* Board Directory */
 .cc-director-grid {
   display: grid;
