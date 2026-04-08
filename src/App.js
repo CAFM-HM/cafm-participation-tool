@@ -8,9 +8,10 @@ import Dashboard from './components/Dashboard';
 import HousePoints from './components/HousePoints';
 import MasterRoster from './components/MasterRoster';
 import ScheduleBuilder from './components/ScheduleBuilder';
+import CommandCenter from './components/CommandCenter';
 
 function App() {
-  const { user, loading, login, logout, isAdmin, displayName } = useAuth();
+  const { user, loading, login, logout, isAdmin, isBoardMember, displayName } = useAuth();
   const { students: masterStudents, loading: rosterLoading, addStudent, updateStudent, removeStudent, bulkImport, refresh: refreshRoster } = useMasterRoster();
   const [activeTab, setActiveTab] = useState('home');
 
@@ -48,6 +49,7 @@ function App() {
     { id: 'narrative', label: 'Narrative Builder' },
     { id: 'house', label: 'House Points' },
     { id: 'schedule', label: isAdmin ? 'Schedule Builder' : 'Schedule' },
+    ...(isBoardMember ? [{ id: 'command', label: 'Command Center' }] : []),
     ...(isAdmin ? [
       { id: 'dashboard', label: 'Dashboard' },
       { id: 'roster', label: 'Master Roster' },
@@ -100,6 +102,7 @@ function App() {
           {activeTab === 'narrative' && <NarrativeBuilder uid={user.uid} masterStudents={masterStudents} />}
           {activeTab === 'house' && <HousePoints uid={user.uid} isAdmin={isAdmin} masterStudents={masterStudents} />}
           {activeTab === 'schedule' && <ScheduleBuilder isAdmin={isAdmin} />}
+          {activeTab === 'command' && isBoardMember && <CommandCenter />}
           {activeTab === 'dashboard' && isAdmin && <Dashboard masterStudents={masterStudents} />}
           {activeTab === 'roster' && isAdmin && (
             <MasterRoster
