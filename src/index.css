@@ -1475,6 +1475,245 @@ input:focus, select:focus {
 }
 
 /* ============================================================
+   COMMAND CENTER
+   ============================================================ */
+
+/* Board Timeline */
+.cc-timeline-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 12px;
+}
+
+.cc-timeline-card {
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-md);
+  padding: 14px;
+  background: var(--white);
+  transition: all 0.15s;
+}
+
+.cc-timeline-card.current {
+  border-color: var(--navy);
+  border-width: 2px;
+  background: var(--blue-bg);
+  box-shadow: 0 2px 8px rgba(27, 58, 92, 0.15);
+}
+
+.cc-timeline-card.past {
+  opacity: 0.7;
+}
+
+.cc-timeline-card.no-meeting {
+  background: var(--gray-50);
+}
+
+.cc-timeline-month {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-family: var(--font-display);
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--navy);
+  margin-bottom: 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--gray-200);
+}
+
+.cc-current-badge {
+  font-family: var(--font-body);
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--white);
+  background: var(--navy);
+  padding: 2px 8px;
+  border-radius: 10px;
+  letter-spacing: 0.5px;
+}
+
+.cc-timeline-section {
+  margin-bottom: 8px;
+}
+
+.cc-timeline-section-label {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 4px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  display: inline-block;
+}
+
+.cc-timeline-section-label.discuss {
+  color: #1D4ED8;
+  background: #EFF6FF;
+}
+
+.cc-timeline-section-label.decide {
+  color: #B45309;
+  background: #FFFBEB;
+}
+
+.cc-timeline-section-label.events {
+  color: #047857;
+  background: #ECFDF5;
+}
+
+.cc-timeline-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 0;
+  font-size: 13px;
+  color: var(--gray-700);
+  cursor: pointer;
+  transition: color 0.15s;
+}
+
+.cc-timeline-item:hover {
+  color: var(--navy);
+}
+
+.cc-timeline-item.completed {
+  color: var(--gray-400);
+  text-decoration: line-through;
+}
+
+.cc-check {
+  font-size: 14px;
+  width: 18px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.cc-timeline-item.completed .cc-check {
+  color: var(--green);
+}
+
+/* Board Directory */
+.cc-director-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 12px;
+}
+
+.cc-director-card {
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-md);
+  padding: 14px;
+  background: var(--white);
+}
+
+.cc-director-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.cc-director-name {
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--navy);
+}
+
+.cc-director-role {
+  margin-top: 4px;
+}
+
+.cc-director-details {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.cc-director-detail {
+  font-size: 12px;
+  color: var(--gray-500);
+}
+
+.cc-director-term, .cc-director-oath {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.cc-term-expired {
+  color: var(--red);
+  font-weight: 600;
+}
+
+.cc-term-soon {
+  color: #B45309;
+  font-weight: 600;
+}
+
+.cc-oath-signed {
+  color: var(--green);
+  font-size: 12px;
+}
+
+/* Board Documents */
+.cc-docs-container {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.cc-docs-category-title {
+  font-family: var(--font-display);
+  font-size: 14px;
+  color: var(--navy);
+  margin-bottom: 8px;
+  padding-bottom: 4px;
+  border-bottom: 2px solid var(--gray-200);
+}
+
+.cc-docs-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.cc-docs-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--gray-100);
+  transition: all 0.15s;
+}
+
+.cc-docs-item:hover {
+  background: var(--blue-bg);
+  border-color: #BFDBFE;
+}
+
+.cc-docs-link {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-decoration: none;
+  color: var(--navy);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.cc-docs-link:hover {
+  text-decoration: underline;
+}
+
+.cc-docs-icon {
+  font-size: 16px;
+}
+
+/* ============================================================
    RESPONSIVE
    ============================================================ */
 @media (max-width: 640px) {
