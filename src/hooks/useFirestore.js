@@ -597,6 +597,37 @@ export function useBudget() {
   return { data, loading, saveData, refresh: load };
 }
 
+// ============================================================
+// FINANCIAL PLANNING HOOK — 6-year projections, tuition model, salary schedule, financial aid
+// Firestore: financialPlanning/data = { initialized, projections, revenue, tuition, salary, aid }
+// ============================================================
+export function useFinancialPlanning() {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const snap = await getDoc(doc(db, 'financialPlanning', 'data'));
+      if (snap.exists()) setData(snap.data());
+      else setData({});
+    } catch (err) {
+      console.error('Error loading financial planning:', err);
+      setData({});
+    }
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const saveData = useCallback(async (newData) => {
+    setData(newData);
+    await setDoc(doc(db, 'financialPlanning', 'data'), newData);
+  }, []);
+
+  return { data, loading, saveData, refresh: load };
+}
+
 function getDefaultConfig() {
   return {
     schoolDay: {
