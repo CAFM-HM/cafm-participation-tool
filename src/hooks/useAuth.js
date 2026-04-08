@@ -1,12 +1,13 @@
 import { useState, useEffect } from 'react';
-import { onAuthStateChanged, signInWithPopup, signOut } from 'firebase/auth';
-import { auth, provider, isAdmin } from '../firebase';
+import { onAuthStateChanged, signInWithRedirect, getRedirectResult, signOut } from 'firebase/auth';
+import { auth, provider, isAdmin, isBoardMember } from '../firebase';
 
 export function useAuth() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    getRedirectResult(auth).catch(() => {});
     const unsub = onAuthStateChanged(auth, (u) => {
       setUser(u);
       setLoading(false);
@@ -14,20 +15,7 @@ export function useAuth() {
     return unsub;
   }, []);
 
-  const login = async () => {
-    try {
-      await signInWithPopup(auth, provider);
-    } catch (err) {
-      // If popup blocked, fall back to redirect
-      if (err.code === 'auth/popup-blocked' || err.code === 'auth/popup-closed-by-user') {
-        const { signInWithRedirect } = await import('firebase/auth');
-        await signInWithRedirect(auth, provider);
-      } else {
-        console.error('Login error:', err);
-      }
-    }
-  };
-
+  const login = () => signInWithRedirect(auth, provider);
   const logout = () => signOut(auth);
 
   return {
@@ -36,6 +24,7 @@ export function useAuth() {
     login,
     logout,
     isAdmin: isAdmin(user?.email),
+    isBoardMember: isBoardMember(user?.email),
     displayName: user?.displayName || user?.email || '',
     email: user?.email || '',
     uid: user?.uid || '',
