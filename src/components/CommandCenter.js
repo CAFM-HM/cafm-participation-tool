@@ -83,7 +83,12 @@ function BoardOverview({ data, update, budgetData, onNavigate }) {
   const enrollment = data.enrollment || { current: 22, nextYear: { confirmed: 0, pipeline: 0, target: 30 } };
 
   const currentIdx = MONTH_NAMES.indexOf(currentMonth);
-  const nextMeeting = BOARD_TIMELINE.find(m => m.meetingMonth && MONTH_NAMES.indexOf(m.month) >= currentIdx) || BOARD_TIMELINE.find(m => m.meetingMonth);
+  // Find the next meeting month by calendar order (not array order)
+  const futureMeetings = BOARD_TIMELINE.filter(m => m.meetingMonth && MONTH_NAMES.indexOf(m.month) > currentIdx)
+    .sort((a, b) => MONTH_NAMES.indexOf(a.month) - MONTH_NAMES.indexOf(b.month));
+  // If current month IS a meeting month, check that too
+  const currentIsMeeting = BOARD_TIMELINE.find(m => m.meetingMonth && m.month === currentMonth);
+  const nextMeeting = currentIsMeeting || futureMeetings[0] || BOARD_TIMELINE.filter(m => m.meetingMonth).sort((a, b) => MONTH_NAMES.indexOf(a.month) - MONTH_NAMES.indexOf(b.month))[0];
 
   const budgetStats = useMemo(() => {
     if (!budgetData?.lineItems) return null;
