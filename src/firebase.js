@@ -30,9 +30,12 @@ export const isAdmin = (email) => ADMINS.includes(email?.toLowerCase());
 export const BOARD_MEMBERS = [
   'headmaster@chestertonpensacola.org',
   'charlie@chestertonpensacola.org',
-  // Add board member emails here as they get accounts:
-  // 'johnpaulfalardeau@hotmail.com',
-  // 'pat@patscanlon.org',
+  'jp@chestertonpensacola.org',
+  'catherine@chestertonpensacola.org',
+  'mike@chestertonpensacola.org',
+  'patrick@chestertonpensacola.org',
+  'tamarah@chestertonpensacola.org',
+  'alicia@chestertonpensacola.org',
 ];
 
 export const isBoardMember = (email) => BOARD_MEMBERS.includes(email?.toLowerCase());
