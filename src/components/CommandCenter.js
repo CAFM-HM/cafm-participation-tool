@@ -489,19 +489,21 @@ function MeetingDetails({ month, data, update }) {
 }
 
 // ============================================================
-// BOARD DIRECTORY
+// BOARD DIRECTORY — with inline editing
 // ============================================================
 function BoardDirectory({ data, update }) {
   const [showAdd, setShowAdd] = useState(false);
+  const [editingId, setEditingId] = useState(null);
   const [newDir, setNewDir] = useState({ name: '', role: 'Member', email: '', phone: '', termStart: '', termEnd: '', oathDate: '', oathNote: '' });
   const directors = data.directors || [];
+  const ROLES = ['President', 'Vice President', 'Secretary', 'Treasurer', 'Member', 'Chaplain'];
 
   const addDirector = () => {
     if (!newDir.name.trim()) return;
     update(c => { if (!c.directors) c.directors = []; c.directors.push({ id: genId(), ...newDir, name: newDir.name.trim() }); });
     setNewDir({ name: '', role: 'Member', email: '', phone: '', termStart: '', termEnd: '', oathDate: '', oathNote: '' }); setShowAdd(false);
   };
-  const removeDirector = (id) => { if (window.confirm('Remove this director?')) update(c => { c.directors = (c.directors || []).filter(d => d.id !== id); }); };
+  const removeDirector = (id) => { if (window.confirm('Remove this director?')) { update(c => { c.directors = (c.directors || []).filter(d => d.id !== id); }); if (editingId === id) setEditingId(null); } };
   const updateDirector = (id, field, value) => { update(c => { const d = (c.directors || []).find(d => d.id === id); if (d) d[field] = value; }); };
 
   const roleOrder = { 'President': 0, 'Vice President': 1, 'Secretary': 2, 'Treasurer': 3, 'Member': 4, 'Chaplain': 5 };
@@ -519,7 +521,7 @@ function BoardDirectory({ data, update }) {
           <div className="sched-inline-row">
             <input type="text" placeholder="Full name" value={newDir.name} onChange={e => setNewDir({ ...newDir, name: e.target.value })} style={{ width: 180 }} />
             <select value={newDir.role} onChange={e => setNewDir({ ...newDir, role: e.target.value })} style={{ width: 140 }}>
-              {['President', 'Vice President', 'Secretary', 'Treasurer', 'Member', 'Chaplain'].map(r => <option key={r} value={r}>{r}</option>)}
+              {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
             </select>
             <input type="email" placeholder="Email" value={newDir.email} onChange={e => setNewDir({ ...newDir, email: e.target.value })} style={{ width: 200 }} />
           </div>
@@ -536,35 +538,91 @@ function BoardDirectory({ data, update }) {
       {sorted.length === 0 ? <div style={{ padding: 40, textAlign: 'center', color: '#9CA3AF' }}>No directors added yet.</div> : (
         <div className="cc-director-grid">
           {sorted.map(d => {
+            const isEditing = editingId === d.id;
             const termExpired = d.termEnd && new Date(d.termEnd) < new Date();
             const termSoon = d.termEnd && !termExpired && (new Date(d.termEnd) - new Date()) < 90 * 86400000;
             return (
               <div key={d.id} className="cc-director-card">
                 <div className="cc-director-header">
                   <div>
-                    <div className="cc-director-name">{d.name}</div>
-                    <div className="cc-director-role"><span className={`badge ${d.role === 'Chaplain' ? 'badge-gray' : 'badge-green'}`}>{d.role}</span></div>
+                    {isEditing ? (
+                      <input type="text" value={d.name} onChange={e => updateDirector(d.id, 'name', e.target.value)}
+                        style={{ fontWeight: 600, fontSize: 14, border: '1px solid #D1D5DB', borderRadius: 4, padding: '2px 6px', width: '100%', marginBottom: 4 }} />
+                    ) : (
+                      <div className="cc-director-name">{d.name}</div>
+                    )}
+                    {isEditing ? (
+                      <select value={d.role} onChange={e => updateDirector(d.id, 'role', e.target.value)}
+                        style={{ fontSize: 12, padding: '2px 4px', borderRadius: 4, border: '1px solid #D1D5DB' }}>
+                        {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
+                      </select>
+                    ) : (
+                      <div className="cc-director-role"><span className={`badge ${d.role === 'Chaplain' ? 'badge-gray' : 'badge-green'}`}>{d.role}</span></div>
+                    )}
                   </div>
-                  <button className="remove-btn" onClick={() => removeDirector(d.id)}>×</button>
+                  <div style={{ display: 'flex', gap: 4 }}>
+                    <button className="btn btn-sm btn-secondary" onClick={() => setEditingId(isEditing ? null : d.id)}
+                      style={{ fontSize: 11, padding: '2px 8px' }}>{isEditing ? 'Done' : 'Edit'}</button>
+                    <button className="remove-btn" onClick={() => removeDirector(d.id)}>×</button>
+                  </div>
                 </div>
                 <div className="cc-director-details">
-                  {d.email && <div className="cc-director-detail">{d.email}</div>}
-                  {d.phone && <div className="cc-director-detail">{d.phone}</div>}
-                  <div className="cc-director-term">
-                    <span style={{ fontSize: 11, color: '#6B7280' }}>Term:</span>
-                    {d.termStart || d.termEnd ? (
-                      <span className={termExpired ? 'cc-term-expired' : termSoon ? 'cc-term-soon' : ''}>
-                        {d.termStart ? new Date(d.termStart + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', year: 'numeric' }) : '?'} – {d.termEnd ? new Date(d.termEnd + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', year: 'numeric' }) : '?'}
-                        {termExpired && ' (EXPIRED)'}{termSoon && ' (expiring soon)'}
-                      </span>
-                    ) : <span style={{ color: '#9CA3AF', fontSize: 12 }}>Not set</span>}
-                  </div>
-                  <div className="cc-director-oath">
-                    <span style={{ fontSize: 11, color: '#6B7280' }}>Oath:</span>
-                    {d.oathDate ? <span className="cc-oath-signed">Signed {new Date(d.oathDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
-                      : d.oathNote ? <span style={{ fontSize: 12, color: '#9CA3AF', fontStyle: 'italic' }}>{d.oathNote}</span>
-                      : <span style={{ fontSize: 12, color: '#DC2626' }}>Not signed</span>}
-                  </div>
+                  {isEditing ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      <div>
+                        <div style={{ fontSize: 11, color: '#6B7280', marginBottom: 2 }}>Email</div>
+                        <input type="email" value={d.email || ''} onChange={e => updateDirector(d.id, 'email', e.target.value)}
+                          placeholder="Email" style={{ width: '100%', fontSize: 12, padding: '4px 6px', border: '1px solid #D1D5DB', borderRadius: 4 }} />
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 11, color: '#6B7280', marginBottom: 2 }}>Phone</div>
+                        <input type="text" value={d.phone || ''} onChange={e => updateDirector(d.id, 'phone', e.target.value)}
+                          placeholder="Phone" style={{ width: '100%', fontSize: 12, padding: '4px 6px', border: '1px solid #D1D5DB', borderRadius: 4 }} />
+                      </div>
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: 11, color: '#6B7280', marginBottom: 2 }}>Term Start</div>
+                          <input type="date" value={d.termStart || ''} onChange={e => updateDirector(d.id, 'termStart', e.target.value)}
+                            style={{ width: '100%', fontSize: 12, padding: '4px 6px', border: '1px solid #D1D5DB', borderRadius: 4 }} />
+                        </div>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: 11, color: '#6B7280', marginBottom: 2 }}>Term End</div>
+                          <input type="date" value={d.termEnd || ''} onChange={e => updateDirector(d.id, 'termEnd', e.target.value)}
+                            style={{ width: '100%', fontSize: 12, padding: '4px 6px', border: '1px solid #D1D5DB', borderRadius: 4 }} />
+                        </div>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 11, color: '#6B7280', marginBottom: 2 }}>Oath Signed Date</div>
+                        <input type="date" value={d.oathDate || ''} onChange={e => updateDirector(d.id, 'oathDate', e.target.value)}
+                          style={{ width: '100%', fontSize: 12, padding: '4px 6px', border: '1px solid #D1D5DB', borderRadius: 4 }} />
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 11, color: '#6B7280', marginBottom: 2 }}>Oath Note (if not signed)</div>
+                        <input type="text" value={d.oathNote || ''} onChange={e => updateDirector(d.id, 'oathNote', e.target.value)}
+                          placeholder='e.g. "exempt (Priest)"' style={{ width: '100%', fontSize: 12, padding: '4px 6px', border: '1px solid #D1D5DB', borderRadius: 4 }} />
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      {d.email && <div className="cc-director-detail">{d.email}</div>}
+                      {d.phone && <div className="cc-director-detail">{d.phone}</div>}
+                      <div className="cc-director-term">
+                        <span style={{ fontSize: 11, color: '#6B7280' }}>Term:</span>
+                        {d.termStart || d.termEnd ? (
+                          <span className={termExpired ? 'cc-term-expired' : termSoon ? 'cc-term-soon' : ''}>
+                            {d.termStart ? new Date(d.termStart + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', year: 'numeric' }) : '?'} – {d.termEnd ? new Date(d.termEnd + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', year: 'numeric' }) : '?'}
+                            {termExpired && ' (EXPIRED)'}{termSoon && ' (expiring soon)'}
+                          </span>
+                        ) : <span style={{ color: '#9CA3AF', fontSize: 12 }}>Not set</span>}
+                      </div>
+                      <div className="cc-director-oath">
+                        <span style={{ fontSize: 11, color: '#6B7280' }}>Oath:</span>
+                        {d.oathDate ? <span className="cc-oath-signed">Signed {new Date(d.oathDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+                          : d.oathNote ? <span style={{ fontSize: 12, color: '#9CA3AF', fontStyle: 'italic' }}>{d.oathNote}</span>
+                          : <span style={{ fontSize: 12, color: '#DC2626' }}>Not signed</span>}
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
             );
