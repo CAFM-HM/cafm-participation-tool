@@ -497,6 +497,50 @@ export function useSchedule() {
   return { config, published, loading, saveConfig, publish, refresh: load };
 }
 
+// ============================================================
+// DOCUMENTS HOOK — embedded PDFs on Home tab
+// Firestore: documents/{id} = { label, url, order }
+// ============================================================
+export function useDocuments() {
+  const [documents, setDocuments] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const q = query(collection(db, 'documents'), orderBy('order', 'asc'));
+      const snap = await getDocs(q);
+      setDocuments(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    } catch (err) {
+      // Fallback if index not ready
+      try {
+        const snap = await getDocs(collection(db, 'documents'));
+        const docs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        docs.sort((a, b) => (a.order || 0) - (b.order || 0));
+        setDocuments(docs);
+      } catch (err2) { console.error('Documents load failed:', err2); }
+    }
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const addDocument = useCallback(async (data) => {
+    const maxOrder = documents.reduce((max, d) => Math.max(max, d.order || 0), 0);
+    await addDoc(collection(db, 'documents'), {
+      label: data.label, url: data.url, order: maxOrder + 1,
+    });
+    await load();
+  }, [load, documents]);
+
+  const removeDocument = useCallback(async (id) => {
+    await deleteDoc(doc(db, 'documents', id));
+    await load();
+  }, [load]);
+
+  return { documents, loading, addDocument, removeDocument, refresh: load };
+}
+
 function getDefaultConfig() {
   return {
     schoolDay: {
