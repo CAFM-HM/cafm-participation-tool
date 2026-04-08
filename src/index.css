@@ -1593,6 +1593,47 @@ input:focus, select:focus {
   color: var(--green);
 }
 
+.cc-add-item-btn {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 1px solid var(--gray-300);
+  background: var(--white);
+  color: var(--gray-400);
+  font-size: 14px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+  line-height: 1;
+  padding: 0;
+}
+
+.cc-add-item-btn:hover {
+  border-color: var(--navy);
+  color: var(--navy);
+  background: var(--blue-bg);
+}
+
+.cc-add-section-btn {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  font-family: var(--font-body);
+  font-size: 11px;
+  color: var(--gray-400);
+  cursor: pointer;
+  padding: 4px 0;
+  transition: color 0.15s;
+}
+
+.cc-add-section-btn:hover {
+  color: var(--navy);
+}
+
 /* Board Directory */
 .cc-director-grid {
   display: grid;
