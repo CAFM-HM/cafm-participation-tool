@@ -1119,6 +1119,20 @@ input:focus, select:focus {
   color: var(--gray-400);
 }
 
+/* Document viewer */
+.doc-viewer-container {
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: var(--gray-50);
+}
+
+.doc-viewer-iframe {
+  width: 100%;
+  height: 600px;
+  border: none;
+}
+
 /* Quick links */
 .quick-links-list {
   display: flex;
