@@ -569,6 +569,34 @@ export function useCommandCenter() {
   return { data, loading, saveData, refresh: load };
 }
 
+// ============================================================
+// BUDGET HOOK — stores budget data
+// Firestore: budget/data = { lineItems, scenarios, spending, publishedBudget }
+// ============================================================
+export function useBudget() {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const snap = await getDoc(doc(db, 'budget', 'data'));
+      if (snap.exists()) setData(snap.data());
+      else setData({ lineItems: [], scenarios: ['Scenario A'], spending: [], publishedBudget: null });
+    } catch (err) { console.error('Error loading budget:', err); setData({ lineItems: [], scenarios: ['Scenario A'], spending: [], publishedBudget: null }); }
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const saveData = useCallback(async (newData) => {
+    setData(newData);
+    await setDoc(doc(db, 'budget', 'data'), newData);
+  }, []);
+
+  return { data, loading, saveData, refresh: load };
+}
+
 function getDefaultConfig() {
   return {
     schoolDay: {
