@@ -26,6 +26,17 @@ export const ADMINS = [
 
 export const isAdmin = (email) => ADMINS.includes(email?.toLowerCase());
 
+// Board-level access — only headmaster and board members
+export const BOARD_MEMBERS = [
+  'headmaster@chestertonpensacola.org',
+  'charlie@chestertonpensacola.org',
+  // Add board member emails here as they get accounts:
+  // 'johnpaulfalardeau@hotmail.com',
+  // 'pat@patscanlon.org',
+];
+
+export const isBoardMember = (email) => BOARD_MEMBERS.includes(email?.toLowerCase());
+
 // Known UID → email mapping
 export const UID_MAP = {
   'RfcdU5sf2Zhzj4aJTbfE7Iy5e5E2': 'charlie@chestertonpensacola.org',
@@ -33,11 +44,7 @@ export const UID_MAP = {
   'xn858oNYT3XOP6afwXh9qnT06cx2': 'trougas@chestertonpensacola.org',
 };
 
-// Custom display names (loaded from Firestore config/teacherNames)
-export const customTeacherNames = {};
-
 export function teacherDisplayName(uid) {
-  if (customTeacherNames[uid]) return customTeacherNames[uid];
   const email = UID_MAP[uid];
   if (email) {
     const name = email.split('@')[0];
@@ -45,11 +52,3 @@ export function teacherDisplayName(uid) {
   }
   return uid.substring(0, 12) + '...';
 }
-
-// Load custom names from Firestore
-import { doc, getDoc } from 'firebase/firestore';
-getDoc(doc(db, 'config', 'teacherNames')).then(snap => {
-  if (snap.exists()) {
-    Object.assign(customTeacherNames, snap.data());
-  }
-}).catch(() => {});
