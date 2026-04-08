@@ -171,11 +171,53 @@ function BoardOverview({ data, update, budgetData, onNavigate }) {
               </div>
             )}
 
-            {nextMeeting && nextMeeting.month !== currentMonth && (
-              <div style={{ marginTop: 12, padding: '8px 12px', background: '#F9FAFB', borderRadius: 6, fontSize: 12, color: '#6B7280' }}>
-                Next meeting: <strong style={{ color: '#1B3A5C' }}>{nextMeeting.month}</strong>
-              </div>
-            )}
+            {nextMeeting && nextMeeting.month !== currentMonth && (() => {
+              const mtgDetails = (data.meetingDetails || {})[nextMeeting.month] || {};
+              return (
+                <div style={{ marginTop: 12, padding: '10px 14px', background: '#F9FAFB', borderRadius: 8, border: '1px solid #E5E7EB' }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: '#1B3A5C', marginBottom: 4 }}>
+                    Next Board Meeting: {nextMeeting.month}
+                  </div>
+                  {mtgDetails.date ? (
+                    <div style={{ fontSize: 13 }}>
+                      <div style={{ color: '#374151' }}>
+                        {new Date(mtgDetails.date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
+                        {mtgDetails.time && ` at ${(() => { const [h, mm] = mtgDetails.time.split(':').map(Number); return `${h === 0 ? 12 : h > 12 ? h - 12 : h}:${mm.toString().padStart(2, '0')} ${h >= 12 ? 'PM' : 'AM'}`; })()}`}
+                      </div>
+                      {mtgDetails.location && <div style={{ fontSize: 12, color: '#6B7280', marginTop: 2 }}>{mtgDetails.location}</div>}
+                      {mtgDetails.virtualLink && (
+                        <a href={mtgDetails.virtualLink} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, color: '#1D4ED8', marginTop: 2, display: 'inline-block' }}>
+                          Join Virtual Meeting
+                        </a>
+                      )}
+                    </div>
+                  ) : (
+                    <div style={{ fontSize: 12, color: '#9CA3AF', fontStyle: 'italic' }}>Date not yet set — edit on the Timeline tab</div>
+                  )}
+                </div>
+              );
+            })()}
+
+            {/* Current month meeting details if it's a meeting month */}
+            {currentTimeline?.meetingMonth && (() => {
+              const mtgDetails = (data.meetingDetails || {})[currentMonth] || {};
+              if (!mtgDetails.date) return null;
+              return (
+                <div style={{ marginTop: 12, padding: '10px 14px', background: '#EFF6FF', borderRadius: 8, border: '1px solid #BFDBFE' }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: '#1B3A5C', marginBottom: 4 }}>Meeting This Month</div>
+                  <div style={{ fontSize: 13, color: '#374151' }}>
+                    {new Date(mtgDetails.date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
+                    {mtgDetails.time && ` at ${(() => { const [h, mm] = mtgDetails.time.split(':').map(Number); return `${h === 0 ? 12 : h > 12 ? h - 12 : h}:${mm.toString().padStart(2, '0')} ${h >= 12 ? 'PM' : 'AM'}`; })()}`}
+                  </div>
+                  {mtgDetails.location && <div style={{ fontSize: 12, color: '#6B7280', marginTop: 2 }}>{mtgDetails.location}</div>}
+                  {mtgDetails.virtualLink && (
+                    <a href={mtgDetails.virtualLink} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, color: '#1D4ED8', marginTop: 2, display: 'inline-block' }}>
+                      Join Virtual Meeting
+                    </a>
+                  )}
+                </div>
+              );
+            })()}
           </div>
 
           {/* Budget Snapshot */}
@@ -339,6 +381,9 @@ function BoardTimeline({ data, update }) {
                 {!m.meetingMonth && <span style={{ fontSize: 10, color: '#9CA3AF', fontStyle: 'italic' }}>No meeting</span>}
               </div>
 
+              {/* Meeting details for meeting months */}
+              {m.meetingMonth && <MeetingDetails month={m.month} data={data} update={update} />}
+
               {CATEGORIES.map(cat => {
                 const baseItems = getBaseItems(m, cat.key);
                 const custom = getCustomForSection(m.month, cat.key);
@@ -381,6 +426,62 @@ function BoardTimeline({ data, update }) {
           );
         })}
       </div>
+    </div>
+  );
+}
+
+// ============================================================
+// MEETING DETAILS — inline editor for date, time, location, link
+// ============================================================
+function MeetingDetails({ month, data, update }) {
+  const meetings = data.meetingDetails || {};
+  const meeting = meetings[month] || {};
+  const [editing, setEditing] = useState(false);
+
+  const updateField = (field, value) => {
+    update(c => {
+      if (!c.meetingDetails) c.meetingDetails = {};
+      if (!c.meetingDetails[month]) c.meetingDetails[month] = {};
+      c.meetingDetails[month][field] = value;
+    });
+  };
+
+  const hasDetails = meeting.date || meeting.time || meeting.location || meeting.virtualLink;
+
+  if (!editing && !hasDetails) {
+    return (
+      <button className="cc-meeting-add-btn" onClick={() => setEditing(true)}>
+        + Set meeting details
+      </button>
+    );
+  }
+
+  if (editing) {
+    return (
+      <div className="cc-meeting-edit">
+        <div className="sched-inline-row" style={{ marginBottom: 4 }}>
+          <input type="date" value={meeting.date || ''} onChange={e => updateField('date', e.target.value)} style={{ width: 140 }} />
+          <input type="time" value={meeting.time || ''} onChange={e => updateField('time', e.target.value)} style={{ width: 110 }} />
+        </div>
+        <input type="text" value={meeting.location || ''} placeholder="Location (e.g. St. Anne Family Life Center)" onChange={e => updateField('location', e.target.value)} style={{ width: '100%', marginBottom: 4, fontSize: 12 }} />
+        <input type="text" value={meeting.virtualLink || ''} placeholder="Google Meet / Zoom link (optional)" onChange={e => updateField('virtualLink', e.target.value)} style={{ width: '100%', marginBottom: 4, fontSize: 12 }} />
+        <button className="btn btn-sm btn-secondary" onClick={() => setEditing(false)} style={{ fontSize: 11 }}>Done</button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="cc-meeting-info" onClick={() => setEditing(true)} title="Click to edit">
+      <div className="cc-meeting-datetime">
+        {meeting.date && new Date(meeting.date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+        {meeting.time && ` at ${(() => { const [h, m] = meeting.time.split(':').map(Number); return `${h === 0 ? 12 : h > 12 ? h - 12 : h}:${m.toString().padStart(2, '0')} ${h >= 12 ? 'PM' : 'AM'}`; })()}`}
+      </div>
+      {meeting.location && <div className="cc-meeting-location">{meeting.location}</div>}
+      {meeting.virtualLink && (
+        <a href={meeting.virtualLink} target="_blank" rel="noopener noreferrer" className="cc-meeting-link" onClick={e => e.stopPropagation()}>
+          Join Virtual Meeting
+        </a>
+      )}
     </div>
   );
 }
