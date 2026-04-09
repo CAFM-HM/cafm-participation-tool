@@ -59,7 +59,7 @@ function App() {
     );
   }
 
-  // Tab sections — Formation Management is the participation/virtue tracking suite
+  // Tab sections
   const formationTabs = [
     { id: 'daily', label: 'Daily Tracker', icon: '\u{1F4DD}' },
     { id: 'narrative', label: 'Narratives', icon: '\u{1F4D6}' },
@@ -67,15 +67,19 @@ function App() {
     ...(isAdmin ? [{ id: 'service', label: 'Service Hours', icon: '\u{1F91D}' }] : []),
   ];
 
-  const tabs = [
-    { id: 'home', label: 'Home', icon: '\u{1F3E0}' },
-    { section: 'Formation Management', tabs: formationTabs },
+  const operationsTabs = [
     { id: 'schedule', label: isAdmin ? 'Schedule Builder' : 'Schedule', icon: '\u{1F4C5}' },
     ...(isBoardMember ? [{ id: 'command', label: 'Board', icon: '\u{1F465}' }] : []),
     ...(isAdmin ? [
       { id: 'dashboard', label: 'Dashboard', icon: '\u{1F4CA}' },
       { id: 'roster', label: 'Roster', icon: '\u{1F4CB}' },
     ] : []),
+  ];
+
+  const tabs = [
+    { id: 'home', label: 'Home', icon: '\u{1F3E0}' },
+    { section: 'Formation Management', tabs: formationTabs },
+    { section: 'Operations', tabs: operationsTabs },
   ];
 
   return (
