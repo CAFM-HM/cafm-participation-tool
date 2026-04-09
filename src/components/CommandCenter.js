@@ -1,8 +1,11 @@
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
-import { useCommandCenter, useBudget } from '../hooks/useFirestore';
+import { useCommandCenter, useBudget, useMasterRoster, useServiceHours } from '../hooks/useFirestore';
 import BudgetTool from './BudgetTool';
 import FinancialPlanning from './FinancialPlanning';
 import BoardAnalytics from './BoardAnalytics';
+import BoardMinutes from './BoardMinutes';
+import GrantsTracker from './GrantsTracker';
+import ServiceHours from './ServiceHours';
 
 // ============================================================
 // BOARD TIMELINE DATA
@@ -32,6 +35,8 @@ function genId() { return Date.now().toString(36) + Math.random().toString(36).s
 export default function CommandCenter() {
   const { data, loading, saveData } = useCommandCenter();
   const { data: budgetData, loading: budgetLoading } = useBudget();
+  const { students: masterStudents } = useMasterRoster();
+  const { entries: serviceEntries, loading: serviceLoading, addEntry: addServiceEntry, updateEntry: updateServiceEntry, deleteEntry: deleteServiceEntry } = useServiceHours();
   const [local, setLocal] = useState(null);
   const [tab, setTab] = useState('overview');
   const [dirty, setDirty] = useState(false);
@@ -68,8 +73,8 @@ export default function CommandCenter() {
 
   if (loading || budgetLoading || !local) return <div style={{ padding: 40, textAlign: 'center', color: '#9CA3AF' }}>Loading...</div>;
 
-  // Budget and Financial Planning manage their own save — hide parent save bar on those tabs
-  const hasOwnSave = tab === 'budget' || tab === 'financial' || tab === 'analytics';
+  // These tabs manage their own save or have their own hooks — hide parent save bar
+  const hasOwnSave = tab === 'budget' || tab === 'financial' || tab === 'analytics' || tab === 'service';
 
   return (
     <div>
@@ -86,7 +91,7 @@ export default function CommandCenter() {
       </div>
 
       <div className="sub-nav">
-        {[{ id: 'overview', label: 'Overview' }, { id: 'analytics', label: 'Analytics' }, { id: 'timeline', label: 'Timeline' }, { id: 'directory', label: 'Directory' }, { id: 'documents', label: 'Documents' }, { id: 'budget', label: 'Budget' }, { id: 'financial', label: 'Financial Planning' }].map(t => (
+        {[{ id: 'overview', label: 'Overview' }, { id: 'analytics', label: 'Analytics' }, { id: 'timeline', label: 'Timeline' }, { id: 'minutes', label: 'Minutes' }, { id: 'grants', label: 'Grants' }, { id: 'service', label: 'Service Hours' }, { id: 'directory', label: 'Directory' }, { id: 'documents', label: 'Documents' }, { id: 'budget', label: 'Budget' }, { id: 'financial', label: 'Financial Planning' }].map(t => (
           <button key={t.id} className={`sub-nav-btn ${tab === t.id ? 'active' : ''}`} onClick={() => setTab(t.id)}>{t.label}</button>
         ))}
       </div>
@@ -96,6 +101,9 @@ export default function CommandCenter() {
       {tab === 'timeline' && <BoardTimeline data={local} update={update} />}
       {tab === 'directory' && <BoardDirectory data={local} update={update} />}
       {tab === 'documents' && <BoardDocuments data={local} update={update} />}
+      {tab === 'minutes' && <BoardMinutes meetings={local.boardMeetings || []} onSave={(meetings) => { update(c => { c.boardMeetings = meetings; }); }} directors={local.directors || []} />}
+      {tab === 'grants' && <GrantsTracker grants={local.grants || []} onSave={(grants) => { update(c => { c.grants = grants; }); }} />}
+      {tab === 'service' && <ServiceHours entries={serviceEntries} onAdd={addServiceEntry} onUpdate={updateServiceEntry} onDelete={deleteServiceEntry} masterStudents={masterStudents} />}
       {tab === 'budget' && <BudgetTool />}
       {tab === 'financial' && <FinancialPlanning />}
     </div>

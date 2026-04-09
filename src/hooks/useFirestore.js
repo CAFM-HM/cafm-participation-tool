@@ -675,6 +675,43 @@ export function useFinancialPlanning() {
   return { data, loading, saveData, refresh: load };
 }
 
+// ============================================================
+// SERVICE HOURS HOOK — individual documents per entry
+// Firestore: serviceHours/{id} = { student, date, hours, organization, description, supervisor, supervisorContact, verification, createdAt }
+// ============================================================
+export function useServiceHours() {
+  const [entries, setEntries] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const snap = await getDocs(collection(db, 'serviceHours'));
+      setEntries(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    } catch (err) { console.error('Service hours load failed:', err); }
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const addEntry = useCallback(async (data) => {
+    await addDoc(collection(db, 'serviceHours'), data);
+    await load();
+  }, [load]);
+
+  const updateEntry = useCallback(async (id, updates) => {
+    await updateDoc(doc(db, 'serviceHours', id), updates);
+    await load();
+  }, [load]);
+
+  const deleteEntry = useCallback(async (id) => {
+    await deleteDoc(doc(db, 'serviceHours', id));
+    await load();
+  }, [load]);
+
+  return { entries, loading, addEntry, updateEntry, deleteEntry, refresh: load };
+}
+
 function getDefaultConfig() {
   return {
     schoolDay: {
