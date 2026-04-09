@@ -4,6 +4,7 @@ import { useBudget } from '../hooks/useFirestore';
 function genId() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
 
 const OWNERS = ['HM', 'Treasurer', 'ED', 'Secretary', 'Other'];
+const OWNER_LABELS = { HM: 'Headmaster', Treasurer: 'Treasurer', ED: 'Exec. Director', Secretary: 'Secretary', Other: 'Other' };
 
 const DEFAULT_LINE_ITEMS = [
   { name: 'Admin Salary', owner: 'Treasurer' },
@@ -42,6 +43,7 @@ export default function BudgetTool() {
   const [local, setLocal] = useState(null);
   const [view, setView] = useState('dashboard');
   const [dirty, setDirty] = useState(false);
+  const [previewScenario, setPreviewScenario] = useState(null);
 
   useEffect(() => {
     if (data && !local) setLocal(JSON.parse(JSON.stringify(data)));
@@ -67,18 +69,35 @@ export default function BudgetTool() {
   const scenarios = local.scenarios || ['Scenario A'];
   const lineItems = local.lineItems || [];
   const spending = local.spending || [];
+  const published = local.publishedBudget || null;
+
+  // Approve a scenario as the official budget
+  const approveScenario = (scenarioName) => {
+    if (!window.confirm(`Approve "${scenarioName}" as the official budget? This will replace the current approved budget.`)) return;
+    update(c => {
+      c.publishedBudget = {
+        scenarioName,
+        publishedAt: new Date().toISOString(),
+        items: (c.lineItems || []).map(item => ({
+          id: item.id, name: item.name, owner: item.owner,
+          amount: parseFloat(item.scenarios?.[scenarioName]) || 0,
+          notes: item.notes || '',
+        })),
+      };
+    });
+  };
 
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
           {[
-            { id: 'dashboard', label: 'Dashboard' },
+            { id: 'dashboard', label: 'Approved Budget' },
             { id: 'builder', label: 'Budget Builder' },
             { id: 'spending', label: 'Spending Log' },
           ].map(t => (
             <button key={t.id} className={`btn btn-sm ${view === t.id ? 'btn-primary' : 'btn-secondary'}`}
-              onClick={() => setView(t.id)}>{t.label}</button>
+              onClick={() => { setView(t.id); setPreviewScenario(null); }}>{t.label}</button>
           ))}
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -87,31 +106,54 @@ export default function BudgetTool() {
         </div>
       </div>
 
-      {view === 'dashboard' && <BudgetDashboard lineItems={lineItems} scenarios={scenarios} spending={spending} />}
-      {view === 'builder' && <BudgetBuilder lineItems={lineItems} scenarios={scenarios} update={update} />}
-      {view === 'spending' && <SpendingLog lineItems={lineItems} spending={spending} update={update} />}
+      {/* Preview banner */}
+      {previewScenario && (
+        <div style={{ padding: '10px 16px', background: '#EFF6FF', border: '1px solid #BFDBFE', borderRadius: 8, marginBottom: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+          <div>
+            <span style={{ fontSize: 13, fontWeight: 600, color: '#1D4ED8' }}>Previewing: {previewScenario}</span>
+            <span style={{ fontSize: 12, color: '#6B7280', marginLeft: 8 }}>This is a working scenario — not yet approved.</span>
+          </div>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <button className="btn btn-sm btn-gold" onClick={() => { approveScenario(previewScenario); setPreviewScenario(null); setView('dashboard'); }}>Approve This Budget</button>
+            <button className="btn btn-sm btn-secondary" onClick={() => setPreviewScenario(null)}>Exit Preview</button>
+          </div>
+        </div>
+      )}
+
+      {view === 'dashboard' && <BudgetDashboard lineItems={lineItems} published={published} spending={spending} previewScenario={previewScenario} />}
+      {view === 'builder' && <BudgetBuilder lineItems={lineItems} scenarios={scenarios} update={update} published={published} onPreview={(s) => { setPreviewScenario(s); setView('dashboard'); }} onApprove={approveScenario} />}
+      {view === 'spending' && <SpendingLog lineItems={lineItems} spending={spending} update={update} published={published} />}
     </div>
   );
 }
 
 // ============================================================
-// BUDGET DASHBOARD — summary cards, category progress bars
+// BUDGET DASHBOARD — shows APPROVED budget vs. spending
 // ============================================================
-function BudgetDashboard({ lineItems, scenarios, spending }) {
-  const activeScenario = scenarios[0] || 'Scenario A';
+function BudgetDashboard({ lineItems, published, spending, previewScenario }) {
+  const isPreview = !!previewScenario;
 
   const stats = useMemo(() => {
     let totalBudget = 0, totalSpent = 0;
     const categories = [];
 
-    lineItems.forEach(item => {
-      const budgeted = parseFloat(item.scenarios?.[activeScenario]) || 0;
-      totalBudget += budgeted;
+    // If previewing a scenario, read amounts from lineItems.scenarios[previewScenario]
+    // If viewing approved, read from published.items
+    const getAmount = (item) => {
+      if (isPreview) return parseFloat(item.scenarios?.[previewScenario]) || 0;
+      if (published) {
+        const pub = published.items?.find(p => p.id === item.id);
+        return pub ? (parseFloat(pub.amount) || 0) : 0;
+      }
+      return 0;
+    };
 
+    lineItems.forEach(item => {
+      const budgeted = getAmount(item);
+      totalBudget += budgeted;
       const itemSpending = spending.filter(s => s.categoryId === item.id);
       const spent = itemSpending.reduce((sum, s) => sum + (parseFloat(s.amount) || 0), 0);
       totalSpent += spent;
-
       categories.push({
         id: item.id, name: item.name, owner: item.owner,
         budgeted, spent, remaining: budgeted - spent,
@@ -120,21 +162,21 @@ function BudgetDashboard({ lineItems, scenarios, spending }) {
       });
     });
 
-    // Percentage through fiscal year (Aug-May = 10 months)
     const now = new Date();
-    const month = now.getMonth(); // 0-indexed
-    const fiscalMonth = month >= 7 ? month - 7 : month + 5; // Aug=0, Jul=11
+    const month = now.getMonth();
+    const fiscalMonth = month >= 7 ? month - 7 : month + 5;
     const pctYear = Math.round((fiscalMonth / 10) * 100);
 
     return { totalBudget, totalSpent, remaining: totalBudget - totalSpent, pctSpent: totalBudget > 0 ? Math.round((totalSpent / totalBudget) * 100) : 0, pctYear, categories };
-  }, [lineItems, spending, activeScenario]);
+  }, [lineItems, spending, published, previewScenario, isPreview]);
 
   const exportPDF = () => {
+    const label = isPreview ? `Preview: ${previewScenario}` : published ? `Approved Budget — ${published.scenarioName}` : 'Budget';
     const w = window.open('', '_blank');
     const catRows = stats.categories.filter(c => c.budgeted > 0).map(c => `
       <tr>
         <td style="padding:6px 8px;border-bottom:1px solid #E5E7EB;font-weight:500;">${c.name}</td>
-        <td style="padding:6px 8px;border-bottom:1px solid #E5E7EB;font-size:11px;color:#6B7280;">${c.owner}</td>
+        <td style="padding:6px 8px;border-bottom:1px solid #E5E7EB;font-size:11px;color:#6B7280;">${OWNER_LABELS[c.owner] || c.owner}</td>
         <td style="padding:6px 8px;border-bottom:1px solid #E5E7EB;text-align:right;">$${c.budgeted.toLocaleString()}</td>
         <td style="padding:6px 8px;border-bottom:1px solid #E5E7EB;text-align:right;">$${c.spent.toLocaleString()}</td>
         <td style="padding:6px 8px;border-bottom:1px solid #E5E7EB;text-align:right;color:${c.remaining < 0 ? '#DC2626' : '#1B3A5C'};">$${c.remaining.toLocaleString()}</td>
@@ -142,7 +184,7 @@ function BudgetDashboard({ lineItems, scenarios, spending }) {
       </tr>
     `).join('');
 
-    w.document.write(`<!DOCTYPE html><html><head><title>CAFM Budget Summary</title>
+    w.document.write(`<!DOCTYPE html><html><head><title>CAFM Budget</title>
       <style>body{font-family:'Segoe UI',sans-serif;color:#1F2937;max-width:850px;margin:0 auto;padding:32px;}
       h1{font-family:Georgia,serif;color:#1B3A5C;font-size:20px;margin-bottom:2px;}
       .sub{font-size:12px;color:#6B7280;margin-bottom:20px;}
@@ -153,7 +195,7 @@ function BudgetDashboard({ lineItems, scenarios, spending }) {
       table{width:100%;border-collapse:collapse;font-size:12px;}
       th{text-align:left;padding:8px;background:#F9FAFB;border-bottom:2px solid #E5E7EB;font-size:10px;text-transform:uppercase;color:#6B7280;}
       @media print{body{padding:16px;}}</style></head><body>
-      <h1>CAFM Budget Summary — ${activeScenario}</h1>
+      <h1>CAFM ${label}</h1>
       <div class="sub">Chesterton Academy of the Florida Martyrs · Generated ${new Date().toLocaleDateString()}</div>
       <div class="stats">
         <div class="stat"><div class="stat-val">$${stats.totalBudget.toLocaleString()}</div><div class="stat-lbl">Total Budget</div></div>
@@ -175,14 +217,32 @@ function BudgetDashboard({ lineItems, scenarios, spending }) {
     setTimeout(() => w.print(), 300);
   };
 
+  if (!published && !isPreview) {
+    return (
+      <div style={{ padding: 40, textAlign: 'center' }}>
+        <div style={{ fontSize: 40, marginBottom: 12 }}>📋</div>
+        <h3 style={{ fontFamily: 'var(--font-display)', color: '#1B3A5C', marginBottom: 8 }}>No Approved Budget Yet</h3>
+        <p style={{ color: '#6B7280', fontSize: 13, maxWidth: 400, margin: '0 auto' }}>
+          Build your budget scenarios in the Budget Builder tab, then use "Preview" to review and "Approve" to set it as the official budget. Spending will be tracked against the approved budget.
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-        <h3 className="section-title">Budget Overview — {activeScenario}</h3>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, flexWrap: 'wrap', gap: 8 }}>
+        <div>
+          <h3 className="section-title" style={{ marginBottom: 2 }}>
+            {isPreview ? `Preview: ${previewScenario}` : `Approved Budget — ${published.scenarioName}`}
+          </h3>
+          {!isPreview && published.publishedAt && (
+            <div style={{ fontSize: 11, color: '#9CA3AF' }}>Approved {new Date(published.publishedAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</div>
+          )}
+        </div>
         <button className="btn btn-sm btn-gold" onClick={exportPDF}>Export PDF</button>
       </div>
 
-      {/* Summary cards */}
       <div className="stats-grid" style={{ marginBottom: 20 }}>
         <div className="stat-card"><div className="stat-value">${stats.totalBudget.toLocaleString()}</div><div className="stat-label">Total Budget</div></div>
         <div className="stat-card"><div className="stat-value">${stats.totalSpent.toLocaleString()}</div><div className="stat-label">Total Spent</div></div>
@@ -193,13 +253,24 @@ function BudgetDashboard({ lineItems, scenarios, spending }) {
         </div>
       </div>
 
+      {/* Burn rate bar */}
+      <div style={{ marginBottom: 20 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#6B7280', marginBottom: 4 }}>
+          <span>Budget used</span><span>Fiscal year progress</span>
+        </div>
+        <div style={{ height: 10, background: '#E5E7EB', borderRadius: 5, position: 'relative', overflow: 'hidden' }}>
+          <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: `${Math.min(stats.pctSpent, 100)}%`, background: stats.pctSpent > stats.pctYear + 10 ? '#DC2626' : '#16A34A', borderRadius: 5 }} />
+          <div style={{ position: 'absolute', left: `${stats.pctYear}%`, top: -2, bottom: -2, width: 2, background: '#1B3A5C' }} />
+        </div>
+      </div>
+
       {/* Category breakdown */}
       <div className="budget-category-list">
         {stats.categories.filter(c => c.budgeted > 0).map(c => (
           <div key={c.id} className={`budget-category-row ${c.overBudget ? 'over-budget' : ''}`}>
             <div className="budget-cat-info">
               <div className="budget-cat-name">{c.name}</div>
-              <div className="budget-cat-owner">{c.owner}</div>
+              <div className="budget-cat-owner">{OWNER_LABELS[c.owner] || c.owner}</div>
             </div>
             <div className="budget-cat-bar-area">
               <div className="budget-cat-bar-track">
@@ -218,17 +289,15 @@ function BudgetDashboard({ lineItems, scenarios, spending }) {
 }
 
 // ============================================================
-// BUDGET BUILDER — line items with scenario columns
+// BUDGET BUILDER — working scenarios with preview & approve
 // ============================================================
-function BudgetBuilder({ lineItems, scenarios, update }) {
+function BudgetBuilder({ lineItems, scenarios, update, published, onPreview, onApprove }) {
   const [newItemName, setNewItemName] = useState('');
   const [newScenarioName, setNewScenarioName] = useState('');
 
   const addLineItem = () => {
     if (!newItemName.trim()) return;
-    update(c => {
-      c.lineItems.push({ id: genId(), name: newItemName.trim(), owner: 'HM', scenarios: {}, notes: '' });
-    });
+    update(c => { c.lineItems.push({ id: genId(), name: newItemName.trim(), owner: 'HM', scenarios: {}, notes: '' }); });
     setNewItemName('');
   };
 
@@ -250,23 +319,13 @@ function BudgetBuilder({ lineItems, scenarios, update }) {
   };
 
   const updateItem = (id, field, value) => {
-    update(c => {
-      const item = c.lineItems.find(i => i.id === id);
-      if (item) item[field] = value;
-    });
+    update(c => { const item = c.lineItems.find(i => i.id === id); if (item) item[field] = value; });
   };
 
   const updateScenarioAmount = (id, scenario, value) => {
-    update(c => {
-      const item = c.lineItems.find(i => i.id === id);
-      if (item) {
-        if (!item.scenarios) item.scenarios = {};
-        item.scenarios[scenario] = value;
-      }
-    });
+    update(c => { const item = c.lineItems.find(i => i.id === id); if (item) { if (!item.scenarios) item.scenarios = {}; item.scenarios[scenario] = value; } });
   };
 
-  // Calculate totals per scenario
   const totals = {};
   scenarios.forEach(s => {
     totals[s] = lineItems.reduce((sum, item) => sum + (parseFloat(item.scenarios?.[s]) || 0), 0);
@@ -274,20 +333,43 @@ function BudgetBuilder({ lineItems, scenarios, update }) {
 
   return (
     <div>
-      <h3 className="section-title" style={{ marginBottom: 12 }}>Budget Builder</h3>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, flexWrap: 'wrap', gap: 8 }}>
+        <h3 className="section-title">Budget Builder</h3>
+      </div>
+
+      {/* Approved badge */}
+      {published && (
+        <div style={{ padding: '8px 14px', background: '#F0FFF4', border: '1px solid #BBF7D0', borderRadius: 8, marginBottom: 12, fontSize: 12 }}>
+          <strong style={{ color: '#16A34A' }}>Current Approved Budget:</strong> {published.scenarioName}
+          <span style={{ color: '#9CA3AF', marginLeft: 8 }}>
+            (approved {new Date(published.publishedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })})
+          </span>
+        </div>
+      )}
 
       {/* Scenario management */}
-      <div className="sched-inline-row" style={{ marginBottom: 16 }}>
-        <span style={{ fontSize: 12, fontWeight: 600, color: '#6B7280' }}>SCENARIOS:</span>
-        {scenarios.map((s, idx) => (
-          <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-            <span className="badge badge-green">{s}</span>
-            {scenarios.length > 1 && <button className="remove-btn" style={{ fontSize: 10 }} onClick={() => removeScenario(idx)}>×</button>}
+      <div style={{ marginBottom: 16 }}>
+        <div style={{ fontSize: 12, fontWeight: 600, color: '#6B7280', marginBottom: 8 }}>WORKING SCENARIOS</div>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+          {scenarios.map((s, idx) => {
+            const isApproved = published?.scenarioName === s;
+            return (
+              <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '6px 10px', background: isApproved ? '#F0FFF4' : '#F9FAFB', border: `1px solid ${isApproved ? '#BBF7D0' : '#E5E7EB'}`, borderRadius: 8 }}>
+                <span style={{ fontSize: 13, fontWeight: 600, color: '#1B3A5C' }}>{s}</span>
+                {isApproved && <span style={{ fontSize: 10, color: '#16A34A', fontWeight: 600 }}>APPROVED</span>}
+                <span style={{ fontSize: 12, color: '#6B7280', marginLeft: 4 }}>${(totals[s] || 0).toLocaleString()}</span>
+                <button className="btn btn-sm btn-secondary" style={{ fontSize: 10, padding: '2px 6px', marginLeft: 4 }} onClick={() => onPreview(s)}>Preview</button>
+                <button className="btn btn-sm btn-gold" style={{ fontSize: 10, padding: '2px 6px' }} onClick={() => onApprove(s)}>Approve</button>
+                {scenarios.length > 1 && <button className="remove-btn" style={{ fontSize: 10 }} onClick={() => removeScenario(idx)}>×</button>}
+              </div>
+            );
+          })}
+          <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+            <input type="text" value={newScenarioName} placeholder="New scenario" onChange={e => setNewScenarioName(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && addScenario()} style={{ width: 140, fontSize: 12 }} />
+            <button className="btn btn-sm btn-secondary" onClick={addScenario}>+ Add</button>
           </div>
-        ))}
-        <input type="text" value={newScenarioName} placeholder="New scenario" onChange={e => setNewScenarioName(e.target.value)}
-          onKeyDown={e => e.key === 'Enter' && addScenario()} style={{ width: 140, fontSize: 12 }} />
-        <button className="btn btn-sm btn-secondary" onClick={addScenario}>+ Add</button>
+        </div>
       </div>
 
       {/* Line items table */}
@@ -296,7 +378,7 @@ function BudgetBuilder({ lineItems, scenarios, update }) {
           <thead>
             <tr>
               <th style={{ minWidth: 200 }}>Line Item</th>
-              <th style={{ width: 80 }}>Owner</th>
+              <th style={{ minWidth: 120 }}>Assigned To</th>
               {scenarios.map(s => <th key={s} style={{ minWidth: 120, textAlign: 'right' }}>{s}</th>)}
               <th style={{ minWidth: 200 }}>Notes</th>
               <th style={{ width: 30 }}></th>
@@ -311,8 +393,8 @@ function BudgetBuilder({ lineItems, scenarios, update }) {
                 </td>
                 <td>
                   <select value={item.owner || 'HM'} onChange={e => updateItem(item.id, 'owner', e.target.value)}
-                    style={{ border: 'none', fontSize: 11, background: 'transparent', color: '#6B7280' }}>
-                    {OWNERS.map(o => <option key={o} value={o}>{o}</option>)}
+                    style={{ border: '1px solid #E5E7EB', borderRadius: 4, fontSize: 12, padding: '3px 6px', background: '#fff', color: '#374151', width: '100%', minWidth: 100 }}>
+                    {OWNERS.map(o => <option key={o} value={o}>{OWNER_LABELS[o] || o}</option>)}
                   </select>
                 </td>
                 {scenarios.map(s => (
@@ -329,7 +411,6 @@ function BudgetBuilder({ lineItems, scenarios, update }) {
                 <td><button className="remove-btn" onClick={() => removeLineItem(item.id)}>×</button></td>
               </tr>
             ))}
-            {/* Totals row */}
             <tr style={{ fontWeight: 700, borderTop: '2px solid #1B3A5C' }}>
               <td style={{ fontFamily: 'var(--font-display)', color: '#1B3A5C' }}>TOTAL</td>
               <td></td>
@@ -344,7 +425,6 @@ function BudgetBuilder({ lineItems, scenarios, update }) {
         </table>
       </div>
 
-      {/* Add line item */}
       <div className="sched-inline-row" style={{ marginTop: 12 }}>
         <input type="text" value={newItemName} placeholder="New line item name"
           onChange={e => setNewItemName(e.target.value)}
@@ -356,12 +436,19 @@ function BudgetBuilder({ lineItems, scenarios, update }) {
 }
 
 // ============================================================
-// SPENDING LOG — individual purchases by category
+// SPENDING LOG — tracks against APPROVED budget
 // ============================================================
-function SpendingLog({ lineItems, spending, update }) {
+function SpendingLog({ lineItems, spending, update, published }) {
   const [showAdd, setShowAdd] = useState(false);
   const [newEntry, setNewEntry] = useState({ categoryId: '', date: new Date().toISOString().split('T')[0], description: '', amount: '' });
   const [filterCat, setFilterCat] = useState('all');
+
+  // Use approved budget items for category names and budgeted amounts
+  const approvedItems = published?.items || [];
+  const getApprovedAmount = (id) => {
+    const item = approvedItems.find(i => i.id === id);
+    return item ? (parseFloat(item.amount) || 0) : 0;
+  };
 
   const addEntry = () => {
     if (!newEntry.categoryId || !newEntry.amount) return;
@@ -372,19 +459,13 @@ function SpendingLog({ lineItems, spending, update }) {
     setNewEntry({ categoryId: newEntry.categoryId, date: new Date().toISOString().split('T')[0], description: '', amount: '' });
   };
 
-  const removeEntry = (id) => {
-    update(c => { c.spending = (c.spending || []).filter(s => s.id !== id); });
-  };
+  const removeEntry = (id) => { update(c => { c.spending = (c.spending || []).filter(s => s.id !== id); }); };
 
   const filtered = filterCat === 'all' ? spending : spending.filter(s => s.categoryId === filterCat);
   const sorted = [...filtered].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
 
-  // Category totals
   const catTotals = {};
-  spending.forEach(s => {
-    if (!catTotals[s.categoryId]) catTotals[s.categoryId] = 0;
-    catTotals[s.categoryId] += parseFloat(s.amount) || 0;
-  });
+  spending.forEach(s => { if (!catTotals[s.categoryId]) catTotals[s.categoryId] = 0; catTotals[s.categoryId] += parseFloat(s.amount) || 0; });
 
   const getCatName = (id) => lineItems.find(i => i.id === id)?.name || 'Unknown';
 
@@ -395,12 +476,22 @@ function SpendingLog({ lineItems, spending, update }) {
         <button className="btn btn-sm btn-primary" onClick={() => setShowAdd(!showAdd)}>{showAdd ? 'Cancel' : '+ Log Purchase'}</button>
       </div>
 
+      {!published && (
+        <div style={{ padding: '8px 14px', background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 8, marginBottom: 12, fontSize: 12, color: '#92400E' }}>
+          No approved budget yet. Spending is being logged but won't show budget comparisons until a budget is approved in the Budget Builder.
+        </div>
+      )}
+
       {showAdd && (
         <div className="card" style={{ marginBottom: 16, background: '#FFFBEB', border: '1px solid #FDE68A' }}>
           <div className="sched-inline-row">
-            <select value={newEntry.categoryId} onChange={e => setNewEntry({ ...newEntry, categoryId: e.target.value })} style={{ width: 220 }}>
+            <select value={newEntry.categoryId} onChange={e => setNewEntry({ ...newEntry, categoryId: e.target.value })} style={{ width: 250 }}>
               <option value="">— Budget Category —</option>
-              {lineItems.map(i => <option key={i.id} value={i.id}>{i.name}</option>)}
+              {lineItems.map(i => {
+                const approved = getApprovedAmount(i.id);
+                const spent = catTotals[i.id] || 0;
+                return <option key={i.id} value={i.id}>{i.name}{approved > 0 ? ` (${Math.round((spent / approved) * 100)}% used)` : ''}</option>;
+              })}
             </select>
             <input type="date" value={newEntry.date} onChange={e => setNewEntry({ ...newEntry, date: e.target.value })} style={{ width: 150 }} />
             <input type="number" value={newEntry.amount} placeholder="Amount" step="0.01"
@@ -415,9 +506,8 @@ function SpendingLog({ lineItems, spending, update }) {
         </div>
       )}
 
-      {/* Filter */}
       <div style={{ marginBottom: 12 }}>
-        <select value={filterCat} onChange={e => setFilterCat(e.target.value)} style={{ width: 250 }}>
+        <select value={filterCat} onChange={e => setFilterCat(e.target.value)} style={{ width: 300 }}>
           <option value="all">All Categories ({spending.length} entries)</option>
           {lineItems.filter(i => catTotals[i.id]).map(i => (
             <option key={i.id} value={i.id}>{i.name} — ${(catTotals[i.id] || 0).toLocaleString()}</option>
@@ -442,9 +532,7 @@ function SpendingLog({ lineItems, spending, update }) {
                 </tr>
               ))}
               <tr style={{ fontWeight: 700, borderTop: '2px solid #1B3A5C' }}>
-                <td colSpan={3} style={{ fontFamily: 'var(--font-display)', color: '#1B3A5C' }}>
-                  TOTAL ({sorted.length} entries)
-                </td>
+                <td colSpan={3} style={{ fontFamily: 'var(--font-display)', color: '#1B3A5C' }}>TOTAL ({sorted.length} entries)</td>
                 <td style={{ textAlign: 'right', fontFamily: 'var(--font-display)', color: '#1B3A5C' }}>
                   ${sorted.reduce((sum, s) => sum + (parseFloat(s.amount) || 0), 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </td>
