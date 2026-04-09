@@ -414,12 +414,15 @@ function BudgetBuilder({ lineItems, scenarios, update, published, onPreview, onA
     reader.onload = (ev) => {
       const lines = ev.target.result.split('\n').map(l => l.trim()).filter(Boolean);
       if (lines.length < 2) { alert('CSV appears empty.'); return; }
-      const header = lines[0].toLowerCase().split(',').map(h => h.trim().replace(/"/g, ''));
-      const nameIdx = header.findIndex(h => h === 'name' || h === 'line item' || h === 'item' || h === 'category');
-      const ownerIdx = header.findIndex(h => h === 'owner' || h === 'assigned' || h === 'assigned to');
-      const amtIdx = header.findIndex(h => h === 'amount' || h === 'budget' || h === 'budgeted');
-      if (nameIdx === -1) { alert('CSV needs a "Name" column.'); return; }
-      if (amtIdx === -1) { alert('CSV needs an "Amount" column.'); return; }
+      const header = parseCSVLine(lines[0]).map(h => h.toLowerCase().trim());
+      const nameIdx = header.findIndex(h => h.includes('item') || h.includes('name') || h.includes('category') || h.includes('expense') || h.includes('description'));
+      const ownerIdx = header.findIndex(h => h.includes('owner') || h.includes('assigned') || h.includes('responsible'));
+      const amtIdx = header.findIndex(h => h.includes('amount') || h.includes('budget') || h.includes('projected') || h.includes('cost') || h.includes('total') || h.includes('expense'));
+      // If amtIdx matched the same column as nameIdx, find the next match
+      const amtIdxFinal = amtIdx === nameIdx ? header.findIndex((h, i) => i !== nameIdx && (h.includes('amount') || h.includes('budget') || h.includes('projected') || h.includes('cost') || h.includes('total'))) : amtIdx;
+      const notesIdx = header.findIndex(h => h.includes('note'));
+      if (nameIdx === -1) { alert('Could not find a column for line item names. Looking for headers containing: item, name, category, expense, or description.'); return; }
+      if (amtIdxFinal === -1) { alert('Could not find a column for amounts. Looking for headers containing: amount, budget, projected, cost, or total.'); return; }
       const rows = [];
       for (let i = 1; i < lines.length; i++) {
         const cells = parseCSVLine(lines[i]);
@@ -432,10 +435,11 @@ function BudgetBuilder({ lineItems, scenarios, update, published, onPreview, onA
           const labelMatch = Object.entries(OWNER_LABELS).find(([, v]) => v.toLowerCase() === owner.toLowerCase());
           owner = labelMatch ? labelMatch[0] : 'HM';
         }
-        const amount = parseFloat((cells[amtIdx] || '0').replace(/[$,]/g, '')) || 0;
+        const amount = parseFloat((cells[amtIdxFinal] || '0').replace(/[$,]/g, '')) || 0;
+        const notes = notesIdx >= 0 ? cells[notesIdx] || '' : '';
         // Check if this matches an existing line item
         const existing = lineItems.find(li => li.name.toLowerCase() === name.toLowerCase());
-        rows.push({ name, owner, amount, existingId: existing?.id || null });
+        rows.push({ name, owner, amount, notes, existingId: existing?.id || null });
       }
       if (rows.length === 0) { alert('No valid rows found.'); return; }
       setCsvPreview(rows);
@@ -452,13 +456,14 @@ function BudgetBuilder({ lineItems, scenarios, update, published, onPreview, onA
           const item = c.lineItems.find(i => i.id === row.existingId);
           if (item) {
             item.owner = row.owner;
+            if (row.notes) item.notes = row.notes;
             if (!item.scenarios) item.scenarios = {};
             item.scenarios[targetScenario] = row.amount.toString();
           }
         } else {
           c.lineItems.push({
             id: genId(), name: row.name, owner: row.owner,
-            scenarios: { [targetScenario]: row.amount.toString() }, notes: '',
+            scenarios: { [targetScenario]: row.amount.toString() }, notes: row.notes || '',
           });
         }
       }
@@ -677,12 +682,12 @@ function SpendingLog({ lineItems, spending, update, published, selectedYear, all
     reader.onload = (ev) => {
       const lines = ev.target.result.split('\n').map(l => l.trim()).filter(Boolean);
       if (lines.length < 2) { alert('CSV appears empty.'); return; }
-      const header = lines[0].toLowerCase().split(',').map(h => h.trim().replace(/"/g, ''));
-      const dateIdx = header.findIndex(h => h === 'date');
-      const catIdx = header.findIndex(h => h === 'category' || h === 'line item' || h === 'budget category');
-      const descIdx = header.findIndex(h => h === 'description' || h === 'desc' || h === 'memo' || h === 'note');
-      const amtIdx = header.findIndex(h => h === 'amount' || h === 'cost' || h === 'total');
-      if (amtIdx === -1) { alert('CSV needs an "Amount" column.'); return; }
+      const header = parseCSVLine(lines[0]).map(h => h.toLowerCase().trim());
+      const dateIdx = header.findIndex(h => h.includes('date'));
+      const catIdx = header.findIndex(h => h.includes('category') || h.includes('item') || h.includes('budget'));
+      const descIdx = header.findIndex(h => h.includes('desc') || h.includes('memo') || h.includes('note') || h.includes('vendor') || h.includes('payee'));
+      const amtIdx = header.findIndex(h => h.includes('amount') || h.includes('cost') || h.includes('total') || h.includes('price') || h.includes('expense'));
+      if (amtIdx === -1) { alert('Could not find an amount column. Looking for headers containing: amount, cost, total, price, or expense.'); return; }
       const rows = [];
       for (let i = 1; i < lines.length; i++) {
         const cells = parseCSVLine(lines[i]);

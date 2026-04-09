@@ -84,16 +84,16 @@ export default function HousePoints({ uid, isAdmin, masterStudents }) {
     reader.onload = (ev) => {
       const lines = ev.target.result.split('\n').map(l => l.trim()).filter(Boolean);
       if (lines.length < 2) { alert('CSV appears empty.'); return; }
-      const header = lines[0].toLowerCase().split(',').map(h => h.trim().replace(/"/g, ''));
-      const nameIdx = header.findIndex(h => h === 'student' || h === 'studentname' || h === 'student name' || h === 'name');
-      const houseIdx = header.findIndex(h => h === 'house');
-      const pointsIdx = header.findIndex(h => h === 'points');
-      const catIdx = header.findIndex(h => h === 'category');
-      const reasonIdx = header.findIndex(h => h === 'reason' || h === 'description');
-      const typeIdx = header.findIndex(h => h === 'type');
-      const dateIdx = header.findIndex(h => h === 'date');
-      if (nameIdx === -1 && houseIdx === -1) { alert('CSV needs at least a "Student" or "House" column.'); return; }
-      if (pointsIdx === -1) { alert('CSV needs a "Points" column.'); return; }
+      const header = parseCSVLine(lines[0]).map(h => h.toLowerCase().trim());
+      const nameIdx = header.findIndex(h => h.includes('student') || h.includes('name'));
+      const houseIdx = header.findIndex(h => h.includes('house'));
+      const pointsIdx = header.findIndex(h => h.includes('point') || h.includes('value'));
+      const catIdx = header.findIndex(h => h.includes('category') || h.includes('type'));
+      const reasonIdx = header.findIndex(h => h.includes('reason') || h.includes('desc') || h.includes('note'));
+      const typeIdx = header.findIndex(h => h === 'type' || h === 'merit/demerit');
+      const dateIdx = header.findIndex(h => h.includes('date'));
+      if (nameIdx === -1 && houseIdx === -1) { alert('CSV needs at least a column containing "student", "name", or "house".'); return; }
+      if (pointsIdx === -1) { alert('CSV needs a column containing "point" or "value".'); return; }
 
       const rows = [];
       for (let i = 1; i < lines.length; i++) {
