@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import VersionHistory, { createVersion, trimVersions } from './VersionHistory';
 
 function genId() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
 function fmt(n) { return n != null && !isNaN(n) ? '$' + Math.round(n).toLocaleString() : '$0'; }
@@ -57,7 +58,17 @@ export default function GrantsTracker({ grants, onSave }) {
   };
 
   const updateGrant = (id, field, value) => {
-    const updated = list.map(g => g.id === id ? { ...g, [field]: value } : g);
+    const updated = list.map(g => {
+      if (g.id !== id) return g;
+      // Snapshot on status or financial changes
+      const isSignificant = ['status', 'requested', 'approved', 'spent'].includes(field);
+      if (isSignificant) {
+        const versions = g.versions ? [...g.versions] : [];
+        versions.push(createVersion(g, `${field}: ${g[field]} → ${value}`));
+        return { ...g, [field]: value, versions: trimVersions(versions, 20) };
+      }
+      return { ...g, [field]: value };
+    });
     onSave(updated);
   };
 
@@ -178,6 +189,21 @@ export default function GrantsTracker({ grants, onSave }) {
         <div style={{ marginTop: 12 }}>
           {field('Notes / Details', 'notes', 'textarea')}
         </div>
+
+        {/* Version History */}
+        <VersionHistory
+          versions={g.versions || []}
+          onRestore={(snapshot) => {
+            const updated = list.map(gg => gg.id === g.id ? { ...snapshot, versions: g.versions } : gg);
+            onSave(updated);
+          }}
+          renderDiff={(snapshot) => (
+            <div>
+              <div>Status: <strong>{snapshot.status}</strong></div>
+              <div>Requested: {fmt(snapshot.requested)} · Approved: {fmt(snapshot.approved)} · Spent: {fmt(snapshot.spent)}</div>
+            </div>
+          )}
+        />
       </div>
     );
   }

@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { useBudget } from '../hooks/useFirestore';
+import VersionHistory, { createVersion, trimVersions } from './VersionHistory';
 
 function genId() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
 
@@ -172,6 +173,14 @@ export default function BudgetTool() {
 
     update(c => {
       if (!c.approvedBudgets) c.approvedBudgets = {};
+      // Snapshot the previous approved budget before overwriting
+      if (c.approvedBudgets[targetYear]) {
+        if (!c.budgetVersions) c.budgetVersions = [];
+        const prev = c.approvedBudgets[targetYear];
+        const totalAmt = (prev.items || []).reduce((s, i) => s + (parseFloat(i.amount) || 0), 0);
+        c.budgetVersions.push(createVersion(prev, `FY ${targetYear} — ${prev.scenarioName} ($${Math.round(totalAmt).toLocaleString()})`));
+        c.budgetVersions = trimVersions(c.budgetVersions);
+      }
       const budgetData = {
         scenarioName,
         fiscalYear: targetYear,
@@ -236,7 +245,7 @@ export default function BudgetTool() {
         </div>
       )}
 
-      {view === 'dashboard' && <BudgetDashboard lineItems={lineItems} published={published} spending={yearSpending} previewScenario={previewScenario} selectedYear={selectedYear} />}
+      {view === 'dashboard' && <BudgetDashboard lineItems={lineItems} published={published} spending={yearSpending} previewScenario={previewScenario} selectedYear={selectedYear} budgetVersions={local?.budgetVersions || []} update={update} />}
       {view === 'builder' && <BudgetBuilder lineItems={lineItems} scenarios={scenarios} update={update} published={published} onPreview={(s) => { setPreviewScenario(s); setView('dashboard'); }} onApprove={approveScenario} selectedYear={selectedYear} approvedBudgets={approvedBudgets} />}
       {view === 'spending' && <SpendingLog lineItems={lineItems} spending={yearSpending} update={update} published={published} selectedYear={selectedYear} allSpending={spending} />}
     </div>
@@ -246,7 +255,7 @@ export default function BudgetTool() {
 // ============================================================
 // BUDGET DASHBOARD — shows APPROVED budget vs. spending
 // ============================================================
-function BudgetDashboard({ lineItems, published, spending, previewScenario, selectedYear }) {
+function BudgetDashboard({ lineItems, published, spending, previewScenario, selectedYear, budgetVersions, update }) {
   const isPreview = !!previewScenario;
 
   const stats = useMemo(() => {
@@ -400,6 +409,32 @@ function BudgetDashboard({ lineItems, published, spending, previewScenario, sele
           </div>
         ))}
       </div>
+
+      {/* Budget version history */}
+      {!isPreview && budgetVersions && budgetVersions.length > 0 && (
+        <VersionHistory
+          versions={budgetVersions}
+          title="Approved Budget History"
+          onRestore={(snapshot) => {
+            if (!window.confirm(`Restore the approved budget from ${snapshot.scenarioName} (${snapshot.fiscalYear})? This will replace the current approved budget for that fiscal year.`)) return;
+            update(c => {
+              if (!c.approvedBudgets) c.approvedBudgets = {};
+              c.approvedBudgets[snapshot.fiscalYear] = snapshot;
+              if (snapshot.fiscalYear === selectedYear) c.publishedBudget = snapshot;
+            });
+          }}
+          renderDiff={(snapshot) => {
+            const total = (snapshot.items || []).reduce((s, i) => s + (parseFloat(i.amount) || 0), 0);
+            return (
+              <div>
+                <div><strong>{snapshot.scenarioName}</strong> — FY {snapshot.fiscalYear}</div>
+                <div>Total budget: ${Math.round(total).toLocaleString()}</div>
+                <div>{(snapshot.items || []).length} line items</div>
+              </div>
+            );
+          }}
+        />
+      )}
     </div>
   );
 }

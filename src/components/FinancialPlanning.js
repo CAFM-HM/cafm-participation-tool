@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { useFinancialPlanning, useBudget } from '../hooks/useFirestore';
+import VersionHistory, { createVersion, trimVersions } from './VersionHistory';
 
 function genId() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
 function getCurrentFiscalYear() {
@@ -128,6 +129,19 @@ export default function FinancialPlanning() {
   const handleSave = async () => {
     if (!local) return;
     try {
+      // Snapshot projections before save for version history
+      if (data && data.projections && data.projections.length > 0) {
+        const totalExpenses = (data.projections || []).reduce((s, p) => {
+          const firstYearVal = Object.values(p.values || {})[0];
+          return s + (parseFloat(firstYearVal) || 0);
+        }, 0);
+        if (!local.projectionVersions) local.projectionVersions = [];
+        local.projectionVersions.push(createVersion(
+          { projections: data.projections, revenue: data.revenue },
+          `${(data.projections || []).length} line items`
+        ));
+        local.projectionVersions = trimVersions(local.projectionVersions);
+      }
       await saveData(local);
       setDirty(false);
       setSaveStatus('saved');
@@ -151,7 +165,7 @@ export default function FinancialPlanning() {
         </div>
         <SaveBar dirty={dirty} onSave={handleSave} saveStatus={saveStatus} />
       </div>
-      {view === 'projections' && <SixYearProjections data={local} update={update} approvedBudget={approvedBudget} currentFY={currentFY} />}
+      {view === 'projections' && <SixYearProjections data={local} update={update} approvedBudget={approvedBudget} currentFY={currentFY} projectionVersions={local?.projectionVersions || []} />}
       {view === 'tuition' && <TuitionModel data={local} update={update} />}
       {view === 'salary' && <SalaryScheduleView data={local} update={update} />}
       {view === 'aid' && <FinancialAidView data={local} update={update} />}
@@ -159,7 +173,7 @@ export default function FinancialPlanning() {
   );
 }
 
-function SixYearProjections({ data, update, approvedBudget, currentFY }) {
+function SixYearProjections({ data, update, approvedBudget, currentFY, projectionVersions }) {
   const items = data.projections || [];
   const revenue = data.revenue || {};
   const [showAdd, setShowAdd] = useState(false);
@@ -265,6 +279,31 @@ function SixYearProjections({ data, update, approvedBudget, currentFY }) {
           </tbody>
         </table>
       </div>
+
+      {/* Projection version history */}
+      <VersionHistory
+        versions={projectionVersions}
+        title="Projection History"
+        onRestore={(snapshot) => {
+          if (!window.confirm('Restore projections and revenue to this previous version?')) return;
+          update(c => {
+            if (snapshot.projections) c.projections = snapshot.projections;
+            if (snapshot.revenue) c.revenue = snapshot.revenue;
+          });
+        }}
+        renderDiff={(snapshot) => {
+          const YEARS = ['2025-26', '2026-27', '2027-28', '2028-29', '2029-30', '2030-31'];
+          const items = snapshot.projections || [];
+          const firstYear = YEARS[0];
+          const total = items.reduce((s, p) => s + (parseFloat(p.values?.[firstYear]) || 0), 0);
+          return (
+            <div>
+              <div>{items.length} line items</div>
+              <div>FY {firstYear} total: ${Math.round(total).toLocaleString()}</div>
+            </div>
+          );
+        }}
+      />
     </div>
   );
 }

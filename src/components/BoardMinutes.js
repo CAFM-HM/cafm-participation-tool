@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import VersionHistory, { createVersion, trimVersions } from './VersionHistory';
 
 function genId() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
 
@@ -70,13 +71,9 @@ export default function BoardMinutes({ meetings, onSave, onDelete, directors }) 
     const existing = meetings.find(m => m.id === draft.id);
     if (existing && existing.status === 'draft') {
       if (!draft.versions) draft.versions = [];
-      draft.versions.push({
-        id: genId(),
-        timestamp: new Date().toISOString(),
-        snapshot: JSON.parse(JSON.stringify(existing)),
-      });
-      // Keep only last 20 versions
-      if (draft.versions.length > 20) draft.versions = draft.versions.slice(-20);
+      const sectionsWithContent = (existing.sections || []).filter(s => s.content).length;
+      draft.versions.push(createVersion(existing, `${sectionsWithContent} sections with content`));
+      draft.versions = trimVersions(draft.versions);
     }
     draft.lastModified = new Date().toISOString();
     const updated = (meetings || []).map(m => m.id === draft.id ? draft : m);
@@ -367,18 +364,24 @@ export default function BoardMinutes({ meetings, onSave, onDelete, directors }) 
         </div>
 
         {/* Version History */}
-        {(draft.versions || []).length > 0 && (
-          <details style={{ marginTop: 16, padding: '10px 14px', background: '#F9FAFB', borderRadius: 8, border: '1px solid #E5E7EB' }}>
-            <summary style={{ cursor: 'pointer', fontSize: 12, fontWeight: 600, color: '#6B7280' }}>Version History ({draft.versions.length} saved versions)</summary>
-            <div style={{ marginTop: 8 }}>
-              {[...draft.versions].reverse().map(v => (
-                <div key={v.id} style={{ fontSize: 12, color: '#6B7280', padding: '4px 0', borderBottom: '1px solid #E5E7EB' }}>
-                  {new Date(v.timestamp).toLocaleString()} — {v.snapshot?.sections?.filter(s => s.content).length || 0} sections with content
-                </div>
-              ))}
+        <VersionHistory
+          versions={draft.versions || []}
+          onRestore={(snapshot) => {
+            // Restore sections and action items from snapshot, keep metadata
+            updateDraft(d => {
+              d.sections = snapshot.sections || d.sections;
+              d.actionItems = snapshot.actionItems || d.actionItems;
+              d.attendees = snapshot.attendees || d.attendees;
+            });
+          }}
+          renderDiff={(snapshot) => (
+            <div>
+              <div>{(snapshot.sections || []).filter(s => s.content).length} sections with content</div>
+              <div>{(snapshot.actionItems || []).length} action items</div>
+              {(snapshot.attendees || []).length > 0 && <div>Attendees: {snapshot.attendees.join(', ')}</div>}
             </div>
-          </details>
-        )}
+          )}
+        />
       </div>
     );
   }
