@@ -2,6 +2,7 @@ import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { useCommandCenter, useBudget } from '../hooks/useFirestore';
 import BudgetTool from './BudgetTool';
 import FinancialPlanning from './FinancialPlanning';
+import BoardAnalytics from './BoardAnalytics';
 
 // ============================================================
 // BOARD TIMELINE DATA
@@ -61,7 +62,7 @@ export default function CommandCenter() {
   if (loading || budgetLoading || !local) return <div style={{ padding: 40, textAlign: 'center', color: '#9CA3AF' }}>Loading...</div>;
 
   // Budget and Financial Planning manage their own save — hide parent save bar on those tabs
-  const hasOwnSave = tab === 'budget' || tab === 'financial';
+  const hasOwnSave = tab === 'budget' || tab === 'financial' || tab === 'analytics';
 
   return (
     <div>
@@ -78,12 +79,13 @@ export default function CommandCenter() {
       </div>
 
       <div className="sub-nav">
-        {[{ id: 'overview', label: 'Overview' }, { id: 'timeline', label: 'Timeline' }, { id: 'directory', label: 'Directory' }, { id: 'documents', label: 'Documents' }, { id: 'budget', label: 'Budget' }, { id: 'financial', label: 'Financial Planning' }].map(t => (
+        {[{ id: 'overview', label: 'Overview' }, { id: 'analytics', label: 'Analytics' }, { id: 'timeline', label: 'Timeline' }, { id: 'directory', label: 'Directory' }, { id: 'documents', label: 'Documents' }, { id: 'budget', label: 'Budget' }, { id: 'financial', label: 'Financial Planning' }].map(t => (
           <button key={t.id} className={`sub-nav-btn ${tab === t.id ? 'active' : ''}`} onClick={() => setTab(t.id)}>{t.label}</button>
         ))}
       </div>
 
       {tab === 'overview' && <BoardOverview data={local} update={update} budgetData={budgetData} onNavigate={setTab} />}
+      {tab === 'analytics' && <BoardAnalytics enrollment={local?.enrollment} />}
       {tab === 'timeline' && <BoardTimeline data={local} update={update} />}
       {tab === 'directory' && <BoardDirectory data={local} update={update} />}
       {tab === 'documents' && <BoardDocuments data={local} update={update} />}

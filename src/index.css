@@ -2049,6 +2049,35 @@ input:focus, select:focus {
 }
 
 /* ============================================================
+   ANALYTICS DASHBOARD
+   ============================================================ */
+.analytics-kpi-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.analytics-row {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.analytics-enrollment-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  align-items: center;
+}
+
+@media (max-width: 900px) {
+  .analytics-kpi-row { grid-template-columns: repeat(2, 1fr); }
+  .analytics-row { flex-direction: column; }
+  .analytics-enrollment-grid { grid-template-columns: 1fr; }
+}
+
+/* ============================================================
    ANIMATIONS
    ============================================================ */
 @keyframes fadeIn {
