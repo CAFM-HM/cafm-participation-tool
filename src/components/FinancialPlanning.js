@@ -133,10 +133,10 @@ export default function FinancialPlanning() {
 
   return (
     <div>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
+        <div className="sub-nav" style={{ marginBottom: 0, borderBottom: 'none' }}>
           {[{ id: 'projections', label: '6-Year Projections' }, { id: 'tuition', label: 'Tuition Model' }, { id: 'salary', label: 'Salary Schedule' }, { id: 'aid', label: 'Financial Aid' }].map(t => (
-            <button key={t.id} className={`btn btn-sm ${view === t.id ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setView(t.id)}>{t.label}</button>
+            <button key={t.id} className={`sub-nav-btn ${view === t.id ? 'active' : ''}`} onClick={() => setView(t.id)}>{t.label}</button>
           ))}
         </div>
         <SaveBar dirty={dirty} onSave={handleSave} saveStatus={saveStatus} />

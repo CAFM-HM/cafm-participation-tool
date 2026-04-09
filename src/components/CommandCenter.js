@@ -77,9 +77,9 @@ export default function CommandCenter() {
         )}
       </div>
 
-      <div style={{ display: 'flex', gap: 6, marginBottom: 16, flexWrap: 'wrap' }}>
+      <div className="sub-nav">
         {[{ id: 'overview', label: 'Overview' }, { id: 'timeline', label: 'Timeline' }, { id: 'directory', label: 'Directory' }, { id: 'documents', label: 'Documents' }, { id: 'budget', label: 'Budget' }, { id: 'financial', label: 'Financial Planning' }].map(t => (
-          <button key={t.id} className={`btn btn-sm ${tab === t.id ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setTab(t.id)}>{t.label}</button>
+          <button key={t.id} className={`sub-nav-btn ${tab === t.id ? 'active' : ''}`} onClick={() => setTab(t.id)}>{t.label}</button>
         ))}
       </div>
 

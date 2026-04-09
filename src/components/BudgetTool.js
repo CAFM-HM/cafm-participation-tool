@@ -103,14 +103,14 @@ export default function BudgetTool() {
 
   return (
     <div>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
+        <div className="sub-nav" style={{ marginBottom: 0, borderBottom: 'none' }}>
           {[
             { id: 'dashboard', label: 'Approved Budget' },
             { id: 'builder', label: 'Budget Builder' },
             { id: 'spending', label: 'Spending Log' },
           ].map(t => (
-            <button key={t.id} className={`btn btn-sm ${view === t.id ? 'btn-primary' : 'btn-secondary'}`}
+            <button key={t.id} className={`sub-nav-btn ${view === t.id ? 'active' : ''}`}
               onClick={() => { setView(t.id); setPreviewScenario(null); }}>{t.label}</button>
           ))}
         </div>
