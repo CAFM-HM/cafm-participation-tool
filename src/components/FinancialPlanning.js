@@ -1,7 +1,12 @@
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
-import { useFinancialPlanning } from '../hooks/useFirestore';
+import { useFinancialPlanning, useBudget } from '../hooks/useFirestore';
 
 function genId() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
+function getCurrentFiscalYear() {
+  const now = new Date();
+  const startYear = now.getMonth() >= 6 ? now.getFullYear() : now.getFullYear() - 1;
+  return `${startYear}-${(startYear + 1).toString().slice(2)}`;
+}
 function fmt(n) { return n != null && !isNaN(n) ? '$' + Math.round(n).toLocaleString() : '—'; }
 function fmtPct(n) { return n != null && !isNaN(n) ? (n * 100).toFixed(1) + '%' : '—'; }
 
@@ -94,10 +99,15 @@ function SaveBar({ dirty, onSave, saveStatus }) {
 
 export default function FinancialPlanning() {
   const { data, loading, saveData } = useFinancialPlanning();
+  const { data: budgetData, loading: budgetLoading } = useBudget();
   const [local, setLocal] = useState(null);
   const [view, setView] = useState('projections');
   const [dirty, setDirty] = useState(false);
   const [saveStatus, setSaveStatus] = useState(null); // null | 'saved' | 'error'
+
+  // Get approved budget for the current fiscal year (read-only, for projections Year 1)
+  const currentFY = getCurrentFiscalYear();
+  const approvedBudget = budgetData?.approvedBudgets?.[currentFY] || null;
 
   useEffect(() => {
     if (data && !local) {
@@ -129,7 +139,7 @@ export default function FinancialPlanning() {
     }
   };
 
-  if (loading || !local) return <div style={{ padding: 40, textAlign: 'center', color: '#9CA3AF' }}>Loading financial data...</div>;
+  if (loading || budgetLoading || !local) return <div style={{ padding: 40, textAlign: 'center', color: '#9CA3AF' }}>Loading financial data...</div>;
 
   return (
     <div>
@@ -141,7 +151,7 @@ export default function FinancialPlanning() {
         </div>
         <SaveBar dirty={dirty} onSave={handleSave} saveStatus={saveStatus} />
       </div>
-      {view === 'projections' && <SixYearProjections data={local} update={update} />}
+      {view === 'projections' && <SixYearProjections data={local} update={update} approvedBudget={approvedBudget} currentFY={currentFY} />}
       {view === 'tuition' && <TuitionModel data={local} update={update} />}
       {view === 'salary' && <SalaryScheduleView data={local} update={update} />}
       {view === 'aid' && <FinancialAidView data={local} update={update} />}
@@ -149,17 +159,44 @@ export default function FinancialPlanning() {
   );
 }
 
-function SixYearProjections({ data, update }) {
+function SixYearProjections({ data, update, approvedBudget, currentFY }) {
   const items = data.projections || [];
   const revenue = data.revenue || {};
   const [showAdd, setShowAdd] = useState(false);
   const [newItem, setNewItem] = useState('');
 
+  // Build a lookup from approved budget: match projection items to budget items by name (fuzzy)
+  const approvedLookup = useMemo(() => {
+    if (!approvedBudget?.items) return {};
+    const lookup = {};
+    items.forEach(proj => {
+      const pName = proj.name.toLowerCase().trim();
+      // Try exact match first, then contains match
+      let match = approvedBudget.items.find(b => b.name.toLowerCase().trim() === pName);
+      if (!match) match = approvedBudget.items.find(b => pName.includes(b.name.toLowerCase().trim()) || b.name.toLowerCase().trim().includes(pName));
+      if (match) lookup[proj.id] = parseFloat(match.amount) || 0;
+    });
+    return lookup;
+  }, [approvedBudget, items]);
+
+  const hasApprovedBudget = approvedBudget && Object.keys(approvedLookup).length > 0;
+  const isLockedYear = (yr) => yr === currentFY && hasApprovedBudget;
+
   const totals = useMemo(() => {
     const t = {};
-    YEARS.forEach(yr => { t[yr] = items.reduce((sum, item) => sum + (parseFloat(item.values?.[yr]) || 0), 0); });
+    YEARS.forEach(yr => {
+      if (isLockedYear(yr)) {
+        // For the locked year, use approved budget values where matched, projection values for unmatched
+        t[yr] = items.reduce((sum, item) => {
+          if (approvedLookup[item.id] !== undefined) return sum + approvedLookup[item.id];
+          return sum + (parseFloat(item.values?.[yr]) || 0);
+        }, 0);
+      } else {
+        t[yr] = items.reduce((sum, item) => sum + (parseFloat(item.values?.[yr]) || 0), 0);
+      }
+    });
     return t;
-  }, [items]);
+  }, [items, approvedLookup, currentFY, hasApprovedBudget]);
 
   const revTotals = useMemo(() => {
     const r = {};
@@ -189,12 +226,28 @@ function SixYearProjections({ data, update }) {
         <button className="btn btn-sm btn-primary" onClick={() => setShowAdd(!showAdd)}>{showAdd ? 'Cancel' : '+ Add Line'}</button>
       </div>
       {showAdd && (<div className="sched-inline-row" style={{ marginBottom: 12 }}><input type="text" value={newItem} placeholder="New line item" onChange={e => setNewItem(e.target.value)} onKeyDown={e => e.key === 'Enter' && addItem()} style={{ width: 250 }} /><button className="btn btn-sm btn-gold" onClick={addItem}>Add</button></div>)}
+      {hasApprovedBudget && (
+        <div style={{ padding: '8px 14px', background: '#F0FFF4', border: '1px solid #BBF7D0', borderRadius: 8, marginBottom: 12, fontSize: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ fontSize: 14 }}>&#128274;</span>
+          <span><strong style={{ color: '#16A34A' }}>FY {currentFY}</strong> column is pulling from the approved budget (<em>{approvedBudget.scenarioName}</em>). {Object.keys(approvedLookup).length} of {items.length} line items matched. Future years remain editable estimates.</span>
+        </div>
+      )}
       <div style={{ overflowX: 'auto' }}>
         <table className="data-table" style={{ fontSize: 12 }}>
-          <thead><tr><th style={{ minWidth: 200, ...stickyTd('#F9FAFB') }}>Expense Line Item</th>{YEARS.map(yr => <th key={yr} style={{ textAlign: 'right', minWidth: 100 }}>{yr}</th>)}<th style={{ width: 30 }}></th></tr></thead>
+          <thead><tr><th style={{ minWidth: 200, ...stickyTd('#F9FAFB') }}>Expense Line Item</th>{YEARS.map(yr => <th key={yr} style={{ textAlign: 'right', minWidth: 100, background: isLockedYear(yr) ? '#F0FFF4' : undefined }}>{yr}{isLockedYear(yr) ? ' \u{1F512}' : ''}</th>)}<th style={{ width: 30 }}></th></tr></thead>
           <tbody>
-            {items.map(item => (<tr key={item.id}><td style={{ ...stickyTd(), fontWeight: 500, fontSize: 12 }}>{item.name}<span style={{ fontSize: 10, color: '#9CA3AF', marginLeft: 6 }}>{item.owner}</span></td>{YEARS.map(yr => (<td key={yr} style={{ textAlign: 'right', padding: '2px 4px' }}><input type="number" value={item.values?.[yr] ?? ''} placeholder="—" onChange={e => updateItemValue(item.id, yr, e.target.value)} style={{ ...editInputRight, width: 90 }} /></td>))}<td><button className="remove-btn" onClick={() => removeItem(item.id)}>×</button></td></tr>))}
-            <tr style={{ fontWeight: 700, borderTop: '2px solid #1B3A5C', background: '#F0F4F8' }}><td style={{ ...stickyTd('#F0F4F8'), fontFamily: 'var(--font-display)', color: '#1B3A5C' }}>TOTAL EXPENSES</td>{YEARS.map(yr => (<td key={yr} style={{ textAlign: 'right', fontFamily: 'var(--font-display)', color: '#1B3A5C', fontSize: 13 }}>{totals[yr] > 0 ? fmt(totals[yr]) : '—'}</td>))}<td></td></tr>
+            {items.map(item => (<tr key={item.id}><td style={{ ...stickyTd(), fontWeight: 500, fontSize: 12 }}>{item.name}<span style={{ fontSize: 10, color: '#9CA3AF', marginLeft: 6 }}>{item.owner}</span></td>{YEARS.map(yr => {
+              const locked = isLockedYear(yr) && approvedLookup[item.id] !== undefined;
+              const val = locked ? approvedLookup[item.id] : item.values?.[yr];
+              return (<td key={yr} style={{ textAlign: 'right', padding: '2px 4px', background: locked ? '#F0FFF4' : undefined }}>
+                {locked ? (
+                  <span style={{ display: 'inline-block', width: 90, textAlign: 'right', fontWeight: 600, color: '#16A34A', fontSize: 12, padding: '4px 6px' }}>{fmt(val)}</span>
+                ) : (
+                  <input type="number" value={val ?? ''} placeholder="—" onChange={e => updateItemValue(item.id, yr, e.target.value)} style={{ ...editInputRight, width: 90 }} />
+                )}
+              </td>);
+            })}<td><button className="remove-btn" onClick={() => removeItem(item.id)}>x</button></td></tr>))}
+            <tr style={{ fontWeight: 700, borderTop: '2px solid #1B3A5C', background: '#F0F4F8' }}><td style={{ ...stickyTd('#F0F4F8'), fontFamily: 'var(--font-display)', color: '#1B3A5C' }}>TOTAL EXPENSES</td>{YEARS.map(yr => (<td key={yr} style={{ textAlign: 'right', fontFamily: 'var(--font-display)', color: isLockedYear(yr) ? '#16A34A' : '#1B3A5C', fontSize: 13, background: isLockedYear(yr) ? '#F0FFF4' : '#F0F4F8' }}>{totals[yr] > 0 ? fmt(totals[yr]) : '—'}</td>))}<td></td></tr>
           </tbody>
         </table>
       </div>
