@@ -744,6 +744,13 @@ function SpendingLog({ lineItems, spending, update, published, selectedYear, all
           </div>
         </div>
         <div style={{ display: 'flex', gap: 6 }}>
+          {spending.length > 0 && (
+            <button className="btn btn-sm btn-secondary" style={{ color: '#DC2626' }} onClick={() => {
+              if (!window.confirm(`Delete all ${spending.length} spending entries for FY ${selectedYear}? This cannot be undone.`)) return;
+              update(c => { c.spending = (c.spending || []).filter(s => s.fiscalYear && s.fiscalYear !== selectedYear); });
+              window.dispatchEvent(new CustomEvent('toast', { detail: 'Spending cleared' }));
+            }}>Clear All</button>
+          )}
           <label className="btn btn-sm btn-secondary" style={{ cursor: 'pointer', margin: 0 }}>
             📥 Import CSV
             <input type="file" accept=".csv" onChange={handleSpendingCsv} style={{ display: 'none' }} />
