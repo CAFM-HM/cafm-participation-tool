@@ -6,6 +6,7 @@ import BoardAnalytics from './BoardAnalytics';
 import BoardMinutes from './BoardMinutes';
 import GrantsTracker from './GrantsTracker';
 import ServiceHours from './ServiceHours';
+import DataBackup from './DataBackup';
 
 // ============================================================
 // BOARD TIMELINE DATA
@@ -74,7 +75,7 @@ export default function CommandCenter() {
   if (loading || budgetLoading || !local) return <div style={{ padding: 40, textAlign: 'center', color: '#9CA3AF' }}>Loading...</div>;
 
   // These tabs manage their own save or have their own hooks — hide parent save bar
-  const hasOwnSave = tab === 'budget' || tab === 'financial' || tab === 'analytics' || tab === 'service';
+  const hasOwnSave = tab === 'budget' || tab === 'financial' || tab === 'analytics' || tab === 'service' || tab === 'backup';
 
   return (
     <div>
@@ -91,7 +92,7 @@ export default function CommandCenter() {
       </div>
 
       <div className="sub-nav">
-        {[{ id: 'overview', label: 'Overview' }, { id: 'analytics', label: 'Analytics' }, { id: 'timeline', label: 'Timeline' }, { id: 'minutes', label: 'Minutes' }, { id: 'grants', label: 'Grants' }, { id: 'service', label: 'Service Hours' }, { id: 'directory', label: 'Directory' }, { id: 'documents', label: 'Documents' }, { id: 'budget', label: 'Budget' }, { id: 'financial', label: 'Financial Planning' }].map(t => (
+        {[{ id: 'overview', label: 'Overview' }, { id: 'analytics', label: 'Analytics' }, { id: 'timeline', label: 'Timeline' }, { id: 'minutes', label: 'Minutes' }, { id: 'grants', label: 'Grants' }, { id: 'service', label: 'Service Hours' }, { id: 'directory', label: 'Directory' }, { id: 'documents', label: 'Documents' }, { id: 'budget', label: 'Budget' }, { id: 'financial', label: 'Financial Planning' }, { id: 'backup', label: 'Data Backup' }].map(t => (
           <button key={t.id} className={`sub-nav-btn ${tab === t.id ? 'active' : ''}`} onClick={() => setTab(t.id)}>{t.label}</button>
         ))}
       </div>
@@ -106,6 +107,7 @@ export default function CommandCenter() {
       {tab === 'service' && <ServiceHours entries={serviceEntries} onAdd={addServiceEntry} onUpdate={updateServiceEntry} onDelete={deleteServiceEntry} masterStudents={masterStudents} />}
       {tab === 'budget' && <BudgetTool />}
       {tab === 'financial' && <FinancialPlanning />}
+      {tab === 'backup' && <DataBackup />}
     </div>
   );
 }
