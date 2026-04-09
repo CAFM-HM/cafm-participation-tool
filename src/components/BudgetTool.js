@@ -135,20 +135,20 @@ export default function BudgetTool() {
     }
   };
 
-  if (loading || !local) return <div style={{ padding: 40, textAlign: 'center', color: '#9CA3AF' }}>Loading budget...</div>;
-
-  const scenarios = local.scenarios || ['Scenario A'];
-  const lineItems = local.lineItems || [];
-  const spending = local.spending || [];
-  const approvedBudgets = local.approvedBudgets || {};
+  const scenarios = local?.scenarios || ['Scenario A'];
+  const lineItems = local?.lineItems || [];
+  const spending = local?.spending || [];
+  const approvedBudgets = local?.approvedBudgets || {};
   const published = approvedBudgets[selectedYear] || null;
 
-  // Filter spending to selected fiscal year
+  // Filter spending to selected fiscal year (must be above early return — hooks can't be conditional)
   const yearSpending = useMemo(() => {
     return spending.filter(s => getFiscalYear(s.date) === selectedYear);
   }, [spending, selectedYear]);
 
   const yearOptions = getFiscalYearOptions(approvedBudgets);
+
+  if (loading || !local) return <div style={{ padding: 40, textAlign: 'center', color: '#9CA3AF' }}>Loading budget...</div>;
 
   // Approve a scenario as the official budget for a fiscal year
   const approveScenario = (scenarioName) => {
