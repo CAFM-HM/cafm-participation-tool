@@ -46,14 +46,19 @@ export default function CommandCenter() {
 
   if (loading || budgetLoading || !local) return <div style={{ padding: 40, textAlign: 'center', color: '#9CA3AF' }}>Loading...</div>;
 
+  // Budget and Financial Planning manage their own save — hide parent save bar on those tabs
+  const hasOwnSave = tab === 'budget' || tab === 'financial';
+
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, flexWrap: 'wrap', gap: 8 }}>
         <h2 className="section-title">Board</h2>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          {dirty && <span style={{ fontSize: 12, color: '#CA8A04', fontWeight: 600 }}>Unsaved changes</span>}
-          <button className="btn btn-secondary" onClick={handleSave} disabled={!dirty}>Save</button>
-        </div>
+        {!hasOwnSave && (
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            {dirty && <span style={{ fontSize: 12, color: '#CA8A04', fontWeight: 600 }}>Unsaved changes</span>}
+            <button className="btn btn-secondary" onClick={handleSave} disabled={!dirty}>Save</button>
+          </div>
+        )}
       </div>
 
       <div style={{ display: 'flex', gap: 6, marginBottom: 16, flexWrap: 'wrap' }}>
@@ -91,13 +96,23 @@ function BoardOverview({ data, update, budgetData, onNavigate }) {
   const nextMeeting = currentIsMeeting || futureMeetings[0] || BOARD_TIMELINE.filter(m => m.meetingMonth).sort((a, b) => MONTH_NAMES.indexOf(a.month) - MONTH_NAMES.indexOf(b.month))[0];
 
   const budgetStats = useMemo(() => {
-    if (!budgetData?.lineItems) return null;
-    const scenario = (budgetData.scenarios || ['Scenario A'])[0];
+    if (!budgetData) return null;
+    const published = budgetData.publishedBudget;
+    // Use approved budget if available, fall back to first scenario
     let totalBudget = 0, totalSpent = 0;
-    (budgetData.lineItems || []).forEach(item => {
-      totalBudget += parseFloat(item.scenarios?.[scenario]) || 0;
-      (budgetData.spending || []).filter(s => s.categoryId === item.id).forEach(s => { totalSpent += parseFloat(s.amount) || 0; });
-    });
+    if (published?.items) {
+      published.items.forEach(item => {
+        totalBudget += parseFloat(item.amount) || 0;
+        (budgetData.spending || []).filter(s => s.categoryId === item.id).forEach(s => { totalSpent += parseFloat(s.amount) || 0; });
+      });
+    } else if (budgetData.lineItems) {
+      const scenario = (budgetData.scenarios || ['Scenario A'])[0];
+      (budgetData.lineItems || []).forEach(item => {
+        totalBudget += parseFloat(item.scenarios?.[scenario]) || 0;
+        (budgetData.spending || []).filter(s => s.categoryId === item.id).forEach(s => { totalSpent += parseFloat(s.amount) || 0; });
+      });
+    } else return null;
+    if (totalBudget === 0 && totalSpent === 0) return null;
     const month = new Date().getMonth();
     const fiscalMonth = month >= 7 ? month - 7 : month + 5;
     const pctYear = Math.round((fiscalMonth / 10) * 100);
