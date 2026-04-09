@@ -47,7 +47,7 @@ export default function DailyTracker({ uid, masterStudents, adminViewMode, admin
   const effectiveUid = adminViewMode ? adminUid : uid;
 
   const {
-    classes, loading, addClass, addStudentToClass, removeStudentFromClass, saveDailyScore, deleteClass,
+    classes, loading, addClass, addStudentToClass, removeStudentFromClass, saveDailyScore, saveBulkScores, deleteClass,
   } = useTeacherData(effectiveUid, masterStudents);
 
   const [selectedClass, setSelectedClass] = useState(null);
@@ -93,19 +93,19 @@ export default function DailyTracker({ uid, masterStudents, adminViewMode, admin
   const performUndo = () => {
     if (!undoSnapshot.current || !selectedClass) return;
     const snap = undoSnapshot.current;
+    const updates = [];
     students.forEach(student => {
       const prev = snap[student.id];
       if (prev === null) {
         // Was empty — clear all virtues
-        VIRTUES.forEach(v => saveDailyScore(selectedClass, student.id, date, v.key, 0));
-        saveDailyScore(selectedClass, student.id, date, 'absent', false);
+        VIRTUES.forEach(v => updates.push({ studentId: student.id, virtueKey: v.key, score: 0 }));
+        updates.push({ studentId: student.id, virtueKey: 'absent', score: false });
       } else {
-        VIRTUES.forEach(v => {
-          saveDailyScore(selectedClass, student.id, date, v.key, prev[v.key] || 0);
-        });
-        saveDailyScore(selectedClass, student.id, date, 'absent', prev.absent || false);
+        VIRTUES.forEach(v => updates.push({ studentId: student.id, virtueKey: v.key, score: prev[v.key] || 0 }));
+        updates.push({ studentId: student.id, virtueKey: 'absent', score: prev.absent || false });
       }
     });
+    saveBulkScores(selectedClass, date, updates);
     undoSnapshot.current = null;
     setCanUndo(false);
     setUndoLabel('');
@@ -148,7 +148,8 @@ export default function DailyTracker({ uid, masterStudents, adminViewMode, admin
   // Score All per student
   const scoreAllForStudent = (studentId, score) => {
     if (!selectedClass) return;
-    VIRTUES.forEach(v => saveDailyScore(selectedClass, studentId, date, v.key, score));
+    const updates = VIRTUES.map(v => ({ studentId, virtueKey: v.key, score }));
+    saveBulkScores(selectedClass, date, updates);
   };
 
   // Class-wide default
@@ -156,11 +157,13 @@ export default function DailyTracker({ uid, masterStudents, adminViewMode, admin
     if (!selectedClass) return;
     if (!window.confirm(`Set all students to ${score} for all virtues on ${date}?`)) return;
     captureSnapshot(`All ${score}`);
+    const updates = [];
     students.forEach(student => {
       if (!isAbsent(student)) {
-        VIRTUES.forEach(v => saveDailyScore(selectedClass, student.id, date, v.key, score));
+        VIRTUES.forEach(v => updates.push({ studentId: student.id, virtueKey: v.key, score }));
       }
     });
+    saveBulkScores(selectedClass, date, updates);
   };
 
   // Copy Yesterday
@@ -169,20 +172,23 @@ export default function DailyTracker({ uid, masterStudents, adminViewMode, admin
     const prevDay = getPreviousSchoolDay(date);
     if (!window.confirm(`Copy scores from ${prevDay} to ${date}?`)) return;
     captureSnapshot('Copy Prev Day');
+    const updates = [];
     let copied = 0;
     students.forEach(student => {
       const prevScores = student.scores?.[prevDay];
       if (prevScores && !prevScores.absent) {
         VIRTUES.forEach(v => {
-          if (prevScores[v.key]) saveDailyScore(selectedClass, student.id, date, v.key, prevScores[v.key]);
+          if (prevScores[v.key]) updates.push({ studentId: student.id, virtueKey: v.key, score: prevScores[v.key] });
         });
         copied++;
       }
-      if (prevScores?.absent) saveDailyScore(selectedClass, student.id, date, 'absent', true);
+      if (prevScores?.absent) updates.push({ studentId: student.id, virtueKey: 'absent', score: true });
     });
     if (copied === 0) {
       alert(`No scores found for ${prevDay}. Nothing to copy.`);
       setCanUndo(false);
+    } else {
+      saveBulkScores(selectedClass, date, updates);
     }
   };
 
