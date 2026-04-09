@@ -108,15 +108,17 @@ function App() {
             // Section group with label
             const sectionActive = item.tabs.some(t => t.id === activeTab);
             return (
-              <div key={item.section} className="tab-section" style={{ display: 'flex', alignItems: 'center', gap: 0, position: 'relative' }}>
-                <span className="tab-section-label" style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: sectionActive ? '#C9A227' : '#9CA3AF', position: 'absolute', top: 2, left: '50%', transform: 'translateX(-50%)', whiteSpace: 'nowrap', pointerEvents: 'none' }}>{item.section}</span>
-                {item.tabs.map(tab => (
-                  <button key={tab.id} className={`tab-btn ${activeTab === tab.id ? 'active' : ''}`}
-                    onClick={() => setActiveTab(tab.id)}>
-                    <span className="tab-icon">{tab.icon}</span>
-                    {tab.label}
-                  </button>
-                ))}
+              <div key={item.section} className="tab-section" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                <span className="tab-section-label" style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: sectionActive ? '#C9A227' : '#9CA3AF', whiteSpace: 'nowrap', pointerEvents: 'none', marginBottom: -2 }}>{item.section}</span>
+                <div style={{ display: 'flex', gap: 0 }}>
+                  {item.tabs.map(tab => (
+                    <button key={tab.id} className={`tab-btn ${activeTab === tab.id ? 'active' : ''}`}
+                      onClick={() => setActiveTab(tab.id)}>
+                      <span className="tab-icon">{tab.icon}</span>
+                      {tab.label}
+                    </button>
+                  ))}
+                </div>
               </div>
             );
           }
