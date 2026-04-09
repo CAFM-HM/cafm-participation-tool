@@ -74,11 +74,30 @@ const DEFAULT_AID = {
   ],
 };
 
+// Shared editable input style
+const editInput = { border: '1px solid #E5E7EB', borderRadius: 4, padding: '4px 6px', fontSize: 12, background: '#fff' };
+const editInputRight = { ...editInput, textAlign: 'right' };
+const editInputCenter = { ...editInput, textAlign: 'center' };
+
+// Save status component
+function SaveBar({ dirty, onSave, saveStatus }) {
+  return (
+    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+      {saveStatus === 'saved' && <span style={{ fontSize: 12, color: '#16A34A', fontWeight: 600 }}>Saved!</span>}
+      {saveStatus === 'error' && <span style={{ fontSize: 12, color: '#DC2626', fontWeight: 600 }}>Save failed — try again</span>}
+      {dirty && !saveStatus && <span style={{ fontSize: 12, color: '#CA8A04', fontWeight: 600 }}>Unsaved changes</span>}
+      <button className="btn btn-primary btn-sm" onClick={onSave} disabled={!dirty && saveStatus !== 'error'}
+        style={{ minWidth: 70 }}>{dirty ? 'Save' : 'Saved'}</button>
+    </div>
+  );
+}
+
 export default function FinancialPlanning() {
   const { data, loading, saveData } = useFinancialPlanning();
   const [local, setLocal] = useState(null);
   const [view, setView] = useState('projections');
   const [dirty, setDirty] = useState(false);
+  const [saveStatus, setSaveStatus] = useState(null); // null | 'saved' | 'error'
 
   useEffect(() => {
     if (data && !local) {
@@ -93,9 +112,21 @@ export default function FinancialPlanning() {
   const update = useCallback((fn) => {
     setLocal(prev => { const next = JSON.parse(JSON.stringify(prev)); fn(next); return next; });
     setDirty(true);
+    setSaveStatus(null);
   }, []);
 
-  const handleSave = async () => { if (local) { await saveData(local); setDirty(false); } };
+  const handleSave = async () => {
+    if (!local) return;
+    try {
+      await saveData(local);
+      setDirty(false);
+      setSaveStatus('saved');
+      setTimeout(() => setSaveStatus(null), 3000);
+    } catch (err) {
+      console.error('Save failed:', err);
+      setSaveStatus('error');
+    }
+  };
 
   if (loading || !local) return <div style={{ padding: 40, textAlign: 'center', color: '#9CA3AF' }}>Loading financial data...</div>;
 
@@ -107,10 +138,7 @@ export default function FinancialPlanning() {
             <button key={t.id} className={`btn btn-sm ${view === t.id ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setView(t.id)}>{t.label}</button>
           ))}
         </div>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          {dirty && <span style={{ fontSize: 12, color: '#CA8A04', fontWeight: 600 }}>Unsaved</span>}
-          <button className="btn btn-secondary btn-sm" onClick={handleSave} disabled={!dirty}>Save</button>
-        </div>
+        <SaveBar dirty={dirty} onSave={handleSave} saveStatus={saveStatus} />
       </div>
       {view === 'projections' && <SixYearProjections data={local} update={update} />}
       {view === 'tuition' && <TuitionModel data={local} update={update} />}
@@ -164,7 +192,7 @@ function SixYearProjections({ data, update }) {
         <table className="data-table" style={{ fontSize: 12 }}>
           <thead><tr><th style={{ minWidth: 200, ...stickyTd('#F9FAFB') }}>Expense Line Item</th>{YEARS.map(yr => <th key={yr} style={{ textAlign: 'right', minWidth: 100 }}>{yr}</th>)}<th style={{ width: 30 }}></th></tr></thead>
           <tbody>
-            {items.map(item => (<tr key={item.id}><td style={{ ...stickyTd(), fontWeight: 500, fontSize: 12 }}>{item.name}<span style={{ fontSize: 10, color: '#9CA3AF', marginLeft: 6 }}>{item.owner}</span></td>{YEARS.map(yr => (<td key={yr} style={{ textAlign: 'right', padding: '2px 4px' }}><input type="number" value={item.values?.[yr] ?? ''} placeholder="—" onChange={e => updateItemValue(item.id, yr, e.target.value)} style={{ border: 'none', textAlign: 'right', width: 90, background: 'transparent', fontSize: 12, padding: '2px 0' }} /></td>))}<td><button className="remove-btn" onClick={() => removeItem(item.id)}>×</button></td></tr>))}
+            {items.map(item => (<tr key={item.id}><td style={{ ...stickyTd(), fontWeight: 500, fontSize: 12 }}>{item.name}<span style={{ fontSize: 10, color: '#9CA3AF', marginLeft: 6 }}>{item.owner}</span></td>{YEARS.map(yr => (<td key={yr} style={{ textAlign: 'right', padding: '2px 4px' }}><input type="number" value={item.values?.[yr] ?? ''} placeholder="—" onChange={e => updateItemValue(item.id, yr, e.target.value)} style={{ ...editInputRight, width: 90 }} /></td>))}<td><button className="remove-btn" onClick={() => removeItem(item.id)}>×</button></td></tr>))}
             <tr style={{ fontWeight: 700, borderTop: '2px solid #1B3A5C', background: '#F0F4F8' }}><td style={{ ...stickyTd('#F0F4F8'), fontFamily: 'var(--font-display)', color: '#1B3A5C' }}>TOTAL EXPENSES</td>{YEARS.map(yr => (<td key={yr} style={{ textAlign: 'right', fontFamily: 'var(--font-display)', color: '#1B3A5C', fontSize: 13 }}>{totals[yr] > 0 ? fmt(totals[yr]) : '—'}</td>))}<td></td></tr>
           </tbody>
         </table>
@@ -175,7 +203,7 @@ function SixYearProjections({ data, update }) {
           <thead><tr><th style={{ minWidth: 200, ...stickyTd('#F9FAFB') }}>Revenue Line</th>{YEARS.map(yr => <th key={yr} style={{ textAlign: 'right', minWidth: 100 }}>{yr}</th>)}</tr></thead>
           <tbody>
             {[{ key: 'enrollment', label: 'Enrollment (# students)' }, { key: 'tuitionPerStudent', label: 'Tuition & Fees per Student' }, { key: 'previousYearSurplus', label: 'Previous Year Surplus' }, { key: 'galaEarnings', label: 'Gala / Major Fundraising' }, { key: 'otherRevenue', label: 'Other Revenue' }, { key: 'financialAid', label: 'Financial Aid (deduction)' }].map(row => (
-              <tr key={row.key}><td style={{ ...stickyTd(), fontWeight: 500, fontSize: 12 }}>{row.label}</td>{YEARS.map(yr => (<td key={yr} style={{ textAlign: 'right', padding: '2px 4px' }}><input type="number" value={revenue[row.key]?.[yr] ?? ''} placeholder="—" onChange={e => updateRevenue(row.key, yr, e.target.value)} style={{ border: 'none', textAlign: 'right', width: 90, background: 'transparent', fontSize: 12, padding: '2px 0' }} /></td>))}</tr>
+              <tr key={row.key}><td style={{ ...stickyTd(), fontWeight: 500, fontSize: 12 }}>{row.label}</td>{YEARS.map(yr => (<td key={yr} style={{ textAlign: 'right', padding: '2px 4px' }}><input type="number" value={revenue[row.key]?.[yr] ?? ''} placeholder="—" onChange={e => updateRevenue(row.key, yr, e.target.value)} style={{ ...editInputRight, width: 90 }} /></td>))}</tr>
             ))}
             <tr style={{ background: '#F0FFF4', fontWeight: 600 }}><td style={stickyTd('#F0FFF4')}>Tuition Revenue</td>{YEARS.map(yr => <td key={yr} style={{ textAlign: 'right', color: '#16A34A' }}>{revTotals[yr]?.tuition > 0 ? fmt(revTotals[yr].tuition) : '—'}</td>)}</tr>
             <tr style={{ fontWeight: 700, borderTop: '2px solid #16A34A', background: '#F0FFF4' }}><td style={{ ...stickyTd('#F0FFF4'), fontFamily: 'var(--font-display)', color: '#16A34A' }}>TOTAL REVENUE</td>{YEARS.map(yr => <td key={yr} style={{ textAlign: 'right', fontFamily: 'var(--font-display)', color: '#16A34A', fontSize: 13 }}>{revTotals[yr]?.total > 0 ? fmt(revTotals[yr].total) : '—'}</td>)}</tr>
@@ -223,16 +251,16 @@ function TuitionModel({ data, update }) {
           <thead><tr><th style={{ minWidth: 200, ...stickyTd('#F9FAFB') }}></th>{tuitionYears.map(yr => <th key={yr} style={{ textAlign: 'right', minWidth: 95 }}>{yr}-{String(yr + 1).slice(2)}</th>)}</tr></thead>
           <tbody>
             {[{ key: 'tuition', label: 'Tuition' }, { key: 'fees', label: 'Fees' }].map(f => (
-              <tr key={f.key}><td style={{ ...stickyTd(), fontWeight: 600 }}>{f.label}</td>{tuitionYears.map(yr => (<td key={yr} style={{ textAlign: 'right', padding: '2px 4px' }}><input type="number" value={t[f.key]?.[yr] ?? ''} onChange={e => updateField(f.key, yr, e.target.value)} style={{ border: 'none', textAlign: 'right', width: 80, background: 'transparent', fontSize: 12 }} /></td>))}</tr>
+              <tr key={f.key}><td style={{ ...stickyTd(), fontWeight: 600 }}>{f.label}</td>{tuitionYears.map(yr => (<td key={yr} style={{ textAlign: 'right', padding: '2px 4px' }}><input type="number" value={t[f.key]?.[yr] ?? ''} onChange={e => updateField(f.key, yr, e.target.value)} style={{ ...editInputRight, width: 80 }} /></td>))}</tr>
             ))}
             <tr style={{ fontWeight: 700, borderTop: '2px solid #1B3A5C', background: '#F0F4F8' }}><td style={{ ...stickyTd('#F0F4F8'), color: '#1B3A5C' }}>Tuition + Fees Total</td>{rows.map(r => <td key={r.yr} style={{ textAlign: 'right', color: '#1B3A5C' }}>{fmt(r.total)}</td>)}</tr>
             <tr><td colSpan={tuitionYears.length + 1} style={{ padding: 6 }}></td></tr>
-            <tr style={{ background: '#EFF6FF' }}><td style={{ ...stickyTd('#EFF6FF'), fontWeight: 600, color: '#1D4ED8' }}>SUFS FTC Award</td>{tuitionYears.map(yr => (<td key={yr} style={{ textAlign: 'right', padding: '2px 4px' }}><input type="number" value={t.sufsFTC?.[yr] ?? ''} onChange={e => updateField('sufsFTC', yr, e.target.value)} style={{ border: 'none', textAlign: 'right', width: 80, background: 'transparent', fontSize: 12, color: '#1D4ED8' }} /></td>))}</tr>
+            <tr style={{ background: '#EFF6FF' }}><td style={{ ...stickyTd('#EFF6FF'), fontWeight: 600, color: '#1D4ED8' }}>SUFS FTC Award</td>{tuitionYears.map(yr => (<td key={yr} style={{ textAlign: 'right', padding: '2px 4px' }}><input type="number" value={t.sufsFTC?.[yr] ?? ''} onChange={e => updateField('sufsFTC', yr, e.target.value)} style={{ ...editInputRight, width: 80, color: '#1D4ED8' }} /></td>))}</tr>
             <tr style={{ background: '#EFF6FF' }}><td style={{ ...stickyTd('#EFF6FF'), fontSize: 11, color: '#6B7280' }}>50% Late Deadline</td>{rows.map(r => <td key={r.yr} style={{ textAlign: 'right', fontSize: 11, color: '#6B7280' }}>{fmt(r.ftc50)}</td>)}</tr>
             <tr style={{ background: '#EFF6FF', fontWeight: 600 }}><td style={stickyTd('#EFF6FF')}>OOP (Full FTC)</td>{rows.map(r => <td key={r.yr} style={{ textAlign: 'right', color: r.oopFTC < 0 ? '#16A34A' : '#1B3A5C' }}>{fmt(r.oopFTC)}</td>)}</tr>
             <tr style={{ background: '#EFF6FF' }}><td style={{ ...stickyTd('#EFF6FF'), fontSize: 11 }}>Monthly (10 mo)</td>{rows.map(r => <td key={r.yr} style={{ textAlign: 'right', fontSize: 11 }}>{r.monthlyFTC > 0 ? fmt(r.monthlyFTC) : '—'}</td>)}</tr>
             <tr><td colSpan={tuitionYears.length + 1} style={{ padding: 4 }}></td></tr>
-            <tr style={{ background: '#FFF7ED' }}><td style={{ ...stickyTd('#FFF7ED'), fontWeight: 600, color: '#C2410C' }}>UA Award</td>{tuitionYears.map(yr => (<td key={yr} style={{ textAlign: 'right', padding: '2px 4px' }}><input type="number" value={t.sufsUA?.[yr] ?? ''} onChange={e => updateField('sufsUA', yr, e.target.value)} style={{ border: 'none', textAlign: 'right', width: 80, background: 'transparent', fontSize: 12, color: '#C2410C' }} /></td>))}</tr>
+            <tr style={{ background: '#FFF7ED' }}><td style={{ ...stickyTd('#FFF7ED'), fontWeight: 600, color: '#C2410C' }}>UA Award</td>{tuitionYears.map(yr => (<td key={yr} style={{ textAlign: 'right', padding: '2px 4px' }}><input type="number" value={t.sufsUA?.[yr] ?? ''} onChange={e => updateField('sufsUA', yr, e.target.value)} style={{ ...editInputRight, width: 80, color: '#C2410C' }} /></td>))}</tr>
             <tr style={{ background: '#FFF7ED', fontWeight: 600 }}><td style={stickyTd('#FFF7ED')}>OOP (UA)</td>{rows.map(r => <td key={r.yr} style={{ textAlign: 'right', color: r.oopUA < 0 ? '#16A34A' : '#1B3A5C' }}>{fmt(r.oopUA)}</td>)}</tr>
             <tr style={{ background: '#FFF7ED' }}><td style={{ ...stickyTd('#FFF7ED'), fontSize: 11 }}>Monthly (10 mo)</td>{rows.map(r => <td key={r.yr} style={{ textAlign: 'right', fontSize: 11 }}>{r.monthlyUA > 0 ? fmt(r.monthlyUA) : '—'}</td>)}</tr>
           </tbody>
@@ -328,29 +356,89 @@ function FinancialAidView({ data, update }) {
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-        <h3 className="section-title">Financial Aid Tracker</h3>
+        <h3 className="section-title">Financial Aid Calculator</h3>
         <button className="btn btn-sm btn-primary" onClick={addFamily}>+ Add Family</button>
       </div>
-      <div className="stats-grid" style={{ marginBottom: 16 }}>
-        <div className="stat-card"><div className="stat-label">T&F Total</div><div style={{ display: 'flex', alignItems: 'center', gap: 4 }}><span style={{ fontSize: 11, color: '#6B7280' }}>$</span><input type="number" value={aid.totalTF ?? ''} onChange={e => updateAidField('totalTF', e.target.value)} style={{ border: 'none', fontFamily: 'var(--font-display)', fontSize: 18, fontWeight: 700, color: '#1B3A5C', width: 90, background: 'transparent' }} /></div></div>
-        <div className="stat-card"><div className="stat-label">Aid Budget</div><div style={{ display: 'flex', alignItems: 'center', gap: 4 }}><span style={{ fontSize: 11, color: '#6B7280' }}>$</span><input type="number" value={aid.aidBudget ?? ''} onChange={e => updateAidField('aidBudget', e.target.value)} style={{ border: 'none', fontFamily: 'var(--font-display)', fontSize: 18, fontWeight: 700, color: '#1B3A5C', width: 90, background: 'transparent' }} /></div></div>
-        <div className="stat-card"><div className="stat-value" style={{ fontSize: 20 }}>{totalApplicants}</div><div className="stat-label">Applicants</div></div>
-        <div className={`stat-card ${totalAwarded > aidBudget && aidBudget > 0 ? 'alert' : ''}`}><div className="stat-value" style={{ fontSize: 20 }}>{fmt(totalAwarded)}</div><div className="stat-label">Total Awarded</div></div>
+
+      <p style={{ fontSize: 13, color: '#6B7280', marginBottom: 16 }}>
+        Enter the EFC from Step Up for each family. The calculator distributes the aid budget proportionally based on demonstrated need.
+      </p>
+
+      <div style={{ display: 'flex', gap: 16, marginBottom: 20, flexWrap: 'wrap' }}>
+        <div className="card" style={{ flex: '1 1 200px', padding: 16 }}>
+          <div style={{ fontSize: 11, color: '#6B7280', marginBottom: 4, fontWeight: 600, textTransform: 'uppercase' }}>Tuition & Fees Total</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            <span style={{ color: '#6B7280' }}>$</span>
+            <input type="number" value={aid.totalTF ?? ''} onChange={e => updateAidField('totalTF', e.target.value)}
+              style={{ ...editInput, fontFamily: 'var(--font-display)', fontSize: 22, fontWeight: 700, color: '#1B3A5C', width: 120 }} />
+          </div>
+        </div>
+        <div className="card" style={{ flex: '1 1 200px', padding: 16 }}>
+          <div style={{ fontSize: 11, color: '#6B7280', marginBottom: 4, fontWeight: 600, textTransform: 'uppercase' }}>Financial Aid Budget</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            <span style={{ color: '#6B7280' }}>$</span>
+            <input type="number" value={aid.aidBudget ?? ''} onChange={e => updateAidField('aidBudget', e.target.value)}
+              style={{ ...editInput, fontFamily: 'var(--font-display)', fontSize: 22, fontWeight: 700, color: '#1B3A5C', width: 120 }} />
+          </div>
+        </div>
+        <div className="card" style={{ flex: '1 1 120px', padding: 16, textAlign: 'center' }}>
+          <div style={{ fontSize: 11, color: '#6B7280', marginBottom: 4, fontWeight: 600, textTransform: 'uppercase' }}>Applicants</div>
+          <div style={{ fontFamily: 'var(--font-display)', fontSize: 22, fontWeight: 700, color: '#1B3A5C' }}>{totalApplicants}</div>
+        </div>
+        <div className="card" style={{ flex: '1 1 120px', padding: 16, textAlign: 'center', background: totalAwarded > aidBudget && aidBudget > 0 ? '#FEF2F2' : undefined }}>
+          <div style={{ fontSize: 11, color: '#6B7280', marginBottom: 4, fontWeight: 600, textTransform: 'uppercase' }}>Total Awarded</div>
+          <div style={{ fontFamily: 'var(--font-display)', fontSize: 22, fontWeight: 700, color: totalAwarded > aidBudget && aidBudget > 0 ? '#DC2626' : '#1B3A5C' }}>{fmt(totalAwarded)}</div>
+        </div>
       </div>
-      {families.length === 0 ? <div style={{ padding: 40, textAlign: 'center', color: '#9CA3AF' }}>No families added yet.</div> : (
+
+      {families.length === 0 ? <div style={{ padding: 40, textAlign: 'center', color: '#9CA3AF' }}>No families added yet. Click "+ Add Family" to start.</div> : (
         <div style={{ overflowX: 'auto' }}>
           <table className="data-table" style={{ fontSize: 12 }}>
-            <thead><tr><th>Family</th><th style={{ textAlign: 'right' }}>EFC</th><th style={{ textAlign: 'center' }}># FTC</th><th style={{ textAlign: 'center' }}># UA</th><th style={{ textAlign: 'right' }}>Total EFC</th><th style={{ textAlign: 'right' }}>Est. Need</th><th style={{ textAlign: 'right' }}>Aid %</th><th style={{ textAlign: 'right' }}>Award</th><th style={{ textAlign: 'right' }}>Family OOP</th><th></th></tr></thead>
+            <thead>
+              <tr style={{ background: '#F9FAFB' }}>
+                <th>Family</th>
+                <th style={{ textAlign: 'right' }}>EFC<br/><span style={{ fontWeight: 400, fontSize: 10, color: '#9CA3AF' }}>from Step Up</span></th>
+                <th style={{ textAlign: 'center' }}># FTC</th>
+                <th style={{ textAlign: 'center' }}># UA</th>
+                <th style={{ textAlign: 'right', color: '#6B7280' }}>Total EFC</th>
+                <th style={{ textAlign: 'right', color: '#6B7280' }}>Est. Need</th>
+                <th style={{ textAlign: 'right', color: '#6B7280' }}>Aid %</th>
+                <th style={{ textAlign: 'right' }}>Award<br/><span style={{ fontWeight: 400, fontSize: 10, color: '#9CA3AF' }}>editable</span></th>
+                <th style={{ textAlign: 'right', color: '#6B7280' }}>Family OOP</th>
+                <th></th>
+              </tr>
+            </thead>
             <tbody>
-              {computed.map(f => (<tr key={f.id}><td><input type="text" value={f.familyId || ''} onChange={e => updateFamily(f.id, 'familyId', e.target.value)} placeholder="Family ID" style={{ border: 'none', fontWeight: 500, width: 120, background: 'transparent', fontSize: 12 }} /></td><td style={{ textAlign: 'right' }}><input type="number" value={f.efc ?? ''} onChange={e => updateFamily(f.id, 'efc', e.target.value)} style={{ border: 'none', textAlign: 'right', width: 70, background: 'transparent', fontSize: 12 }} /></td><td style={{ textAlign: 'center' }}><input type="number" min="0" max="5" value={f.numFTC ?? ''} onChange={e => updateFamily(f.id, 'numFTC', e.target.value)} style={{ border: 'none', textAlign: 'center', width: 40, background: 'transparent', fontSize: 12 }} /></td><td style={{ textAlign: 'center' }}><input type="number" min="0" max="5" value={f.numUA ?? ''} onChange={e => updateFamily(f.id, 'numUA', e.target.value)} style={{ border: 'none', textAlign: 'center', width: 40, background: 'transparent', fontSize: 12 }} /></td><td style={{ textAlign: 'right', color: '#6B7280' }}>{fmt(f.totalEFC)}</td><td style={{ textAlign: 'right', fontWeight: 600, color: f.estNeed > 0 ? '#DC2626' : '#6B7280' }}>{fmt(f.estNeed)}</td><td style={{ textAlign: 'right', color: '#6B7280' }}>{fmtPct(f.aidPct)}</td><td style={{ textAlign: 'right' }}><input type="number" value={f.awardAmount ?? ''} onChange={e => updateFamily(f.id, 'awardAmount', e.target.value)} style={{ border: 'none', textAlign: 'right', width: 70, background: 'transparent', fontSize: 12, fontWeight: 600, color: '#16A34A' }} /></td><td style={{ textAlign: 'right', fontWeight: 600, color: '#1B3A5C' }}>{fmt(f.familyOOP)}</td><td><button className="remove-btn" onClick={() => removeFamily(f.id)}>×</button></td></tr>))}
-              <tr style={{ fontWeight: 700, borderTop: '2px solid #1B3A5C' }}><td colSpan={5} style={{ fontFamily: 'var(--font-display)', color: '#1B3A5C' }}>TOTALS</td><td style={{ textAlign: 'right', color: '#DC2626' }}>{fmt(computed.reduce((s, r) => s + r.estNeed, 0))}</td><td></td><td style={{ textAlign: 'right', color: '#16A34A' }}>{fmt(totalAwarded)}</td><td style={{ textAlign: 'right', color: '#1B3A5C' }}>{fmt(computed.reduce((s, r) => s + r.familyOOP, 0))}</td><td></td></tr>
+              {computed.map(f => (
+                <tr key={f.id}>
+                  <td><input type="text" value={f.familyId || ''} onChange={e => updateFamily(f.id, 'familyId', e.target.value)} placeholder="Family ID" style={{ ...editInput, fontWeight: 500, width: 130 }} /></td>
+                  <td style={{ textAlign: 'right' }}><input type="number" value={f.efc ?? ''} onChange={e => updateFamily(f.id, 'efc', e.target.value)} placeholder="0" style={{ ...editInputRight, width: 80 }} /></td>
+                  <td style={{ textAlign: 'center' }}><input type="number" min="0" max="5" value={f.numFTC ?? ''} onChange={e => updateFamily(f.id, 'numFTC', e.target.value)} style={{ ...editInputCenter, width: 50 }} /></td>
+                  <td style={{ textAlign: 'center' }}><input type="number" min="0" max="5" value={f.numUA ?? ''} onChange={e => updateFamily(f.id, 'numUA', e.target.value)} style={{ ...editInputCenter, width: 50 }} /></td>
+                  <td style={{ textAlign: 'right', color: '#6B7280', padding: '6px 8px' }}>{fmt(f.totalEFC)}</td>
+                  <td style={{ textAlign: 'right', fontWeight: 600, color: f.estNeed > 0 ? '#DC2626' : '#6B7280', padding: '6px 8px' }}>{fmt(f.estNeed)}</td>
+                  <td style={{ textAlign: 'right', color: '#6B7280', padding: '6px 8px' }}>{fmtPct(f.aidPct)}</td>
+                  <td style={{ textAlign: 'right' }}><input type="number" value={f.awardAmount ?? ''} onChange={e => updateFamily(f.id, 'awardAmount', e.target.value)} style={{ ...editInputRight, width: 80, fontWeight: 600, color: '#16A34A' }} /></td>
+                  <td style={{ textAlign: 'right', fontWeight: 600, color: '#1B3A5C', padding: '6px 8px' }}>{fmt(f.familyOOP)}</td>
+                  <td><button className="remove-btn" onClick={() => removeFamily(f.id)}>×</button></td>
+                </tr>
+              ))}
+              <tr style={{ fontWeight: 700, borderTop: '2px solid #1B3A5C' }}>
+                <td colSpan={5} style={{ fontFamily: 'var(--font-display)', color: '#1B3A5C' }}>TOTALS</td>
+                <td style={{ textAlign: 'right', color: '#DC2626' }}>{fmt(computed.reduce((s, r) => s + r.estNeed, 0))}</td>
+                <td></td>
+                <td style={{ textAlign: 'right', color: '#16A34A' }}>{fmt(totalAwarded)}</td>
+                <td style={{ textAlign: 'right', color: '#1B3A5C' }}>{fmt(computed.reduce((s, r) => s + r.familyOOP, 0))}</td>
+                <td></td>
+              </tr>
             </tbody>
           </table>
         </div>
       )}
+
       {aidBudget > 0 && (
         <div style={{ marginTop: 12, padding: '10px 14px', background: totalAwarded > aidBudget ? '#FEF2F2' : '#F0FFF4', borderRadius: 8, border: `1px solid ${totalAwarded > aidBudget ? '#FECACA' : '#BBF7D0'}`, fontSize: 12 }}>
-          <strong>Budget Status:</strong> {fmt(totalAwarded)} of {fmt(aidBudget)} awarded ({fmt(aidBudget - totalAwarded)} {totalAwarded > aidBudget ? 'over budget' : 'remaining'})
+          <strong>Budget Status:</strong> {fmt(totalAwarded)} of {fmt(aidBudget)} awarded ({fmt(Math.abs(aidBudget - totalAwarded))} {totalAwarded > aidBudget ? 'over budget' : 'remaining'})
         </div>
       )}
     </div>
