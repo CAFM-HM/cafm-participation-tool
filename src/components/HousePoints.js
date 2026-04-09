@@ -30,7 +30,7 @@ function parseCSVLine(line) {
 }
 
 export default function HousePoints({ uid, isAdmin, masterStudents }) {
-  const { entries, loading, addEntry, deleteEntry, resetAll } = useHousePoints();
+  const { entries, loading, addEntry, bulkAddEntries, deleteEntry, resetAll } = useHousePoints();
   const [showAdd, setShowAdd] = useState(false);
   const [entryType, setEntryType] = useState('merit'); // 'merit' or 'demerit'
   const [awardTarget, setAwardTarget] = useState('student'); // 'student' or 'house'
@@ -156,19 +156,18 @@ export default function HousePoints({ uid, isAdmin, masterStudents }) {
 
   const handleCsvImport = async () => {
     setCsvImporting(true);
-    for (const row of csvPreview) {
-      await addEntry({
-        studentName: row.studentName,
-        house: row.house,
-        points: row.signedPoints,
-        category: row.category,
-        reason: row.reason,
-        type: row.type,
-        target: row.target,
-        addedBy: uid,
-        createdAt: row.date ? new Date(row.date + 'T12:00:00').toISOString() : new Date().toISOString(),
-      });
-    }
+    const allEntries = csvPreview.map(row => ({
+      studentName: row.studentName,
+      house: row.house,
+      points: row.signedPoints,
+      category: row.category,
+      reason: row.reason,
+      type: row.type,
+      target: row.target,
+      addedBy: uid,
+      createdAt: row.date ? new Date(row.date + 'T12:00:00').toISOString() : new Date().toISOString(),
+    }));
+    await bulkAddEntries(allEntries);
     setCsvImporting(false);
     setCsvPreview([]);
     window.dispatchEvent(new CustomEvent('toast', { detail: `Imported ${csvPreview.length} house point entries` }));

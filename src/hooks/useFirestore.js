@@ -332,12 +332,27 @@ export function useHousePoints() {
 
   const addEntry = useCallback(async (entry) => {
     await addDoc(collection(db, 'housePointEntries'), {
-      ...entry, points: Number(entry.points), createdAt: new Date().toISOString(),
+      ...entry, points: Number(entry.points), createdAt: entry.createdAt || new Date().toISOString(),
     });
     await load();
   }, [load]);
 
-  return { entries, loading, addEntry, refresh: load };
+  const bulkAddEntries = useCallback(async (entriesArr) => {
+    const batch = [];
+    for (const entry of entriesArr) {
+      batch.push(addDoc(collection(db, 'housePointEntries'), {
+        ...entry, points: Number(entry.points), createdAt: entry.createdAt || new Date().toISOString(),
+      }));
+      if (batch.length >= 20) {
+        await Promise.all(batch);
+        batch.length = 0;
+      }
+    }
+    if (batch.length > 0) await Promise.all(batch);
+    await load();
+  }, [load]);
+
+  return { entries, loading, addEntry, bulkAddEntries, refresh: load };
 }
 
 // ============================================================
