@@ -459,11 +459,11 @@ export const CLOSINGS = {
   },
   3: {
     he: [
-      "He has the ability to do better and I look forward to seeing growth next quarter.",
+      "He has the ability to do better and I look forward to seeing continued growth going forward.",
       "With more consistent effort, he can reach his potential."
     ],
     she: [
-      "She has the ability to do better and I look forward to seeing growth next quarter.",
+      "She has the ability to do better and I look forward to seeing continued growth going forward.",
       "With more consistent effort, she can reach her potential."
     ],
     n: []

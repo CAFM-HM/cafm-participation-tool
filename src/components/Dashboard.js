@@ -12,21 +12,23 @@ export default function Dashboard({ masterStudents }) {
   const [teacherViewUid, setTeacherViewUid] = useState(null);
 
   const stats = useMemo(() => {
-    let totalStudents = 0, totalClasses = 0, totalTeachers = allTeachers.length, belowThree = 0;
+    let totalClasses = 0, totalTeachers = allTeachers.length, belowThree = 0;
+    const uniqueStudents = new Set();
     const teacherSummaries = [], classSummaries = [], studentRows = [];
 
     for (const teacher of allTeachers) {
-      let teacherDays = 0, lastActive = null;
+      const teacherDates = new Set();
+      let lastActive = null;
       for (const cls of teacher.classes || []) {
         totalClasses++;
         const classScores = [];
         for (const stu of cls.students || []) {
-          totalStudents++;
+          uniqueStudents.add(stu.name.toLowerCase());
           const allDayScores = [];
           for (const [dateStr, dayScores] of Object.entries(stu.scores || {})) {
             if (dayScores.absent) continue;
             const dayAvg = VIRTUES.reduce((sum, v) => sum + (dayScores[v.key] || 0), 0) / VIRTUES.length;
-            if (dayAvg > 0) { allDayScores.push(dayAvg); teacherDays++; if (!lastActive || dateStr > lastActive) lastActive = dateStr; }
+            if (dayAvg > 0) { allDayScores.push(dayAvg); teacherDates.add(dateStr); if (!lastActive || dateStr > lastActive) lastActive = dateStr; }
           }
           const overallAvg = allDayScores.length > 0 ? allDayScores.reduce((a, b) => a + b, 0) / allDayScores.length : null;
           if (overallAvg !== null && overallAvg < 3) belowThree++;
@@ -58,11 +60,11 @@ export default function Dashboard({ masterStudents }) {
       }
       let status = 'Inactive';
       if (lastActive) { const d = Math.floor((Date.now() - new Date(lastActive).getTime()) / 86400000); if (d <= 3) status = 'Active'; else if (d <= 10) status = 'Stale'; }
-      teacherSummaries.push({ name: teacherDisplayName(teacher.uid), uid: teacher.uid, email: UID_MAP[teacher.uid] || teacher.uid, classCount: (teacher.classes || []).length, daysScored: teacherDays, lastActive, status });
+      teacherSummaries.push({ name: teacherDisplayName(teacher.uid), uid: teacher.uid, email: UID_MAP[teacher.uid] || teacher.uid, classCount: (teacher.classes || []).length, daysScored: teacherDates.size, lastActive, status });
     }
     classSummaries.sort((a, b) => { if (a.avg === '—') return 1; if (b.avg === '—') return -1; return parseFloat(a.avg) - parseFloat(b.avg); });
     studentRows.sort((a, b) => a.name.localeCompare(b.name));
-    return { totalStudents, totalClasses, totalTeachers, belowThree, teacherSummaries, classSummaries, studentRows };
+    return { totalStudents: uniqueStudents.size, totalClasses, totalTeachers, belowThree, teacherSummaries, classSummaries, studentRows };
   }, [allTeachers, masterStudents]);
 
   const exportCSV = () => {

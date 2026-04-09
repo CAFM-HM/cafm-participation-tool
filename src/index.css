@@ -120,6 +120,19 @@ body {
   background: rgba(255,255,255,0.25);
 }
 
+.header-spend-btn {
+  background: var(--gold) !important;
+  color: var(--navy) !important;
+  border-color: var(--gold) !important;
+  font-weight: 600 !important;
+  padding: 5px 12px !important;
+  font-size: 11px !important;
+  letter-spacing: 0.3px;
+}
+.header-spend-btn:hover {
+  background: #D4AD2B !important;
+}
+
 /* ============================================================
    TAB NAVIGATION
    ============================================================ */

@@ -3,6 +3,19 @@ import { useBudget } from '../hooks/useFirestore';
 
 function genId() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
 
+function parseCSVLine(line) {
+  const cells = [];
+  let current = '';
+  let inQuotes = false;
+  for (const ch of line) {
+    if (ch === '"') { inQuotes = !inQuotes; continue; }
+    if (ch === ',' && !inQuotes) { cells.push(current.trim()); current = ''; continue; }
+    current += ch;
+  }
+  cells.push(current.trim());
+  return cells;
+}
+
 function getCurrentFiscalYear() {
   const now = new Date();
   const startYear = now.getMonth() >= 7 ? now.getFullYear() : now.getFullYear() - 1;
@@ -85,6 +98,13 @@ export default function BudgetTool() {
       setLocal(d);
     }
   }, [data, local]);
+
+  // Listen for navigate-budget-spending event to auto-switch to spending view
+  useEffect(() => {
+    const handler = () => setView('spending');
+    window.addEventListener('navigate-budget-spending', handler);
+    return () => window.removeEventListener('navigate-budget-spending', handler);
+  }, []);
 
   const update = useCallback((fn) => {
     setLocal(prev => { const next = JSON.parse(JSON.stringify(prev)); fn(next); return next; });
@@ -384,6 +404,67 @@ function BudgetDashboard({ lineItems, published, spending, previewScenario, sele
 function BudgetBuilder({ lineItems, scenarios, update, published, onPreview, onApprove, selectedYear, approvedBudgets }) {
   const [newItemName, setNewItemName] = useState('');
   const [newScenarioName, setNewScenarioName] = useState('');
+  const [csvPreview, setCsvPreview] = useState([]);
+
+  const handleBudgetCsv = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const lines = ev.target.result.split('\n').map(l => l.trim()).filter(Boolean);
+      if (lines.length < 2) { alert('CSV appears empty.'); return; }
+      const header = lines[0].toLowerCase().split(',').map(h => h.trim().replace(/"/g, ''));
+      const nameIdx = header.findIndex(h => h === 'name' || h === 'line item' || h === 'item' || h === 'category');
+      const ownerIdx = header.findIndex(h => h === 'owner' || h === 'assigned' || h === 'assigned to');
+      const amtIdx = header.findIndex(h => h === 'amount' || h === 'budget' || h === 'budgeted');
+      if (nameIdx === -1) { alert('CSV needs a "Name" column.'); return; }
+      if (amtIdx === -1) { alert('CSV needs an "Amount" column.'); return; }
+      const rows = [];
+      for (let i = 1; i < lines.length; i++) {
+        const cells = parseCSVLine(lines[i]);
+        const name = cells[nameIdx] || '';
+        if (!name) continue;
+        let owner = ownerIdx >= 0 ? cells[ownerIdx] || 'HM' : 'HM';
+        const ownerMatch = OWNERS.find(o => o.toLowerCase() === owner.toLowerCase());
+        if (ownerMatch) owner = ownerMatch;
+        else {
+          const labelMatch = Object.entries(OWNER_LABELS).find(([, v]) => v.toLowerCase() === owner.toLowerCase());
+          owner = labelMatch ? labelMatch[0] : 'HM';
+        }
+        const amount = parseFloat((cells[amtIdx] || '0').replace(/[$,]/g, '')) || 0;
+        // Check if this matches an existing line item
+        const existing = lineItems.find(li => li.name.toLowerCase() === name.toLowerCase());
+        rows.push({ name, owner, amount, existingId: existing?.id || null });
+      }
+      if (rows.length === 0) { alert('No valid rows found.'); return; }
+      setCsvPreview(rows);
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  };
+
+  const handleBudgetCsvImport = () => {
+    const targetScenario = scenarios[0] || 'Scenario A';
+    update(c => {
+      for (const row of csvPreview) {
+        if (row.existingId) {
+          const item = c.lineItems.find(i => i.id === row.existingId);
+          if (item) {
+            item.owner = row.owner;
+            if (!item.scenarios) item.scenarios = {};
+            item.scenarios[targetScenario] = row.amount.toString();
+          }
+        } else {
+          c.lineItems.push({
+            id: genId(), name: row.name, owner: row.owner,
+            scenarios: { [targetScenario]: row.amount.toString() }, notes: '',
+          });
+        }
+      }
+    });
+    window.dispatchEvent(new CustomEvent('toast', { detail: `Imported ${csvPreview.length} budget line items into "${scenarios[0] || 'Scenario A'}"` }));
+    setCsvPreview([]);
+  };
 
   const addLineItem = () => {
     if (!newItemName.trim()) return;
@@ -525,7 +606,37 @@ function BudgetBuilder({ lineItems, scenarios, update, published, onPreview, onA
           onChange={e => setNewItemName(e.target.value)}
           onKeyDown={e => e.key === 'Enter' && addLineItem()} style={{ width: 250 }} />
         <button className="btn btn-sm btn-primary" onClick={addLineItem}>+ Add Line Item</button>
+        <label className="btn btn-sm btn-secondary" style={{ cursor: 'pointer', margin: 0 }}>
+          📥 Import CSV
+          <input type="file" accept=".csv" onChange={handleBudgetCsv} style={{ display: 'none' }} />
+        </label>
       </div>
+
+      {/* CSV Import Preview */}
+      {csvPreview.length > 0 && (
+        <div className="card" style={{ marginTop: 12, background: '#FFFBEB', border: '1px solid #FDE68A' }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: '#92400E', marginBottom: 8 }}>
+            Import Preview — {csvPreview.length} line items → "{scenarios[0] || 'Scenario A'}"
+          </div>
+          <table className="data-table" style={{ fontSize: 12 }}>
+            <thead><tr><th>Name</th><th>Owner</th><th style={{ textAlign: 'right' }}>Amount</th><th>Status</th></tr></thead>
+            <tbody>
+              {csvPreview.map((r, i) => (
+                <tr key={i}>
+                  <td style={{ fontWeight: 500 }}>{r.name}</td>
+                  <td>{OWNER_LABELS[r.owner] || r.owner}</td>
+                  <td style={{ textAlign: 'right', fontWeight: 600 }}>${r.amount.toLocaleString()}</td>
+                  <td style={{ fontSize: 11, color: r.existingId ? '#CA8A04' : '#16A34A' }}>{r.existingId ? 'Update existing' : 'New item'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 10 }}>
+            <button className="btn btn-sm btn-secondary" onClick={() => setCsvPreview([])}>Cancel</button>
+            <button className="btn btn-sm btn-gold" onClick={handleBudgetCsvImport}>Import {csvPreview.length} Items</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -537,6 +648,7 @@ function SpendingLog({ lineItems, spending, update, published, selectedYear, all
   const [showAdd, setShowAdd] = useState(false);
   const [newEntry, setNewEntry] = useState({ categoryId: '', date: new Date().toISOString().split('T')[0], description: '', amount: '' });
   const [filterCat, setFilterCat] = useState('all');
+  const [csvPreview, setCsvPreview] = useState([]);
 
   // Use approved budget items for category names and budgeted amounts
   const approvedItems = published?.items || [];
@@ -547,11 +659,58 @@ function SpendingLog({ lineItems, spending, update, published, selectedYear, all
 
   const addEntry = () => {
     if (!newEntry.categoryId || !newEntry.amount) return;
+    const amt = parseFloat(newEntry.amount) || 0;
     update(c => {
       if (!c.spending) c.spending = [];
-      c.spending.push({ id: genId(), ...newEntry, amount: parseFloat(newEntry.amount) || 0 });
+      c.spending.push({ id: genId(), ...newEntry, amount: amt });
     });
+    window.dispatchEvent(new CustomEvent('toast', { detail: `Purchase logged: $${amt.toLocaleString(undefined, { minimumFractionDigits: 2 })}` }));
     setNewEntry({ categoryId: newEntry.categoryId, date: new Date().toISOString().split('T')[0], description: '', amount: '' });
+  };
+
+  // CSV Import for spending
+  const handleSpendingCsv = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const lines = ev.target.result.split('\n').map(l => l.trim()).filter(Boolean);
+      if (lines.length < 2) { alert('CSV appears empty.'); return; }
+      const header = lines[0].toLowerCase().split(',').map(h => h.trim().replace(/"/g, ''));
+      const dateIdx = header.findIndex(h => h === 'date');
+      const catIdx = header.findIndex(h => h === 'category' || h === 'line item' || h === 'budget category');
+      const descIdx = header.findIndex(h => h === 'description' || h === 'desc' || h === 'memo' || h === 'note');
+      const amtIdx = header.findIndex(h => h === 'amount' || h === 'cost' || h === 'total');
+      if (amtIdx === -1) { alert('CSV needs an "Amount" column.'); return; }
+      const rows = [];
+      for (let i = 1; i < lines.length; i++) {
+        const cells = parseCSVLine(lines[i]);
+        const amount = parseFloat((cells[amtIdx] || '0').replace(/[$,]/g, '')) || 0;
+        if (amount === 0) continue;
+        const date = dateIdx >= 0 ? cells[dateIdx] || '' : '';
+        const catName = catIdx >= 0 ? cells[catIdx] || '' : '';
+        const description = descIdx >= 0 ? cells[descIdx] || '' : '';
+        // Match category to existing line item (fuzzy)
+        let matchedItem = lineItems.find(li => li.name.toLowerCase() === catName.toLowerCase());
+        if (!matchedItem && catName) matchedItem = lineItems.find(li => li.name.toLowerCase().includes(catName.toLowerCase()) || catName.toLowerCase().includes(li.name.toLowerCase()));
+        rows.push({ date, categoryName: catName, categoryId: matchedItem?.id || '', matchedName: matchedItem?.name || '', description, amount, unmatched: !matchedItem && !!catName });
+      }
+      if (rows.length === 0) { alert('No valid rows found.'); return; }
+      setCsvPreview(rows);
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  };
+
+  const handleSpendingCsvImport = () => {
+    update(c => {
+      if (!c.spending) c.spending = [];
+      for (const row of csvPreview) {
+        c.spending.push({ id: genId(), categoryId: row.categoryId, date: row.date, description: row.description, amount: row.amount });
+      }
+    });
+    window.dispatchEvent(new CustomEvent('toast', { detail: `Imported ${csvPreview.length} spending entries` }));
+    setCsvPreview([]);
   };
 
   const removeEntry = (id) => { update(c => { c.spending = (c.spending || []).filter(s => s.id !== id); }); };
@@ -573,7 +732,13 @@ function SpendingLog({ lineItems, spending, update, published, selectedYear, all
             Showing {spending.length} of {(allSpending || spending).length} total entries (filtered by fiscal year)
           </div>
         </div>
-        <button className="btn btn-sm btn-primary" onClick={() => setShowAdd(!showAdd)}>{showAdd ? 'Cancel' : '+ Log Purchase'}</button>
+        <div style={{ display: 'flex', gap: 6 }}>
+          <label className="btn btn-sm btn-secondary" style={{ cursor: 'pointer', margin: 0 }}>
+            📥 Import CSV
+            <input type="file" accept=".csv" onChange={handleSpendingCsv} style={{ display: 'none' }} />
+          </label>
+          <button className="btn btn-sm btn-primary" onClick={() => setShowAdd(!showAdd)}>{showAdd ? 'Cancel' : '+ Log Purchase'}</button>
+        </div>
       </div>
 
       {!published && (
@@ -602,6 +767,46 @@ function SpendingLog({ lineItems, spending, update, published, selectedYear, all
               onChange={e => setNewEntry({ ...newEntry, description: e.target.value })}
               onKeyDown={e => e.key === 'Enter' && addEntry()} style={{ flex: 1 }} />
             <button className="btn btn-gold btn-sm" onClick={addEntry} disabled={!newEntry.categoryId || !newEntry.amount}>Log</button>
+          </div>
+        </div>
+      )}
+
+      {/* CSV Import Preview */}
+      {csvPreview.length > 0 && (
+        <div className="card" style={{ marginBottom: 16, background: '#FFFBEB', border: '1px solid #FDE68A' }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: '#92400E', marginBottom: 8 }}>
+            Import Preview — {csvPreview.length} spending entries
+          </div>
+          {csvPreview.some(r => r.unmatched) && (
+            <div style={{ padding: '6px 10px', background: '#FEF2F2', borderRadius: 6, marginBottom: 8, fontSize: 11, color: '#DC2626' }}>
+              Some categories couldn't be matched to budget line items. They'll be imported without a category link.
+            </div>
+          )}
+          <div style={{ overflowX: 'auto', maxHeight: 300 }}>
+            <table className="data-table" style={{ fontSize: 12 }}>
+              <thead><tr><th>Date</th><th>Category</th><th>Description</th><th style={{ textAlign: 'right' }}>Amount</th><th>Match</th></tr></thead>
+              <tbody>
+                {csvPreview.slice(0, 30).map((r, i) => (
+                  <tr key={i}>
+                    <td>{r.date}</td>
+                    <td>{r.categoryName}</td>
+                    <td>{r.description}</td>
+                    <td style={{ textAlign: 'right', fontWeight: 600 }}>${r.amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                    <td style={{ fontSize: 11, color: r.matchedName ? '#16A34A' : r.unmatched ? '#DC2626' : '#9CA3AF' }}>
+                      {r.matchedName || (r.unmatched ? 'No match' : '—')}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {csvPreview.length > 30 && <div style={{ fontSize: 12, color: '#9CA3AF', marginTop: 6 }}>...and {csvPreview.length - 30} more</div>}
+          </div>
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 10 }}>
+            <span style={{ fontSize: 12, color: '#6B7280', alignSelf: 'center' }}>
+              Total: ${csvPreview.reduce((s, r) => s + r.amount, 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+            </span>
+            <button className="btn btn-sm btn-secondary" onClick={() => setCsvPreview([])}>Cancel</button>
+            <button className="btn btn-sm btn-gold" onClick={handleSpendingCsvImport}>Import {csvPreview.length} Entries</button>
           </div>
         </div>
       )}

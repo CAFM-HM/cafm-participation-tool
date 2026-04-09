@@ -83,6 +83,11 @@ function App() {
           <div className="header-user">
             <span>{displayName}</span>
             {isAdmin && <span className="badge badge-green">Admin</span>}
+            {(isAdmin || isBoardMember) && (
+              <button className="header-spend-btn" onClick={() => { setActiveTab('command'); window.dispatchEvent(new CustomEvent('navigate-budget-spending')); }}>
+                $ Log Spend
+              </button>
+            )}
             <button onClick={logout}>Sign Out</button>
           </div>
         </div>

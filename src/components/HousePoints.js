@@ -15,6 +15,20 @@ const MERIT_CATEGORIES = ['Virtue', 'Academic', 'Service', 'Leadership', 'Sports
 const DEMERIT_CATEGORIES = ['Dress Code Violation', 'Tardy to Class', 'Disruptive Behavior', 'Disrespectful to Teacher', 'Disrespectful to Student', 'Phone Violation', 'Academic Dishonesty', 'Failure to Complete Work', 'Other'];
 const STUDENT_DENOMINATIONS = [1, 3, 7, 12];
 
+// CSV parser (handles quoted fields)
+function parseCSVLine(line) {
+  const cells = [];
+  let current = '';
+  let inQuotes = false;
+  for (const ch of line) {
+    if (ch === '"') { inQuotes = !inQuotes; continue; }
+    if (ch === ',' && !inQuotes) { cells.push(current.trim()); current = ''; continue; }
+    current += ch;
+  }
+  cells.push(current.trim());
+  return cells;
+}
+
 export default function HousePoints({ uid, isAdmin, masterStudents }) {
   const { entries, loading, addEntry, deleteEntry, resetAll } = useHousePoints();
   const [showAdd, setShowAdd] = useState(false);
@@ -28,6 +42,8 @@ export default function HousePoints({ uid, isAdmin, masterStudents }) {
   const [resetting, setResetting] = useState(false);
   const [isFrozen, setIsFrozen] = useState(false);
   const [freezing, setFreezing] = useState(false);
+  const [csvPreview, setCsvPreview] = useState([]);
+  const [csvImporting, setCsvImporting] = useState(false);
 
   // Check freeze status on load
   useEffect(() => {
@@ -59,6 +75,74 @@ export default function HousePoints({ uid, isAdmin, masterStudents }) {
   const [houseAward, setHouseAward] = useState({
     house: 'Augustine', points: '', reason: '',
   });
+
+  // CSV Import
+  const handleCsvFile = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const lines = ev.target.result.split('\n').map(l => l.trim()).filter(Boolean);
+      if (lines.length < 2) { alert('CSV appears empty.'); return; }
+      const header = lines[0].toLowerCase().split(',').map(h => h.trim().replace(/"/g, ''));
+      const nameIdx = header.findIndex(h => h === 'student' || h === 'studentname' || h === 'student name' || h === 'name');
+      const houseIdx = header.findIndex(h => h === 'house');
+      const pointsIdx = header.findIndex(h => h === 'points');
+      const catIdx = header.findIndex(h => h === 'category');
+      const reasonIdx = header.findIndex(h => h === 'reason' || h === 'description');
+      const typeIdx = header.findIndex(h => h === 'type');
+      const dateIdx = header.findIndex(h => h === 'date');
+      if (nameIdx === -1 && houseIdx === -1) { alert('CSV needs at least a "Student" or "House" column.'); return; }
+      if (pointsIdx === -1) { alert('CSV needs a "Points" column.'); return; }
+
+      const rows = [];
+      for (let i = 1; i < lines.length; i++) {
+        const cells = parseCSVLine(lines[i]);
+        const pts = parseFloat(cells[pointsIdx]);
+        if (isNaN(pts) || pts === 0) continue;
+        const name = nameIdx >= 0 ? cells[nameIdx] || '' : '';
+        let house = houseIdx >= 0 ? cells[houseIdx] || '' : '';
+        if (house) { const match = HOUSES.find(h => h.toLowerCase() === house.toLowerCase()); house = match || house; }
+        // Auto-detect house from master roster if not provided
+        if (!house && name) {
+          const ms = (masterStudents || []).find(s => s.name.toLowerCase() === name.toLowerCase());
+          if (ms) house = ms.house;
+        }
+        let type = typeIdx >= 0 ? (cells[typeIdx] || '').toLowerCase() : '';
+        if (!type) type = pts > 0 ? 'merit' : 'demerit';
+        else if (type !== 'merit' && type !== 'demerit') type = pts > 0 ? 'merit' : 'demerit';
+        const category = catIdx >= 0 ? cells[catIdx] || '' : (type === 'merit' ? 'Other' : 'Other');
+        const reason = reasonIdx >= 0 ? cells[reasonIdx] || '' : '';
+        const date = dateIdx >= 0 ? cells[dateIdx] || '' : '';
+        const warning = !house ? 'No house' : (!HOUSES.includes(house) ? 'Unknown house' : '');
+        rows.push({ studentName: name, house, points: Math.abs(pts), signedPoints: pts, type, category, reason, date, warning, target: name ? 'student' : 'house' });
+      }
+      if (rows.length === 0) { alert('No valid rows found.'); return; }
+      setCsvPreview(rows);
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  };
+
+  const handleCsvImport = async () => {
+    setCsvImporting(true);
+    for (const row of csvPreview) {
+      await addEntry({
+        studentName: row.studentName,
+        house: row.house,
+        points: row.signedPoints,
+        category: row.category,
+        reason: row.reason,
+        type: row.type,
+        target: row.target,
+        addedBy: uid,
+        createdAt: row.date ? new Date(row.date + 'T12:00:00').toISOString() : new Date().toISOString(),
+      });
+    }
+    setCsvImporting(false);
+    setCsvPreview([]);
+    window.dispatchEvent(new CustomEvent('toast', { detail: `Imported ${csvPreview.length} house point entries` }));
+  };
 
   const matchingStudents = (masterStudents || []).filter(s =>
     studentSearch && s.name.toLowerCase().includes(studentSearch.toLowerCase())
@@ -153,6 +237,12 @@ export default function HousePoints({ uid, isAdmin, masterStudents }) {
             <button className="btn btn-sm btn-secondary" style={{ color: '#DC2626' }}
               onClick={() => setShowReset(true)}>Reset All</button>
           )}
+          {isAdmin && (
+            <label className="btn btn-sm btn-secondary" style={{ cursor: 'pointer', margin: 0 }}>
+              📥 Import CSV
+              <input type="file" accept=".csv" onChange={handleCsvFile} style={{ display: 'none' }} />
+            </label>
+          )}
           <button className="btn btn-primary" onClick={() => setShowAdd(!showAdd)}>
             {showAdd ? 'Cancel' : '+ Log Merit / Demerit'}
           </button>
@@ -184,6 +274,51 @@ export default function HousePoints({ uid, isAdmin, masterStudents }) {
                     setShowReset(false);
                   }}>
                   {resetting ? 'Resetting...' : 'Yes, Reset Everything'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* CSV Import Preview */}
+      {csvPreview.length > 0 && (
+        <div className="modal-overlay" onClick={() => setCsvPreview([])}>
+          <div className="modal-content" style={{ maxWidth: 700, maxHeight: '80vh', overflow: 'auto' }} onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>Import Preview — {csvPreview.length} entries</h3>
+              <button className="modal-close" onClick={() => setCsvPreview([])}>&times;</button>
+            </div>
+            <div className="modal-body">
+              {csvPreview.some(r => r.warning) && (
+                <div style={{ padding: '8px 12px', background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 8, marginBottom: 12, fontSize: 12, color: '#92400E' }}>
+                  Some rows have warnings — check the rightmost column.
+                </div>
+              )}
+              <div style={{ overflowX: 'auto' }}>
+                <table className="data-table" style={{ fontSize: 12 }}>
+                  <thead><tr><th>Student</th><th>House</th><th>Type</th><th>Pts</th><th>Category</th><th>Reason</th><th>Date</th><th></th></tr></thead>
+                  <tbody>
+                    {csvPreview.slice(0, 50).map((r, i) => (
+                      <tr key={i}>
+                        <td>{r.studentName || <em style={{ color: '#9CA3AF' }}>House award</em>}</td>
+                        <td>{r.house}</td>
+                        <td><span style={{ color: r.type === 'merit' ? '#16A34A' : '#DC2626', fontWeight: 600 }}>{r.type}</span></td>
+                        <td style={{ fontWeight: 600 }}>{r.signedPoints > 0 ? '+' : ''}{r.signedPoints}</td>
+                        <td>{r.category}</td>
+                        <td>{r.reason}</td>
+                        <td>{r.date}</td>
+                        <td>{r.warning && <span style={{ color: '#CA8A04', fontSize: 11 }}>{r.warning}</span>}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {csvPreview.length > 50 && <div style={{ fontSize: 12, color: '#9CA3AF', marginTop: 8 }}>...and {csvPreview.length - 50} more rows</div>}
+              </div>
+              <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16 }}>
+                <button className="btn btn-secondary" onClick={() => setCsvPreview([])}>Cancel</button>
+                <button className="btn btn-primary" disabled={csvImporting} onClick={handleCsvImport}>
+                  {csvImporting ? `Importing...` : `Import ${csvPreview.length} Entries`}
                 </button>
               </div>
             </div>

@@ -39,6 +39,13 @@ export default function CommandCenter() {
 
   useEffect(() => { if (data && !local) setLocal(JSON.parse(JSON.stringify(data))); }, [data, local]);
 
+  // Listen for navigate-budget-spending event from header quick-link
+  useEffect(() => {
+    const handler = () => setTab('budget');
+    window.addEventListener('navigate-budget-spending', handler);
+    return () => window.removeEventListener('navigate-budget-spending', handler);
+  }, []);
+
   const update = useCallback((fn) => {
     setLocal(prev => { const next = JSON.parse(JSON.stringify(prev)); fn(next); return next; });
     setDirty(true);
