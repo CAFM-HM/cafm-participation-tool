@@ -34,15 +34,28 @@ export default function CommandCenter() {
   const [local, setLocal] = useState(null);
   const [tab, setTab] = useState('overview');
   const [dirty, setDirty] = useState(false);
+  const [saveStatus, setSaveStatus] = useState(null);
 
   useEffect(() => { if (data && !local) setLocal(JSON.parse(JSON.stringify(data))); }, [data, local]);
 
   const update = useCallback((fn) => {
     setLocal(prev => { const next = JSON.parse(JSON.stringify(prev)); fn(next); return next; });
     setDirty(true);
+    setSaveStatus(null);
   }, []);
 
-  const handleSave = async () => { if (local) { await saveData(local); setDirty(false); } };
+  const handleSave = async () => {
+    if (!local) return;
+    try {
+      await saveData(local);
+      setDirty(false);
+      setSaveStatus('saved');
+      setTimeout(() => setSaveStatus(null), 3000);
+    } catch (err) {
+      console.error('Board save failed:', err);
+      setSaveStatus('error');
+    }
+  };
 
   if (loading || budgetLoading || !local) return <div style={{ padding: 40, textAlign: 'center', color: '#9CA3AF' }}>Loading...</div>;
 
@@ -55,8 +68,10 @@ export default function CommandCenter() {
         <h2 className="section-title">Board</h2>
         {!hasOwnSave && (
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            {dirty && <span style={{ fontSize: 12, color: '#CA8A04', fontWeight: 600 }}>Unsaved changes</span>}
-            <button className="btn btn-secondary" onClick={handleSave} disabled={!dirty}>Save</button>
+            {saveStatus === 'saved' && <span style={{ fontSize: 12, color: '#16A34A', fontWeight: 600 }}>Saved!</span>}
+            {saveStatus === 'error' && <span style={{ fontSize: 12, color: '#DC2626', fontWeight: 600 }}>Save failed — try again</span>}
+            {dirty && !saveStatus && <span style={{ fontSize: 12, color: '#CA8A04', fontWeight: 600 }}>Unsaved changes</span>}
+            <button className="btn btn-primary" onClick={handleSave} disabled={!dirty && saveStatus !== 'error'} style={{ minWidth: 70 }}>{dirty ? 'Save' : 'Saved'}</button>
           </div>
         )}
       </div>
