@@ -222,6 +222,52 @@ export function useTeacherData(uid, masterStudents) {
     }));
   }, [uid, classes, debouncedSave]);
 
+  // Bulk save — single Firestore write for all changes (used by "All 4", "Copy Prev Day", etc.)
+  // updates = [{ studentId, virtueKey, score }, ...]
+  const saveBulkScores = useCallback(async (classId, date, updates) => {
+    if (!uid || updates.length === 0) return;
+    const cls = classes.find(c => c.id === classId);
+    if (!cls) return;
+
+    // Build a single Firestore field map
+    const fieldUpdates = {};
+    updates.forEach(({ studentId, virtueKey, score }) => {
+      const student = cls.students.find(s => s.id === studentId);
+      if (!student) return;
+      if (virtueKey === 'absent') {
+        fieldUpdates[`scores.${date}.${student.name}.E`] = score;
+      } else {
+        const shortKey = VIRTUE_SHORT[virtueKey];
+        if (shortKey) fieldUpdates[`scores.${date}.${student.name}.${shortKey}`] = score;
+      }
+    });
+
+    // Single Firestore write
+    if (Object.keys(fieldUpdates).length > 0) {
+      const ref = doc(db, 'teachers', uid, 'classes', classId);
+      await updateDoc(ref, fieldUpdates);
+    }
+
+    // Update local state
+    setClasses(prev => prev.map(c => {
+      if (c.id !== classId) return c;
+      return {
+        ...c,
+        students: c.students.map(s => {
+          const myUpdates = updates.filter(u => u.studentId === s.id);
+          if (myUpdates.length === 0) return s;
+          const newScores = { ...s.scores };
+          if (!newScores[date]) newScores[date] = {};
+          myUpdates.forEach(u => {
+            if (u.virtueKey === 'absent') newScores[date].absent = u.score;
+            else newScores[date][u.virtueKey] = u.score;
+          });
+          return { ...s, scores: newScores };
+        })
+      };
+    }));
+  }, [uid, classes]);
+
   const deleteClass = useCallback(async (classId) => {
     if (!uid) return;
     await deleteDoc(doc(db, 'teachers', uid, 'classes', classId));
@@ -230,7 +276,7 @@ export function useTeacherData(uid, masterStudents) {
 
   return {
     classes, loading, loadClasses: () => setRefreshKey(k => k + 1),
-    addClass, addStudentToClass, removeStudentFromClass, saveDailyScore, deleteClass,
+    addClass, addStudentToClass, removeStudentFromClass, saveDailyScore, saveBulkScores, deleteClass,
   };
 }
 
