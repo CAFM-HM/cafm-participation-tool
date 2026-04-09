@@ -139,8 +139,8 @@ function BoardOverview({ data, update, budgetData, onNavigate }) {
     } else return null;
     if (totalBudget === 0 && totalSpent === 0) return null;
     const month = new Date().getMonth();
-    const fiscalMonth = month >= 7 ? month - 7 : month + 5;
-    const pctYear = Math.round((fiscalMonth / 10) * 100);
+    const fiscalMonth = month >= 6 ? month - 6 : month + 6;
+    const pctYear = Math.round((fiscalMonth / 12) * 100);
     return { totalBudget, totalSpent, remaining: totalBudget - totalSpent, pctSpent: totalBudget > 0 ? Math.round((totalSpent / totalBudget) * 100) : 0, pctYear };
   }, [budgetData]);
 

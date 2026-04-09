@@ -18,14 +18,14 @@ function parseCSVLine(line) {
 
 function getCurrentFiscalYear() {
   const now = new Date();
-  const startYear = now.getMonth() >= 7 ? now.getFullYear() : now.getFullYear() - 1;
+  const startYear = now.getMonth() >= 6 ? now.getFullYear() : now.getFullYear() - 1;
   return `${startYear}-${(startYear + 1).toString().slice(2)}`;
 }
 
 function getFiscalYear(dateStr) {
   if (!dateStr) return getCurrentFiscalYear();
   const d = new Date(dateStr + 'T00:00:00');
-  const startYear = d.getMonth() >= 7 ? d.getFullYear() : d.getFullYear() - 1;
+  const startYear = d.getMonth() >= 6 ? d.getFullYear() : d.getFullYear() - 1;
   return `${startYear}-${(startYear + 1).toString().slice(2)}`;
 }
 
@@ -275,8 +275,8 @@ function BudgetDashboard({ lineItems, published, spending, previewScenario, sele
 
     const now = new Date();
     const month = now.getMonth();
-    const fiscalMonth = month >= 7 ? month - 7 : month + 5;
-    const pctYear = Math.round((fiscalMonth / 10) * 100);
+    const fiscalMonth = month >= 6 ? month - 6 : month + 6;
+    const pctYear = Math.round((fiscalMonth / 12) * 100);
 
     return { totalBudget, totalSpent, remaining: totalBudget - totalSpent, pctSpent: totalBudget > 0 ? Math.round((totalSpent / totalBudget) * 100) : 0, pctYear, categories };
   }, [lineItems, spending, published, previewScenario, isPreview]);

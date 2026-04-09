@@ -14,7 +14,7 @@ function fmtK(n) {
 
 function getCurrentSchoolYear() {
   const now = new Date();
-  const startYear = now.getMonth() >= 7 ? now.getFullYear() : now.getFullYear() - 1;
+  const startYear = now.getMonth() >= 6 ? now.getFullYear() : now.getFullYear() - 1;
   return `${startYear}-${(startYear + 1).toString().slice(2)}`;
 }
 
@@ -305,7 +305,7 @@ export default function BoardAnalytics({ enrollment }) {
       const fySpending = (budgetData.spending || []).filter(s => {
         if (!s.date) return true; // legacy entries without date
         const d = new Date(s.date + 'T00:00:00');
-        const sy = d.getMonth() >= 7 ? d.getFullYear() : d.getFullYear() - 1;
+        const sy = d.getMonth() >= 6 ? d.getFullYear() : d.getFullYear() - 1;
         return `${sy}-${(sy + 1).toString().slice(2)}` === currentFY;
       });
       activeBudget.items.forEach(item => {
@@ -315,7 +315,7 @@ export default function BoardAnalytics({ enrollment }) {
         });
       });
       const month = new Date().getMonth();
-      const fiscalMonth = month >= 7 ? month - 6 : month + 6;
+      const fiscalMonth = month >= 6 ? month - 6 : month + 6;
       const pctYear = Math.round((fiscalMonth / 12) * 100);
       const pctSpent = totalBudget > 0 ? Math.round((totalSpent / totalBudget) * 100) : 0;
       budgetAnalytics = { totalBudget, totalSpent, remaining: totalBudget - totalSpent, pctSpent, pctYear, fiscalYear: currentFY };
