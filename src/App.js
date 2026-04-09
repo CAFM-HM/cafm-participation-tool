@@ -9,10 +9,13 @@ import HousePoints from './components/HousePoints';
 import MasterRoster from './components/MasterRoster';
 import ScheduleBuilder from './components/ScheduleBuilder';
 import CommandCenter from './components/CommandCenter';
+import ServiceHours from './components/ServiceHours';
+import { useServiceHours } from './hooks/useFirestore';
 
 function App() {
   const { user, loading, login, logout, isAdmin, isBoardMember, displayName } = useAuth();
   const { students: masterStudents, loading: rosterLoading, addStudent, updateStudent, removeStudent, bulkImport, refresh: refreshRoster } = useMasterRoster();
+  const { entries: serviceEntries, loading: serviceLoading, addEntry: addServiceEntry, updateEntry: updateServiceEntry, deleteEntry: deleteServiceEntry } = useServiceHours();
   const [activeTab, setActiveTab] = useState('home');
   const [toast, setToast] = useState(null);
 
@@ -65,6 +68,7 @@ function App() {
     ...(isBoardMember ? [{ id: 'command', label: 'Board', icon: '\u{1F465}' }] : []),
     ...(isAdmin ? [
       { id: 'dashboard', label: 'Dashboard', icon: '\u{1F4CA}' },
+      { id: 'service', label: 'Service Hours', icon: '\u{1F91D}' },
       { id: 'roster', label: 'Roster', icon: '\u{1F4CB}' },
     ] : []),
   ];
@@ -123,6 +127,7 @@ function App() {
           {activeTab === 'schedule' && <ScheduleBuilder isAdmin={isAdmin} />}
           {activeTab === 'command' && isBoardMember && <CommandCenter />}
           {activeTab === 'dashboard' && isAdmin && <Dashboard masterStudents={masterStudents} />}
+          {activeTab === 'service' && isAdmin && <ServiceHours entries={serviceEntries} onAdd={addServiceEntry} onUpdate={updateServiceEntry} onDelete={deleteServiceEntry} masterStudents={masterStudents} />}
           {activeTab === 'roster' && isAdmin && (
             <MasterRoster
               students={masterStudents}
