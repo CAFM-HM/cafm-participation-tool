@@ -660,6 +660,10 @@ function SpendingLog({ lineItems, spending, update, published, selectedYear, all
   const [newEntry, setNewEntry] = useState({ categoryId: '', date: new Date().toISOString().split('T')[0], description: '', amount: '' });
   const [filterCat, setFilterCat] = useState('all');
   const [csvPreview, setCsvPreview] = useState([]);
+  const [sortCol, setSortCol] = useState('date');
+  const [sortDir, setSortDir] = useState('desc');
+  const [editingId, setEditingId] = useState(null);
+  const [editDraft, setEditDraft] = useState({});
 
   // Use approved budget items for category names and budgeted amounts
   const approvedItems = published?.items || [];
@@ -726,13 +730,92 @@ function SpendingLog({ lineItems, spending, update, published, selectedYear, all
 
   const removeEntry = (id) => { update(c => { c.spending = (c.spending || []).filter(s => s.id !== id); }); };
 
-  const filtered = filterCat === 'all' ? spending : spending.filter(s => s.categoryId === filterCat);
-  const sorted = [...filtered].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
-
   const catTotals = {};
   spending.forEach(s => { if (!catTotals[s.categoryId]) catTotals[s.categoryId] = 0; catTotals[s.categoryId] += parseFloat(s.amount) || 0; });
 
   const getCatName = (id) => lineItems.find(i => i.id === id)?.name || 'Unknown';
+
+  // Sort logic
+  const toggleSort = (col) => {
+    if (sortCol === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    else { setSortCol(col); setSortDir(col === 'amount' ? 'desc' : 'asc'); }
+  };
+  const sortArrow = (col) => sortCol === col ? (sortDir === 'asc' ? ' ▲' : ' ▼') : '';
+
+  const filtered = filterCat === 'all' ? spending : spending.filter(s => s.categoryId === filterCat);
+  const sorted = [...filtered].sort((a, b) => {
+    let va, vb;
+    if (sortCol === 'date') { va = a.date || ''; vb = b.date || ''; }
+    else if (sortCol === 'category') { va = getCatName(a.categoryId).toLowerCase(); vb = getCatName(b.categoryId).toLowerCase(); }
+    else if (sortCol === 'description') { va = (a.description || '').toLowerCase(); vb = (b.description || '').toLowerCase(); }
+    else if (sortCol === 'amount') { va = parseFloat(a.amount) || 0; vb = parseFloat(b.amount) || 0; }
+    else { va = ''; vb = ''; }
+    if (va < vb) return sortDir === 'asc' ? -1 : 1;
+    if (va > vb) return sortDir === 'asc' ? 1 : -1;
+    return 0;
+  });
+
+  // Edit helpers
+  const startEdit = (entry) => { setEditingId(entry.id); setEditDraft({ categoryId: entry.categoryId, date: entry.date, description: entry.description, amount: entry.amount }); };
+  const cancelEdit = () => { setEditingId(null); setEditDraft({}); };
+  const saveEdit = () => {
+    const amt = parseFloat(editDraft.amount) || 0;
+    update(c => { const entry = (c.spending || []).find(s => s.id === editingId); if (entry) { entry.categoryId = editDraft.categoryId; entry.date = editDraft.date; entry.description = editDraft.description; entry.amount = amt; } });
+    window.dispatchEvent(new CustomEvent('toast', { detail: 'Entry updated' }));
+    cancelEdit();
+  };
+
+  // Export CSV
+  const escCsv = (val) => { const s = String(val); return s.includes(',') || s.includes('"') ? '"' + s.replace(/"/g, '""') + '"' : s; };
+  const exportCsv = () => {
+    const header = ['#', 'Date', 'Category', 'Description', 'Amount'];
+    const rows = sorted.map((s, i) => [
+      i + 1,
+      s.date || '',
+      escCsv(getCatName(s.categoryId)),
+      escCsv(s.description || ''),
+      (parseFloat(s.amount) || 0).toFixed(2),
+    ]);
+    const total = sorted.reduce((sum, s) => sum + (parseFloat(s.amount) || 0), 0);
+    rows.push(['', '', '', 'TOTAL', total.toFixed(2)]);
+    const csv = [header.join(','), ...rows.map(r => r.join(','))].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = `cafm-spending-FY${selectedYear}.csv`; a.click();
+    URL.revokeObjectURL(url);
+    window.dispatchEvent(new CustomEvent('toast', { detail: 'Spending log exported' }));
+  };
+
+  // Export PDF
+  const exportPdf = () => {
+    const total = sorted.reduce((sum, s) => sum + (parseFloat(s.amount) || 0), 0);
+    const catRows = sorted.map((s, i) => `
+      <tr>
+        <td style="padding:5px 6px;border-bottom:1px solid #E5E7EB;color:#9CA3AF;font-size:10px;text-align:center;">${i + 1}</td>
+        <td style="padding:5px 6px;border-bottom:1px solid #E5E7EB;white-space:nowrap;">${s.date || ''}</td>
+        <td style="padding:5px 6px;border-bottom:1px solid #E5E7EB;">${getCatName(s.categoryId)}</td>
+        <td style="padding:5px 6px;border-bottom:1px solid #E5E7EB;">${s.description || ''}</td>
+        <td style="padding:5px 6px;border-bottom:1px solid #E5E7EB;text-align:right;font-weight:600;">$${(parseFloat(s.amount) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+      </tr>`).join('');
+    const w = window.open('', '_blank');
+    w.document.write(`<!DOCTYPE html><html><head><title>CAFM Spending Log</title>
+      <style>body{font-family:'Segoe UI',sans-serif;color:#1F2937;max-width:850px;margin:0 auto;padding:32px;}
+      h1{font-family:Georgia,serif;color:#1B3A5C;font-size:20px;margin-bottom:2px;}
+      .sub{font-size:12px;color:#6B7280;margin-bottom:20px;}
+      table{width:100%;border-collapse:collapse;font-size:12px;}
+      th{text-align:left;padding:6px;background:#F9FAFB;border-bottom:2px solid #E5E7EB;font-size:10px;text-transform:uppercase;color:#6B7280;}
+      @media print{body{padding:16px;}}</style></head><body>
+      <h1>CAFM Spending Log — FY ${selectedYear}</h1>
+      <div class="sub">Chesterton Academy of the Florida Martyrs &middot; Generated ${new Date().toLocaleDateString()} &middot; ${sorted.length} entries${filterCat !== 'all' ? ' (filtered: ' + getCatName(filterCat) + ')' : ''}</div>
+      <table><thead><tr><th style="text-align:center;width:30px;">#</th><th>Date</th><th>Category</th><th>Description</th><th style="text-align:right;">Amount</th></tr></thead>
+      <tbody>${catRows}
+        <tr style="font-weight:700;border-top:2px solid #1B3A5C;">
+          <td colspan="4" style="padding:8px;font-family:Georgia,serif;color:#1B3A5C;">TOTAL (${sorted.length} entries)</td>
+          <td style="padding:8px;text-align:right;font-family:Georgia,serif;color:#1B3A5C;">$${total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+        </tr></tbody></table></body></html>`);
+    w.document.close();
+    setTimeout(() => w.print(), 300);
+  };
 
   return (
     <div>
@@ -743,7 +826,7 @@ function SpendingLog({ lineItems, spending, update, published, selectedYear, all
             Showing {spending.length} of {(allSpending || spending).length} total entries (filtered by fiscal year)
           </div>
         </div>
-        <div style={{ display: 'flex', gap: 6 }}>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
           {spending.length > 0 && (
             <button className="btn btn-sm btn-secondary" style={{ color: '#DC2626' }} onClick={() => {
               if (!window.confirm(`Delete all ${spending.length} spending entries for FY ${selectedYear}? This cannot be undone.`)) return;
@@ -751,8 +834,14 @@ function SpendingLog({ lineItems, spending, update, published, selectedYear, all
               window.dispatchEvent(new CustomEvent('toast', { detail: 'Spending cleared' }));
             }}>Clear All</button>
           )}
+          {sorted.length > 0 && (
+            <>
+              <button className="btn btn-sm btn-secondary" onClick={exportCsv}>Export CSV</button>
+              <button className="btn btn-sm btn-secondary" onClick={exportPdf}>Export PDF</button>
+            </>
+          )}
           <label className="btn btn-sm btn-secondary" style={{ cursor: 'pointer', margin: 0 }}>
-            📥 Import CSV
+            Import CSV
             <input type="file" accept=".csv" onChange={handleSpendingCsv} style={{ display: 'none' }} />
           </label>
           <button className="btn btn-sm btn-primary" onClick={() => setShowAdd(!showAdd)}>{showAdd ? 'Cancel' : '+ Log Purchase'}</button>
@@ -843,18 +932,47 @@ function SpendingLog({ lineItems, spending, update, published, selectedYear, all
       ) : (
         <div style={{ overflowX: 'auto' }}>
           <table className="data-table">
-            <thead><tr><th>Date</th><th>Category</th><th>Description</th><th style={{ textAlign: 'right' }}>Amount</th><th></th></tr></thead>
+            <thead><tr>
+              <th style={{ width: 36, textAlign: 'center', color: '#9CA3AF' }}>#</th>
+              <th style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => toggleSort('date')}>Date{sortArrow('date')}</th>
+              <th style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => toggleSort('category')}>Category{sortArrow('category')}</th>
+              <th style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => toggleSort('description')}>Description{sortArrow('description')}</th>
+              <th style={{ textAlign: 'right', cursor: 'pointer', userSelect: 'none' }} onClick={() => toggleSort('amount')}>Amount{sortArrow('amount')}</th>
+              <th style={{ width: 60 }}></th>
+            </tr></thead>
             <tbody>
-              {sorted.map(s => (
+              {sorted.map((s, idx) => editingId === s.id ? (
+                <tr key={s.id} style={{ background: '#FFFBEB' }}>
+                  <td style={{ textAlign: 'center', color: '#9CA3AF', fontSize: 11 }}>{idx + 1}</td>
+                  <td><input type="date" value={editDraft.date || ''} onChange={e => setEditDraft({ ...editDraft, date: e.target.value })} style={{ width: 130, fontSize: 12 }} /></td>
+                  <td>
+                    <select value={editDraft.categoryId || ''} onChange={e => setEditDraft({ ...editDraft, categoryId: e.target.value })} style={{ fontSize: 12, width: '100%' }}>
+                      <option value="">—</option>
+                      {lineItems.map(i => <option key={i.id} value={i.id}>{i.name}</option>)}
+                    </select>
+                  </td>
+                  <td><input type="text" value={editDraft.description || ''} onChange={e => setEditDraft({ ...editDraft, description: e.target.value })} style={{ width: '100%', fontSize: 12 }} /></td>
+                  <td><input type="number" step="0.01" value={editDraft.amount || ''} onChange={e => setEditDraft({ ...editDraft, amount: e.target.value })} style={{ width: 100, textAlign: 'right', fontSize: 12 }} /></td>
+                  <td style={{ whiteSpace: 'nowrap' }}>
+                    <button className="btn btn-sm btn-gold" style={{ fontSize: 10, padding: '2px 6px', marginRight: 2 }} onClick={saveEdit}>Save</button>
+                    <button className="btn btn-sm btn-secondary" style={{ fontSize: 10, padding: '2px 6px' }} onClick={cancelEdit}>X</button>
+                  </td>
+                </tr>
+              ) : (
                 <tr key={s.id}>
+                  <td style={{ textAlign: 'center', color: '#9CA3AF', fontSize: 11 }}>{idx + 1}</td>
                   <td style={{ fontSize: 12, whiteSpace: 'nowrap' }}>{s.date}</td>
                   <td style={{ fontSize: 12 }}>{getCatName(s.categoryId)}</td>
                   <td style={{ fontSize: 13 }}>{s.description}</td>
                   <td style={{ textAlign: 'right', fontWeight: 600 }}>${(parseFloat(s.amount) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                  <td><button className="remove-btn" onClick={() => removeEntry(s.id)}>×</button></td>
+                  <td style={{ whiteSpace: 'nowrap' }}>
+                    <button className="remove-btn" style={{ marginRight: 4 }} title="Edit" onClick={() => startEdit(s)}>&#9998;</button>
+                    <button className="remove-btn" title="Delete" onClick={() => removeEntry(s.id)}>×</button>
+                  </td>
                 </tr>
               ))}
               <tr style={{ fontWeight: 700, borderTop: '2px solid #1B3A5C' }}>
+                <td></td>
                 <td colSpan={3} style={{ fontFamily: 'var(--font-display)', color: '#1B3A5C' }}>TOTAL ({sorted.length} entries)</td>
                 <td style={{ textAlign: 'right', fontFamily: 'var(--font-display)', color: '#1B3A5C' }}>
                   ${sorted.reduce((sum, s) => sum + (parseFloat(s.amount) || 0), 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
