@@ -104,18 +104,35 @@ export default function HousePoints({ uid, isAdmin, masterStudents }) {
       const nameIdx = header.findIndex(h => h.includes('student') || h.includes('name'));
       const houseIdx = header.findIndex(h => h.includes('house'));
       const pointsIdx = header.findIndex(h => h.includes('point') || h.includes('value') || h.includes('amount') || h.includes('score') || h === 'pts' || h === 'number');
-      const catIdx = header.findIndex(h => h.includes('category') || h.includes('type'));
+      // Support separate merit/demerit columns (e.g. "Merit" and "Demerit" as separate columns)
+      const meritIdx = header.findIndex(h => h === 'merit' || h === 'merits');
+      const demeritIdx = header.findIndex(h => h === 'demerit' || h === 'demerits');
+      const hasSplitColumns = meritIdx !== -1 && demeritIdx !== -1;
+      const catIdx = header.findIndex(h => h.includes('category') || h.includes('reason') || h.includes('desc') || h.includes('note'));
       const reasonIdx = header.findIndex(h => h.includes('reason') || h.includes('desc') || h.includes('note'));
       const typeIdx = header.findIndex(h => h === 'type' || h === 'merit/demerit');
       const dateIdx = header.findIndex(h => h.includes('date'));
+      const givenByIdx = header.findIndex(h => h.includes('given') || h.includes('teacher') || h.includes('by'));
       if (nameIdx === -1 && houseIdx === -1) { alert('CSV needs at least a column containing "student", "name", or "house".\n\nYour columns: ' + header.join(', ')); return; }
-      if (pointsIdx === -1) { alert('CSV needs a column containing "point", "value", "amount", or "score".\n\nYour columns: ' + header.join(', ')); return; }
+      if (pointsIdx === -1 && !hasSplitColumns) { alert('CSV needs a column containing "point", "value", "amount", or "score" — or separate "merit" and "demerit" columns.\n\nYour columns: ' + header.join(', ')); return; }
 
       const rows = [];
       for (let i = 1; i < lines.length; i++) {
         const cells = parseCSVLine(lines[i]);
-        const pts = parseFloat(cells[pointsIdx]);
-        if (isNaN(pts) || pts === 0) continue;
+        let pts, type;
+        if (hasSplitColumns) {
+          // Separate merit/demerit columns — use whichever has a value
+          const meritVal = parseFloat(cells[meritIdx]) || 0;
+          const demeritVal = parseFloat(cells[demeritIdx]) || 0;
+          if (meritVal > 0) { pts = meritVal; type = 'merit'; }
+          else if (demeritVal > 0) { pts = -demeritVal; type = 'demerit'; }
+          else continue; // skip rows with no points
+        } else {
+          pts = parseFloat(cells[pointsIdx]);
+          if (isNaN(pts) || pts === 0) continue;
+          type = typeIdx >= 0 ? (cells[typeIdx] || '').toLowerCase() : '';
+          if (!type || (type !== 'merit' && type !== 'demerit')) type = pts > 0 ? 'merit' : 'demerit';
+        }
         const name = nameIdx >= 0 ? cells[nameIdx] || '' : '';
         let house = houseIdx >= 0 ? cells[houseIdx] || '' : '';
         if (house) { const match = HOUSES.find(h => h.toLowerCase() === house.toLowerCase()); house = match || house; }
@@ -124,10 +141,7 @@ export default function HousePoints({ uid, isAdmin, masterStudents }) {
           const ms = (masterStudents || []).find(s => s.name.toLowerCase() === name.toLowerCase());
           if (ms) house = ms.house;
         }
-        let type = typeIdx >= 0 ? (cells[typeIdx] || '').toLowerCase() : '';
-        if (!type) type = pts > 0 ? 'merit' : 'demerit';
-        else if (type !== 'merit' && type !== 'demerit') type = pts > 0 ? 'merit' : 'demerit';
-        const category = catIdx >= 0 ? cells[catIdx] || '' : (type === 'merit' ? 'Other' : 'Other');
+        const category = reasonIdx >= 0 ? cells[reasonIdx] || '' : (catIdx >= 0 ? cells[catIdx] || '' : 'Other');
         const reason = reasonIdx >= 0 ? cells[reasonIdx] || '' : '';
         const date = dateIdx >= 0 ? cells[dateIdx] || '' : '';
         const warning = !house ? 'No house' : (!HOUSES.includes(house) ? 'Unknown house' : '');
