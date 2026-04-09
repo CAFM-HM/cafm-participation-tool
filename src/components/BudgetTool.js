@@ -141,9 +141,14 @@ export default function BudgetTool() {
   const approvedBudgets = local?.approvedBudgets || {};
   const published = approvedBudgets[selectedYear] || null;
 
-  // Filter spending to selected fiscal year (must be above early return — hooks can't be conditional)
+  // Filter spending to selected fiscal year
+  // Uses explicit fiscalYear field if present, otherwise includes entries without a FY tag in the selected year
   const yearSpending = useMemo(() => {
-    return spending.filter(s => getFiscalYear(s.date) === selectedYear);
+    return spending.filter(s => {
+      if (s.fiscalYear) return s.fiscalYear === selectedYear;
+      // Legacy entries without fiscalYear field: include in selected year
+      return true;
+    });
   }, [spending, selectedYear]);
 
   const yearOptions = getFiscalYearOptions(approvedBudgets);
@@ -668,7 +673,7 @@ function SpendingLog({ lineItems, spending, update, published, selectedYear, all
     const amt = parseFloat(newEntry.amount) || 0;
     update(c => {
       if (!c.spending) c.spending = [];
-      c.spending.push({ id: genId(), ...newEntry, amount: amt });
+      c.spending.push({ id: genId(), ...newEntry, amount: amt, fiscalYear: selectedYear });
     });
     window.dispatchEvent(new CustomEvent('toast', { detail: `Purchase logged: $${amt.toLocaleString(undefined, { minimumFractionDigits: 2 })}` }));
     setNewEntry({ categoryId: newEntry.categoryId, date: new Date().toISOString().split('T')[0], description: '', amount: '' });
@@ -712,7 +717,7 @@ function SpendingLog({ lineItems, spending, update, published, selectedYear, all
     update(c => {
       if (!c.spending) c.spending = [];
       for (const row of csvPreview) {
-        c.spending.push({ id: genId(), categoryId: row.categoryId, date: row.date, description: row.description, amount: row.amount });
+        c.spending.push({ id: genId(), categoryId: row.categoryId, date: row.date, description: row.description, amount: row.amount, fiscalYear: selectedYear });
       }
     });
     window.dispatchEvent(new CustomEvent('toast', { detail: `Imported ${csvPreview.length} spending entries` }));

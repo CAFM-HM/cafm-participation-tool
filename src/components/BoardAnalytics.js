@@ -301,12 +301,10 @@ export default function BoardAnalytics({ enrollment }) {
     const activeBudget = budgetData?.approvedBudgets?.[currentFY] || budgetData?.publishedBudget;
     if (activeBudget?.items) {
       let totalBudget = 0, totalSpent = 0;
-      // Filter spending to current fiscal year
+      // Filter spending to current fiscal year (use fiscalYear field if present, otherwise include)
       const fySpending = (budgetData.spending || []).filter(s => {
-        if (!s.date) return true; // legacy entries without date
-        const d = new Date(s.date + 'T00:00:00');
-        const sy = d.getMonth() >= 6 ? d.getFullYear() : d.getFullYear() - 1;
-        return `${sy}-${(sy + 1).toString().slice(2)}` === currentFY;
+        if (s.fiscalYear) return s.fiscalYear === currentFY;
+        return true; // legacy entries without fiscalYear field — include in current view
       });
       activeBudget.items.forEach(item => {
         totalBudget += parseFloat(item.amount) || 0;
