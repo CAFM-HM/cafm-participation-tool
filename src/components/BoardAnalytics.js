@@ -294,13 +294,23 @@ export default function BoardAnalytics({ enrollment }) {
     const aidBudget = parseFloat(aid.aidBudget) || 0;
     const aidPct = current.tuitionRevenue > 0 ? (aidBudget / current.tuitionRevenue) * 100 : 0;
 
-    // ── Budget analytics ──
+    // ── Budget analytics (fiscal-year-aware) ──
     let budgetAnalytics = null;
-    if (budgetData?.publishedBudget?.items) {
+    const currentFY = getCurrentSchoolYear();
+    // Try approvedBudgets first (new format), fall back to publishedBudget (legacy)
+    const activeBudget = budgetData?.approvedBudgets?.[currentFY] || budgetData?.publishedBudget;
+    if (activeBudget?.items) {
       let totalBudget = 0, totalSpent = 0;
-      budgetData.publishedBudget.items.forEach(item => {
+      // Filter spending to current fiscal year
+      const fySpending = (budgetData.spending || []).filter(s => {
+        if (!s.date) return true; // legacy entries without date
+        const d = new Date(s.date + 'T00:00:00');
+        const sy = d.getMonth() >= 7 ? d.getFullYear() : d.getFullYear() - 1;
+        return `${sy}-${(sy + 1).toString().slice(2)}` === currentFY;
+      });
+      activeBudget.items.forEach(item => {
         totalBudget += parseFloat(item.amount) || 0;
-        (budgetData.spending || []).filter(s => s.categoryId === item.id).forEach(s => {
+        fySpending.filter(s => s.categoryId === item.id).forEach(s => {
           totalSpent += parseFloat(s.amount) || 0;
         });
       });
@@ -308,7 +318,7 @@ export default function BoardAnalytics({ enrollment }) {
       const fiscalMonth = month >= 7 ? month - 6 : month + 6;
       const pctYear = Math.round((fiscalMonth / 12) * 100);
       const pctSpent = totalBudget > 0 ? Math.round((totalSpent / totalBudget) * 100) : 0;
-      budgetAnalytics = { totalBudget, totalSpent, remaining: totalBudget - totalSpent, pctSpent, pctYear };
+      budgetAnalytics = { totalBudget, totalSpent, remaining: totalBudget - totalSpent, pctSpent, pctYear, fiscalYear: currentFY };
     }
 
     return { yearlyData, current, revBreakdown, expByOwner, aidPct, aidBudget, budgetAnalytics };

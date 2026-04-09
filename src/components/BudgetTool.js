@@ -3,6 +3,32 @@ import { useBudget } from '../hooks/useFirestore';
 
 function genId() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
 
+function getCurrentFiscalYear() {
+  const now = new Date();
+  const startYear = now.getMonth() >= 7 ? now.getFullYear() : now.getFullYear() - 1;
+  return `${startYear}-${(startYear + 1).toString().slice(2)}`;
+}
+
+function getFiscalYear(dateStr) {
+  if (!dateStr) return getCurrentFiscalYear();
+  const d = new Date(dateStr + 'T00:00:00');
+  const startYear = d.getMonth() >= 7 ? d.getFullYear() : d.getFullYear() - 1;
+  return `${startYear}-${(startYear + 1).toString().slice(2)}`;
+}
+
+function getFiscalYearOptions(approvedBudgets) {
+  const current = getCurrentFiscalYear();
+  const years = new Set([current]);
+  // Add year before and after current
+  const [startStr] = current.split('-');
+  const start = parseInt(startStr);
+  years.add(`${start - 1}-${start.toString().slice(2)}`);
+  years.add(`${start + 1}-${(start + 2).toString().slice(2)}`);
+  // Add any years that have approved budgets
+  if (approvedBudgets) Object.keys(approvedBudgets).forEach(y => years.add(y));
+  return [...years].sort();
+}
+
 const OWNERS = ['HM', 'Treasurer', 'ED', 'Secretary', 'Other'];
 const OWNER_LABELS = { HM: 'Headmaster', Treasurer: 'Treasurer', ED: 'Exec. Director', Secretary: 'Secretary', Other: 'Other' };
 
@@ -45,9 +71,19 @@ export default function BudgetTool() {
   const [dirty, setDirty] = useState(false);
   const [previewScenario, setPreviewScenario] = useState(null);
   const [saveStatus, setSaveStatus] = useState(null);
+  const [selectedYear, setSelectedYear] = useState(getCurrentFiscalYear());
 
   useEffect(() => {
-    if (data && !local) setLocal(JSON.parse(JSON.stringify(data)));
+    if (data && !local) {
+      const d = JSON.parse(JSON.stringify(data));
+      // Migrate: if publishedBudget exists but approvedBudgets doesn't, create it
+      if (d.publishedBudget && !d.approvedBudgets) {
+        const fy = d.publishedBudget.fiscalYear || getCurrentFiscalYear();
+        d.approvedBudgets = { [fy]: { ...d.publishedBudget, fiscalYear: fy } };
+        if (!d.publishedBudget.fiscalYear) d.publishedBudget.fiscalYear = fy;
+      }
+      setLocal(d);
+    }
   }, [data, local]);
 
   const update = useCallback((fn) => {
@@ -83,14 +119,36 @@ export default function BudgetTool() {
   const scenarios = local.scenarios || ['Scenario A'];
   const lineItems = local.lineItems || [];
   const spending = local.spending || [];
-  const published = local.publishedBudget || null;
+  const approvedBudgets = local.approvedBudgets || {};
+  const published = approvedBudgets[selectedYear] || null;
 
-  // Approve a scenario as the official budget
+  // Filter spending to selected fiscal year
+  const yearSpending = useMemo(() => {
+    return spending.filter(s => getFiscalYear(s.date) === selectedYear);
+  }, [spending, selectedYear]);
+
+  const yearOptions = getFiscalYearOptions(approvedBudgets);
+
+  // Approve a scenario as the official budget for a fiscal year
   const approveScenario = (scenarioName) => {
-    if (!window.confirm(`Approve "${scenarioName}" as the official budget? This will replace the current approved budget.`)) return;
+    const targetYear = window.prompt(
+      `Which fiscal year should "${scenarioName}" be approved for?\n\nEnter a fiscal year (e.g., 2025-26):`,
+      selectedYear
+    );
+    if (!targetYear) return;
+    // Validate format
+    if (!/^\d{4}-\d{2}$/.test(targetYear)) {
+      window.alert('Please use the format YYYY-YY (e.g., 2025-26)');
+      return;
+    }
+    const existing = approvedBudgets[targetYear];
+    if (existing && !window.confirm(`There is already an approved budget for ${targetYear} ("${existing.scenarioName}"). Replace it?`)) return;
+
     update(c => {
-      c.publishedBudget = {
+      if (!c.approvedBudgets) c.approvedBudgets = {};
+      const budgetData = {
         scenarioName,
+        fiscalYear: targetYear,
         publishedAt: new Date().toISOString(),
         items: (c.lineItems || []).map(item => ({
           id: item.id, name: item.name, owner: item.owner,
@@ -98,21 +156,37 @@ export default function BudgetTool() {
           notes: item.notes || '',
         })),
       };
+      c.approvedBudgets[targetYear] = budgetData;
+      // Also keep publishedBudget pointing to the most recently approved for backward compat
+      c.publishedBudget = budgetData;
     });
+    setSelectedYear(targetYear);
   };
 
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
-        <div className="sub-nav" style={{ marginBottom: 0, borderBottom: 'none' }}>
-          {[
-            { id: 'dashboard', label: 'Approved Budget' },
-            { id: 'builder', label: 'Budget Builder' },
-            { id: 'spending', label: 'Spending Log' },
-          ].map(t => (
-            <button key={t.id} className={`sub-nav-btn ${view === t.id ? 'active' : ''}`}
-              onClick={() => { setView(t.id); setPreviewScenario(null); }}>{t.label}</button>
-          ))}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <div className="sub-nav" style={{ marginBottom: 0, borderBottom: 'none' }}>
+            {[
+              { id: 'dashboard', label: 'Approved Budget' },
+              { id: 'builder', label: 'Budget Builder' },
+              { id: 'spending', label: 'Spending Log' },
+            ].map(t => (
+              <button key={t.id} className={`sub-nav-btn ${view === t.id ? 'active' : ''}`}
+                onClick={() => { setView(t.id); setPreviewScenario(null); }}>{t.label}</button>
+            ))}
+          </div>
+          {/* Fiscal Year Picker */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 10px', background: '#F9FAFB', borderRadius: 8, border: '1px solid #E5E7EB' }}>
+            <span style={{ fontSize: 11, fontWeight: 600, color: '#6B7280', textTransform: 'uppercase', letterSpacing: '0.5px' }}>FY</span>
+            <select value={selectedYear} onChange={e => setSelectedYear(e.target.value)}
+              style={{ border: 'none', background: 'transparent', fontWeight: 700, fontSize: 14, color: '#1B3A5C', cursor: 'pointer', padding: '2px 4px' }}>
+              {yearOptions.map(y => (
+                <option key={y} value={y}>{y}{approvedBudgets[y] ? ' ✓' : ''}{y === getCurrentFiscalYear() ? ' (current)' : ''}</option>
+              ))}
+            </select>
+          </div>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           {saveStatus === 'saved' && <span style={{ fontSize: 12, color: '#16A34A', fontWeight: 600 }}>Saved!</span>}
@@ -136,9 +210,9 @@ export default function BudgetTool() {
         </div>
       )}
 
-      {view === 'dashboard' && <BudgetDashboard lineItems={lineItems} published={published} spending={spending} previewScenario={previewScenario} />}
-      {view === 'builder' && <BudgetBuilder lineItems={lineItems} scenarios={scenarios} update={update} published={published} onPreview={(s) => { setPreviewScenario(s); setView('dashboard'); }} onApprove={approveScenario} />}
-      {view === 'spending' && <SpendingLog lineItems={lineItems} spending={spending} update={update} published={published} />}
+      {view === 'dashboard' && <BudgetDashboard lineItems={lineItems} published={published} spending={yearSpending} previewScenario={previewScenario} selectedYear={selectedYear} />}
+      {view === 'builder' && <BudgetBuilder lineItems={lineItems} scenarios={scenarios} update={update} published={published} onPreview={(s) => { setPreviewScenario(s); setView('dashboard'); }} onApprove={approveScenario} selectedYear={selectedYear} approvedBudgets={approvedBudgets} />}
+      {view === 'spending' && <SpendingLog lineItems={lineItems} spending={yearSpending} update={update} published={published} selectedYear={selectedYear} allSpending={spending} />}
     </div>
   );
 }
@@ -146,7 +220,7 @@ export default function BudgetTool() {
 // ============================================================
 // BUDGET DASHBOARD — shows APPROVED budget vs. spending
 // ============================================================
-function BudgetDashboard({ lineItems, published, spending, previewScenario }) {
+function BudgetDashboard({ lineItems, published, spending, previewScenario, selectedYear }) {
   const isPreview = !!previewScenario;
 
   const stats = useMemo(() => {
@@ -187,7 +261,7 @@ function BudgetDashboard({ lineItems, published, spending, previewScenario }) {
   }, [lineItems, spending, published, previewScenario, isPreview]);
 
   const exportPDF = () => {
-    const label = isPreview ? `Preview: ${previewScenario}` : published ? `Approved Budget — ${published.scenarioName}` : 'Budget';
+    const label = isPreview ? `Preview: ${previewScenario}` : published ? `Approved Budget — ${published.scenarioName} (FY ${selectedYear})` : 'Budget';
     const w = window.open('', '_blank');
     const catRows = stats.categories.filter(c => c.budgeted > 0).map(c => `
       <tr>
@@ -237,9 +311,9 @@ function BudgetDashboard({ lineItems, published, spending, previewScenario }) {
     return (
       <div style={{ padding: 40, textAlign: 'center' }}>
         <div style={{ fontSize: 40, marginBottom: 12 }}>📋</div>
-        <h3 style={{ fontFamily: 'var(--font-display)', color: '#1B3A5C', marginBottom: 8 }}>No Approved Budget Yet</h3>
+        <h3 style={{ fontFamily: 'var(--font-display)', color: '#1B3A5C', marginBottom: 8 }}>No Approved Budget for FY {selectedYear}</h3>
         <p style={{ color: '#6B7280', fontSize: 13, maxWidth: 400, margin: '0 auto' }}>
-          Build your budget scenarios in the Budget Builder tab, then use "Preview" to review and "Approve" to set it as the official budget. Spending will be tracked against the approved budget.
+          Build your budget scenarios in the Budget Builder tab, then use "Preview" to review and "Approve" to set it as the official budget for this fiscal year. You can switch fiscal years using the FY picker above.
         </p>
       </div>
     );
@@ -250,7 +324,7 @@ function BudgetDashboard({ lineItems, published, spending, previewScenario }) {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, flexWrap: 'wrap', gap: 8 }}>
         <div>
           <h3 className="section-title" style={{ marginBottom: 2 }}>
-            {isPreview ? `Preview: ${previewScenario}` : `Approved Budget — ${published.scenarioName}`}
+            {isPreview ? `Preview: ${previewScenario}` : `Approved Budget — ${published.scenarioName} (FY ${selectedYear})`}
           </h3>
           {!isPreview && published.publishedAt && (
             <div style={{ fontSize: 11, color: '#9CA3AF' }}>Approved {new Date(published.publishedAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</div>
@@ -307,7 +381,7 @@ function BudgetDashboard({ lineItems, published, spending, previewScenario }) {
 // ============================================================
 // BUDGET BUILDER — working scenarios with preview & approve
 // ============================================================
-function BudgetBuilder({ lineItems, scenarios, update, published, onPreview, onApprove }) {
+function BudgetBuilder({ lineItems, scenarios, update, published, onPreview, onApprove, selectedYear, approvedBudgets }) {
   const [newItemName, setNewItemName] = useState('');
   const [newScenarioName, setNewScenarioName] = useState('');
 
@@ -353,13 +427,18 @@ function BudgetBuilder({ lineItems, scenarios, update, published, onPreview, onA
         <h3 className="section-title">Budget Builder</h3>
       </div>
 
-      {/* Approved badge */}
-      {published && (
+      {/* Approved budgets summary */}
+      {Object.keys(approvedBudgets || {}).length > 0 && (
         <div style={{ padding: '8px 14px', background: '#F0FFF4', border: '1px solid #BBF7D0', borderRadius: 8, marginBottom: 12, fontSize: 12 }}>
-          <strong style={{ color: '#16A34A' }}>Current Approved Budget:</strong> {published.scenarioName}
-          <span style={{ color: '#9CA3AF', marginLeft: 8 }}>
-            (approved {new Date(published.publishedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })})
-          </span>
+          <strong style={{ color: '#16A34A' }}>Approved Budgets:</strong>
+          {Object.entries(approvedBudgets).sort((a, b) => a[0].localeCompare(b[0])).map(([fy, b]) => (
+            <span key={fy} style={{ marginLeft: 12, padding: '2px 8px', background: fy === selectedYear ? '#DCFCE7' : '#F9FAFB', borderRadius: 4, border: fy === selectedYear ? '1px solid #86EFAC' : '1px solid #E5E7EB' }}>
+              <strong>FY {fy}</strong>: {b.scenarioName}
+              <span style={{ color: '#9CA3AF', marginLeft: 4 }}>
+                ({new Date(b.publishedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })})
+              </span>
+            </span>
+          ))}
         </div>
       )}
 
@@ -454,7 +533,7 @@ function BudgetBuilder({ lineItems, scenarios, update, published, onPreview, onA
 // ============================================================
 // SPENDING LOG — tracks against APPROVED budget
 // ============================================================
-function SpendingLog({ lineItems, spending, update, published }) {
+function SpendingLog({ lineItems, spending, update, published, selectedYear, allSpending }) {
   const [showAdd, setShowAdd] = useState(false);
   const [newEntry, setNewEntry] = useState({ categoryId: '', date: new Date().toISOString().split('T')[0], description: '', amount: '' });
   const [filterCat, setFilterCat] = useState('all');
@@ -488,7 +567,12 @@ function SpendingLog({ lineItems, spending, update, published }) {
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-        <h3 className="section-title">Spending Log</h3>
+        <div>
+          <h3 className="section-title" style={{ marginBottom: 2 }}>Spending Log — FY {selectedYear}</h3>
+          <div style={{ fontSize: 11, color: '#9CA3AF' }}>
+            Showing {spending.length} of {(allSpending || spending).length} total entries (filtered by fiscal year)
+          </div>
+        </div>
         <button className="btn btn-sm btn-primary" onClick={() => setShowAdd(!showAdd)}>{showAdd ? 'Cancel' : '+ Log Purchase'}</button>
       </div>
 
