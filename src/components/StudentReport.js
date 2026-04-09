@@ -268,24 +268,36 @@ export default function StudentReport({ studentName, onClose }) {
             </div>
           </div>
 
-          {/* Participation Narratives */}
-          {narratives.length > 0 && (
-            <>
-              <h2 style={h2Style}>Participation Narratives</h2>
-              {narratives.map((n, i) => (
+          {/* Participation Narratives — one section per class */}
+          <h2 style={h2Style}>Participation Narratives</h2>
+          {classData.length === 0 ? (
+            <div style={{ color: '#9CA3AF', fontStyle: 'italic', fontSize: 13 }}>No class data found for this student.</div>
+          ) : (
+            classData.map((cls, i) => {
+              const narrative = narratives.find(n => n.teacher === cls.teacher) || narratives.find(n => n.className.toLowerCase() === cls.name.toLowerCase());
+              return (
                 <div key={i} style={{ marginBottom: 12 }}>
                   <div style={{ fontSize: 11, fontWeight: 600, color: '#6B7280', marginBottom: 4 }}>
-                    {n.className} — {n.teacher}
+                    {cls.name} — {cls.teacher}
                   </div>
-                  <div style={{
-                    background: '#FAF8F2', border: '1px solid #E5E7EB', borderRadius: 8,
-                    padding: 16, fontFamily: 'var(--font-display)', fontSize: 13, lineHeight: 1.8, color: '#374151'
-                  }}>
-                    {n.text}
-                  </div>
+                  {narrative ? (
+                    <div style={{
+                      background: '#FAF8F2', border: '1px solid #E5E7EB', borderRadius: 8,
+                      padding: 16, fontFamily: 'var(--font-display)', fontSize: 13, lineHeight: 1.8, color: '#374151'
+                    }}>
+                      {narrative.text}
+                    </div>
+                  ) : (
+                    <div style={{
+                      background: '#F9FAFB', border: '1px dashed #D1D5DB', borderRadius: 8,
+                      padding: 14, fontSize: 12, color: '#9CA3AF', fontStyle: 'italic'
+                    }}>
+                      No narrative written yet for this class. The teacher can build one in the Narrative Builder.
+                    </div>
+                  )}
                 </div>
-              ))}
-            </>
+              );
+            })
           )}
 
           {/* Participation Scores */}

@@ -95,6 +95,15 @@ export default function BudgetTool() {
         d.approvedBudgets = { [fy]: { ...d.publishedBudget, fiscalYear: fy } };
         if (!d.publishedBudget.fiscalYear) d.publishedBudget.fiscalYear = fy;
       }
+      // Initialize with defaults if empty
+      if (!d.lineItems || d.lineItems.length === 0) {
+        d.lineItems = DEFAULT_LINE_ITEMS.map(item => ({
+          id: genId(), name: item.name, owner: item.owner, scenarios: {}, notes: '',
+        }));
+        d.scenarios = d.scenarios || ['Scenario A'];
+        d.spending = d.spending || [];
+        d.publishedBudget = d.publishedBudget || null;
+      }
       setLocal(d);
     }
   }, [data, local]);
@@ -127,14 +136,6 @@ export default function BudgetTool() {
   };
 
   if (loading || !local) return <div style={{ padding: 40, textAlign: 'center', color: '#9CA3AF' }}>Loading budget...</div>;
-
-  // Initialize with defaults if empty
-  if (!local.lineItems || local.lineItems.length === 0) {
-    const items = DEFAULT_LINE_ITEMS.map(d => ({
-      id: genId(), name: d.name, owner: d.owner, scenarios: {}, notes: '',
-    }));
-    setLocal(prev => ({ ...prev, lineItems: items, scenarios: ['Scenario A'], spending: [], publishedBudget: null }));
-  }
 
   const scenarios = local.scenarios || ['Scenario A'];
   const lineItems = local.lineItems || [];
