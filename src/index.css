@@ -53,7 +53,7 @@ body {
 .app-header {
   background: linear-gradient(135deg, var(--navy) 0%, var(--navy-dark) 100%);
   color: var(--white);
-  padding: 16px 24px;
+  padding: 10px 24px;
   position: sticky;
   top: 0;
   z-index: 100;
@@ -61,7 +61,7 @@ body {
 }
 
 .header-inner {
-  max-width: 1100px;
+  max-width: 1240px;
   margin: 0 auto;
   display: flex;
   align-items: center;
@@ -77,7 +77,7 @@ body {
 }
 
 .header-logo {
-  height: 80px;
+  height: 48px;
   width: auto;
   filter: brightness(0) invert(1);
 }
@@ -124,53 +124,68 @@ body {
    TAB NAVIGATION
    ============================================================ */
 .tab-nav {
-  max-width: 1100px;
+  max-width: 1240px;
   margin: 0 auto;
-  padding: 12px 24px 0;
+  padding: 0 24px;
   display: flex;
-  gap: 4px;
+  gap: 0;
   flex-wrap: wrap;
+  background: var(--white);
+  border-bottom: 2px solid var(--gray-200);
 }
 
 .tab-btn {
   font-family: var(--font-body);
   font-size: 13px;
   font-weight: 500;
-  padding: 10px 18px;
+  padding: 14px 20px;
   border: none;
-  border-radius: var(--radius-md) var(--radius-md) 0 0;
-  background: var(--gray-200);
-  color: var(--gray-600);
+  border-bottom: 3px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  color: var(--gray-500);
   cursor: pointer;
   transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: -2px;
 }
 
 .tab-btn:hover {
-  background: var(--gray-300);
+  color: var(--navy);
+  background: var(--gray-50);
 }
 
 .tab-btn.active {
-  background: var(--white);
   color: var(--navy);
   font-weight: 600;
-  box-shadow: var(--shadow-sm);
+  border-bottom-color: var(--gold);
+  background: transparent;
+  box-shadow: none;
+}
+
+.tab-icon {
+  font-size: 16px;
+  line-height: 1;
 }
 
 /* ============================================================
    MAIN CONTENT
    ============================================================ */
 .main-content {
-  max-width: 1100px;
+  max-width: 1240px;
   margin: 0 auto;
-  padding: 0 24px 40px;
+  padding: 12px 24px 40px;
 }
 
 .tab-panel {
   background: var(--white);
-  border-radius: 0 var(--radius-lg) var(--radius-lg) var(--radius-lg);
+  border-radius: var(--radius-lg);
   box-shadow: var(--shadow-sm);
-  padding: 24px;
+  padding: 28px;
   min-height: 400px;
+  animation: fadeIn 0.25s ease-out;
 }
 
 /* ============================================================
@@ -181,9 +196,19 @@ body {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  min-height: 80vh;
+  min-height: 100vh;
   text-align: center;
   padding: 40px 24px;
+  background: linear-gradient(160deg, var(--navy-dark) 0%, var(--navy) 40%, var(--navy-light) 100%);
+}
+
+.login-card {
+  background: var(--white);
+  border-radius: var(--radius-lg);
+  padding: 48px 40px;
+  box-shadow: var(--shadow-lg);
+  max-width: 420px;
+  width: 100%;
 }
 
 .login-screen .login-logo {
@@ -236,8 +261,14 @@ body {
   background: var(--white);
   border: 1px solid var(--gray-200);
   border-radius: var(--radius-md);
-  padding: 16px;
+  padding: 20px;
   margin-bottom: 12px;
+  box-shadow: var(--shadow-sm);
+  transition: box-shadow 0.2s;
+}
+
+.card:hover {
+  box-shadow: var(--shadow-md);
 }
 
 .card-header {
@@ -687,6 +718,7 @@ input:focus, select:focus {
   border-radius: var(--radius-md);
   margin-bottom: 16px;
   overflow: hidden;
+  box-shadow: var(--shadow-sm);
 }
 
 .narrative-student-header {
@@ -765,11 +797,19 @@ input:focus, select:focus {
 }
 
 .stat-card {
-  background: var(--gray-50);
+  background: linear-gradient(to bottom, var(--white), var(--gray-50));
   border: 1px solid var(--gray-200);
+  border-top: 3px solid var(--navy);
   border-radius: var(--radius-md);
-  padding: 14px;
+  padding: 18px 14px;
   text-align: center;
+  box-shadow: var(--shadow-sm);
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.stat-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
 }
 
 .stat-card .stat-value {
@@ -783,6 +823,10 @@ input:focus, select:focus {
   font-size: 12px;
   color: var(--gray-500);
   margin-top: 2px;
+}
+
+.stat-card.alert {
+  border-top-color: var(--red);
 }
 
 .stat-card.alert .stat-value {
@@ -812,8 +856,12 @@ input:focus, select:focus {
   border-bottom: 1px solid var(--gray-100);
 }
 
-.data-table tr:hover td {
+.data-table tbody tr:nth-child(even) td {
   background: var(--gray-50);
+}
+
+.data-table tr:hover td {
+  background: var(--blue-bg);
 }
 
 .badge {
@@ -953,7 +1001,13 @@ input:focus, select:focus {
   background: var(--white);
   border: 1px solid var(--gray-200);
   border-radius: var(--radius-md);
-  padding: 16px;
+  padding: 20px;
+  box-shadow: var(--shadow-sm);
+  transition: box-shadow 0.2s;
+}
+
+.home-card:hover {
+  box-shadow: var(--shadow-md);
 }
 
 .home-card-header {
@@ -1487,9 +1541,11 @@ input:focus, select:focus {
 
 .cc-timeline-card {
   border: 1px solid var(--gray-200);
+  border-left: 4px solid var(--gold);
   border-radius: var(--radius-md);
   padding: 14px;
   background: var(--white);
+  box-shadow: var(--shadow-sm);
   transition: all 0.15s;
 }
 
@@ -1712,9 +1768,11 @@ input:focus, select:focus {
 
 .cc-director-card {
   border: 1px solid var(--gray-200);
+  border-left: 4px solid var(--gold);
   border-radius: var(--radius-md);
   padding: 14px;
   background: var(--white);
+  box-shadow: var(--shadow-sm);
 }
 
 .cc-director-header {
@@ -1956,15 +2014,152 @@ input:focus, select:focus {
 }
 
 /* ============================================================
+   ANIMATIONS
+   ============================================================ */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes toastIn {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes toastOut {
+  from { opacity: 1; transform: translateY(0); }
+  to { opacity: 0; transform: translateY(12px); }
+}
+
+/* ============================================================
+   TOAST NOTIFICATIONS
+   ============================================================ */
+.toast {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  background: var(--navy);
+  color: var(--white);
+  padding: 12px 24px;
+  border-radius: var(--radius-md);
+  font-family: var(--font-body);
+  font-size: 14px;
+  font-weight: 500;
+  box-shadow: var(--shadow-lg);
+  z-index: 2000;
+  animation: toastIn 0.3s ease-out;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.toast.toast-exit {
+  animation: toastOut 0.2s ease-in forwards;
+}
+
+.toast-check {
+  color: #4ADE80;
+  font-size: 16px;
+}
+
+/* ============================================================
+   CARD ACCENTS
+   ============================================================ */
+.card-accent-gold {
+  border-left: 4px solid var(--gold);
+}
+
+.card-accent-navy {
+  border-left: 4px solid var(--navy);
+}
+
+.card-accent-green {
+  border-left: 4px solid var(--green);
+}
+
+/* ============================================================
+   EMPTY STATES
+   ============================================================ */
+.empty-state {
+  padding: 32px 20px;
+  text-align: center;
+  color: var(--gray-400);
+}
+
+.empty-state-icon {
+  font-size: 32px;
+  margin-bottom: 8px;
+  opacity: 0.5;
+}
+
+.empty-state-text {
+  font-size: 14px;
+  font-style: italic;
+}
+
+/* ============================================================
+   FOCUS & ACCESSIBILITY
+   ============================================================ */
+:focus-visible {
+  outline: 2px solid var(--navy);
+  outline-offset: 2px;
+}
+
+.tab-btn:focus-visible {
+  outline-offset: -2px;
+}
+
+button:focus-visible {
+  outline: 2px solid var(--navy);
+  outline-offset: 2px;
+}
+
+input:focus-visible, select:focus-visible {
+  outline: none;
+  border-color: var(--navy);
+  box-shadow: 0 0 0 3px rgba(27, 58, 92, 0.15);
+}
+
+/* ============================================================
+   CUSTOM SCROLLBAR
+   ============================================================ */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--gray-100);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--gray-300);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--gray-400);
+}
+
+.modal-content::-webkit-scrollbar-thumb,
+.tab-panel::-webkit-scrollbar-thumb {
+  background: var(--navy-light);
+  border-radius: 4px;
+}
+
+/* ============================================================
    RESPONSIVE
    ============================================================ */
 @media (max-width: 640px) {
-  .app-header { padding: 12px 16px; }
+  .app-header { padding: 8px 16px; }
   .header-inner { flex-direction: column; align-items: flex-start; }
+  .header-logo { height: 36px; }
   .header-brand .app-title { font-size: 17px; }
-  .tab-nav { padding: 10px 16px 0; }
-  .tab-btn { font-size: 12px; padding: 8px 12px; }
-  .main-content { padding: 0 16px 24px; }
+  .tab-nav { padding: 0 16px; }
+  .tab-btn { font-size: 12px; padding: 10px 12px; }
+  .tab-icon { font-size: 14px; }
+  .main-content { padding: 8px 16px 24px; }
   .tab-panel { padding: 16px; }
   .student-row { flex-direction: column; gap: 6px; }
   .student-scoring-row { flex-direction: column; gap: 8px; }
@@ -1978,4 +2173,6 @@ input:focus, select:focus {
   .home-grid { grid-template-columns: 1fr; }
   .home-sidebar { order: -1; }
   .home-greeting { font-size: 18px; }
+  .login-card { padding: 32px 24px; }
+  .toast { bottom: 16px; right: 16px; left: 16px; }
 }

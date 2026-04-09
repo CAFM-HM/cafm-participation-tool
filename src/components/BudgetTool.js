@@ -62,6 +62,7 @@ export default function BudgetTool() {
       await saveData(local);
       setDirty(false);
       setSaveStatus('saved');
+      window.dispatchEvent(new CustomEvent('toast', { detail: 'Budget saved' }));
       setTimeout(() => setSaveStatus(null), 3000);
     } catch (err) {
       console.error('Budget save failed:', err);

@@ -89,11 +89,14 @@ export default function Home({ uid, isAdmin, displayName, masterStudents, onNavi
     return status;
   }, [classes, weekDates]);
 
+  const toast = (msg) => window.dispatchEvent(new CustomEvent('toast', { detail: msg }));
+
   const handlePostAnnouncement = async () => {
     if (!newAnn.title.trim()) return;
     await addAnnouncement({ ...newAnn, postedBy: uid, postedByName: displayName });
     setNewAnn({ title: '', body: '', pinned: false });
     setShowPostForm(false);
+    toast('Announcement posted');
   };
 
   const handleAddLink = async () => {
@@ -103,6 +106,7 @@ export default function Home({ uid, isAdmin, displayName, masterStudents, onNavi
     await addLink({ label: newLink.label.trim(), url });
     setNewLink({ label: '', url: '' });
     setShowLinkForm(false);
+    toast('Link added');
   };
 
   const handleAddDoc = async () => {
@@ -112,6 +116,7 @@ export default function Home({ uid, isAdmin, displayName, masterStudents, onNavi
     await addDocument({ label: newDoc.label.trim(), url });
     setNewDoc({ label: '', url: '' });
     setShowDocForm(false);
+    toast('Document added');
   };
 
   const loading = annLoading || linksLoading || docsLoading || classesLoading;
@@ -246,10 +251,11 @@ export default function Home({ uid, isAdmin, displayName, masterStudents, onNavi
             )}
 
             {annLoading ? (
-              <div style={{ padding: 20, textAlign: 'center', color: '#9CA3AF' }}>Loading...</div>
+              <div className="empty-state"><div className="empty-state-text">Loading...</div></div>
             ) : sortedAnnouncements.length === 0 ? (
-              <div style={{ padding: 20, textAlign: 'center', color: '#9CA3AF', fontStyle: 'italic' }}>
-                No announcements yet.
+              <div className="empty-state">
+                <div className="empty-state-icon">{'\u{1F4E2}'}</div>
+                <div className="empty-state-text">{isAdmin ? 'Post your first announcement above.' : 'No announcements yet.'}</div>
               </div>
             ) : (
               <div className="announcement-list">
@@ -309,8 +315,9 @@ export default function Home({ uid, isAdmin, displayName, masterStudents, onNavi
             )}
 
             {documents.length === 0 ? (
-              <div style={{ padding: 16, textAlign: 'center', color: '#9CA3AF', fontStyle: 'italic', fontSize: 13 }}>
-                {isAdmin ? 'Add documents for your team to view.' : 'No documents added yet.'}
+              <div className="empty-state">
+                <div className="empty-state-icon">{'\u{1F4C4}'}</div>
+                <div className="empty-state-text">{isAdmin ? 'Add documents for your team to view.' : 'No documents added yet.'}</div>
               </div>
             ) : (
               <>
@@ -376,10 +383,11 @@ export default function Home({ uid, isAdmin, displayName, masterStudents, onNavi
             )}
 
             {linksLoading ? (
-              <div style={{ padding: 12, textAlign: 'center', color: '#9CA3AF' }}>Loading...</div>
+              <div className="empty-state"><div className="empty-state-text">Loading...</div></div>
             ) : links.length === 0 ? (
-              <div style={{ padding: 12, color: '#9CA3AF', fontStyle: 'italic', fontSize: 13 }}>
-                {isAdmin ? 'Add some quick links for your team.' : 'No links added yet.'}
+              <div className="empty-state">
+                <div className="empty-state-icon">{'\u{1F517}'}</div>
+                <div className="empty-state-text">{isAdmin ? 'Add quick links for your team.' : 'No links added yet.'}</div>
               </div>
             ) : (
               <div className="quick-links-list">
@@ -397,16 +405,31 @@ export default function Home({ uid, isAdmin, displayName, masterStudents, onNavi
             )}
           </div>
 
-          {/* Quick Navigation */}
+          {/* At a Glance */}
           <div className="home-card">
-            <div className="home-card-header"><h3>Quick Navigation</h3></div>
-            <div className="quick-nav-list">
-              <button className="quick-nav-btn" onClick={() => onNavigate('daily')}>Daily Scoring</button>
-              <button className="quick-nav-btn" onClick={() => onNavigate('narrative')}>Narrative Builder</button>
-              <button className="quick-nav-btn" onClick={() => onNavigate('house')}>House Points</button>
-              {isAdmin && <button className="quick-nav-btn" onClick={() => onNavigate('dashboard')}>Admin Dashboard</button>}
-              {isAdmin && <button className="quick-nav-btn" onClick={() => onNavigate('roster')}>Master Roster</button>}
-            </div>
+            <div className="home-card-header"><h3>At a Glance</h3></div>
+            {!loading && classes.length > 0 ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 10px', background: 'var(--gray-50)', borderRadius: 'var(--radius-sm)' }}>
+                  <span style={{ fontSize: 13, color: 'var(--gray-600)' }}>Classes</span>
+                  <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, color: 'var(--navy)', fontSize: 18 }}>{scoringStatus.totalClasses}</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 10px', background: 'var(--gray-50)', borderRadius: 'var(--radius-sm)' }}>
+                  <span style={{ fontSize: 13, color: 'var(--gray-600)' }}>Scored Today</span>
+                  <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, color: scoringStatus.scoredToday >= scoringStatus.totalClasses ? 'var(--green)' : 'var(--gold)', fontSize: 18 }}>{scoringStatus.scoredToday}/{scoringStatus.totalClasses}</span>
+                </div>
+                {scoringStatus.belowThree > 0 && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 10px', background: 'var(--red-bg)', borderRadius: 'var(--radius-sm)', cursor: 'pointer' }} onClick={() => onNavigate('dashboard')}>
+                    <span style={{ fontSize: 13, color: 'var(--red)' }}>Below 3.0</span>
+                    <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, color: 'var(--red)', fontSize: 18 }}>{scoringStatus.belowThree}</span>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="empty-state">
+                <div className="empty-state-text">Set up classes to see stats</div>
+              </div>
+            )}
           </div>
         </div>
       </div>

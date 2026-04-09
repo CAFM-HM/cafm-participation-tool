@@ -50,6 +50,7 @@ export default function CommandCenter() {
       await saveData(local);
       setDirty(false);
       setSaveStatus('saved');
+      window.dispatchEvent(new CustomEvent('toast', { detail: 'Board data saved' }));
       setTimeout(() => setSaveStatus(null), 3000);
     } catch (err) {
       console.error('Board save failed:', err);
