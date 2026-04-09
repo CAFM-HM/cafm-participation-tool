@@ -24,7 +24,8 @@ function parseStudentScores(allScores, studentName) {
       result[dateStr] = {};
       for (const [shortKey, value] of Object.entries(studentData)) {
         if (VIRTUE_LONG[shortKey]) {
-          result[dateStr][VIRTUE_LONG[shortKey]] = value;
+          const num = Number(value);
+          result[dateStr][VIRTUE_LONG[shortKey]] = (!isNaN(num) && value !== null && value !== '') ? num : null;
         } else if (shortKey === 'E') {
           result[dateStr].absent = value;
         }

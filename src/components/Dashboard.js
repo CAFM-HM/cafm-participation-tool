@@ -27,7 +27,8 @@ export default function Dashboard({ masterStudents }) {
           const allDayScores = [];
           for (const [dateStr, dayScores] of Object.entries(stu.scores || {})) {
             if (dayScores.absent) continue;
-            const dayAvg = VIRTUES.reduce((sum, v) => sum + (dayScores[v.key] || 0), 0) / VIRTUES.length;
+            const dayVals = VIRTUES.map(v => Number(dayScores[v.key])).filter(x => !isNaN(x) && x > 0);
+            const dayAvg = dayVals.length > 0 ? dayVals.reduce((a, b) => a + b, 0) / dayVals.length : 0;
             if (dayAvg > 0) { allDayScores.push(dayAvg); teacherDates.add(dateStr); if (!lastActive || dateStr > lastActive) lastActive = dateStr; }
           }
           const overallAvg = allDayScores.length > 0 ? allDayScores.reduce((a, b) => a + b, 0) / allDayScores.length : null;
@@ -36,7 +37,7 @@ export default function Dashboard({ masterStudents }) {
           const virtueAvgs = {};
           VIRTUES.forEach(v => {
             const vals = [];
-            for (const ds of Object.values(stu.scores || {})) { if (ds[v.key]) vals.push(ds[v.key]); }
+            for (const ds of Object.values(stu.scores || {})) { const n = Number(ds[v.key]); if (!isNaN(n) && n > 0) vals.push(n); }
             virtueAvgs[v.key] = vals.length > 0 ? (vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(1) : '—';
           });
           const masterStudent = (masterStudents || []).find(ms => ms.name.toLowerCase() === stu.name.toLowerCase());

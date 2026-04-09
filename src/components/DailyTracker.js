@@ -238,10 +238,10 @@ export default function DailyTracker({ uid, masterStudents, adminViewMode, admin
           dates.forEach(d => {
             const dayScores = student.scores?.[d];
             if (!dayScores || dayScores.absent) return;
-            const dayVals = VIRTUES.map(v => dayScores[v.key]).filter(x => x !== null && x !== undefined);
+            const dayVals = VIRTUES.map(v => dayScores[v.key]).filter(x => x !== null && x !== undefined && !isNaN(x));
             if (dayVals.length > 0) {
               periodScores.push(dayVals.reduce((a, b) => a + b, 0) / dayVals.length);
-              VIRTUES.forEach(v => { if (dayScores[v.key] !== null && dayScores[v.key] !== undefined) virtueScores[v.key].push(dayScores[v.key]); });
+              VIRTUES.forEach(v => { const val = dayScores[v.key]; if (val !== null && val !== undefined && !isNaN(val)) virtueScores[v.key].push(val); });
             }
           });
 
