@@ -352,7 +352,19 @@ export function useHousePoints() {
     await load();
   }, [load]);
 
-  return { entries, loading, addEntry, bulkAddEntries, refresh: load };
+  const deleteEntry = useCallback(async (id) => {
+    await deleteDoc(doc(db, 'housePointEntries', id));
+    await load();
+  }, [load]);
+
+  const resetAll = useCallback(async () => {
+    for (const entry of entries) {
+      await deleteDoc(doc(db, 'housePointEntries', entry.id));
+    }
+    await load();
+  }, [entries, load]);
+
+  return { entries, loading, addEntry, bulkAddEntries, deleteEntry, resetAll, refresh: load };
 }
 
 // ============================================================
