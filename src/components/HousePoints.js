@@ -103,13 +103,13 @@ export default function HousePoints({ uid, isAdmin, masterStudents }) {
       const header = parseCSVLine(lines[0]).map(h => h.toLowerCase().trim());
       const nameIdx = header.findIndex(h => h.includes('student') || h.includes('name'));
       const houseIdx = header.findIndex(h => h.includes('house'));
-      const pointsIdx = header.findIndex(h => h.includes('point') || h.includes('value'));
+      const pointsIdx = header.findIndex(h => h.includes('point') || h.includes('value') || h.includes('amount') || h.includes('score') || h === 'pts' || h === 'number');
       const catIdx = header.findIndex(h => h.includes('category') || h.includes('type'));
       const reasonIdx = header.findIndex(h => h.includes('reason') || h.includes('desc') || h.includes('note'));
       const typeIdx = header.findIndex(h => h === 'type' || h === 'merit/demerit');
       const dateIdx = header.findIndex(h => h.includes('date'));
-      if (nameIdx === -1 && houseIdx === -1) { alert('CSV needs at least a column containing "student", "name", or "house".'); return; }
-      if (pointsIdx === -1) { alert('CSV needs a column containing "point" or "value".'); return; }
+      if (nameIdx === -1 && houseIdx === -1) { alert('CSV needs at least a column containing "student", "name", or "house".\n\nYour columns: ' + header.join(', ')); return; }
+      if (pointsIdx === -1) { alert('CSV needs a column containing "point", "value", "amount", or "score".\n\nYour columns: ' + header.join(', ')); return; }
 
       const rows = [];
       for (let i = 1; i < lines.length; i++) {
