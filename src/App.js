@@ -44,7 +44,7 @@ function App() {
         <div className="login-card">
           <img src={`${process.env.PUBLIC_URL}/logo.png`} alt="CAFM" className="login-logo" />
           <h1>Chesterton Academy</h1>
-          <p className="subtitle">Formation Management Portal</p>
+          <p className="subtitle">Institutional Success Engine</p>
           <button className="login-btn" onClick={login}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
               <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 01-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4"/>
@@ -59,16 +59,21 @@ function App() {
     );
   }
 
-  const tabs = [
-    { id: 'home', label: 'Home', icon: '\u{1F3E0}' },
+  // Tab sections — Formation Management is the participation/virtue tracking suite
+  const formationTabs = [
     { id: 'daily', label: 'Daily Tracker', icon: '\u{1F4DD}' },
     { id: 'narrative', label: 'Narratives', icon: '\u{1F4D6}' },
     { id: 'house', label: 'House Points', icon: '\u{1F3C6}' },
+    ...(isAdmin ? [{ id: 'service', label: 'Service Hours', icon: '\u{1F91D}' }] : []),
+  ];
+
+  const tabs = [
+    { id: 'home', label: 'Home', icon: '\u{1F3E0}' },
+    { section: 'Formation Management', tabs: formationTabs },
     { id: 'schedule', label: isAdmin ? 'Schedule Builder' : 'Schedule', icon: '\u{1F4C5}' },
     ...(isBoardMember ? [{ id: 'command', label: 'Board', icon: '\u{1F465}' }] : []),
     ...(isAdmin ? [
       { id: 'dashboard', label: 'Dashboard', icon: '\u{1F4CA}' },
-      { id: 'service', label: 'Service Hours', icon: '\u{1F91D}' },
       { id: 'roster', label: 'Roster', icon: '\u{1F4CB}' },
     ] : []),
   ];
@@ -81,7 +86,7 @@ function App() {
             <img src={`${process.env.PUBLIC_URL}/logo.png`} alt="CAFM" className="header-logo" />
             <div>
               <div className="school-name">Chesterton Academy of the Florida Martyrs</div>
-              <div className="app-title">Formation Management Portal</div>
+              <div className="app-title">Institutional Success Engine</div>
             </div>
           </div>
           <div className="header-user">
@@ -98,16 +103,31 @@ function App() {
       </header>
 
       <nav className="tab-nav">
-        {tabs.map(tab => (
-          <button
-            key={tab.id}
-            className={`tab-btn ${activeTab === tab.id ? 'active' : ''}`}
-            onClick={() => setActiveTab(tab.id)}
-          >
-            <span className="tab-icon">{tab.icon}</span>
-            {tab.label}
-          </button>
-        ))}
+        {tabs.map((item, i) => {
+          if (item.section) {
+            // Section group with label
+            const sectionActive = item.tabs.some(t => t.id === activeTab);
+            return (
+              <div key={item.section} className="tab-section" style={{ display: 'flex', alignItems: 'center', gap: 0, position: 'relative' }}>
+                <span className="tab-section-label" style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: sectionActive ? '#C9A227' : '#9CA3AF', position: 'absolute', top: 2, left: '50%', transform: 'translateX(-50%)', whiteSpace: 'nowrap', pointerEvents: 'none' }}>{item.section}</span>
+                {item.tabs.map(tab => (
+                  <button key={tab.id} className={`tab-btn ${activeTab === tab.id ? 'active' : ''}`}
+                    onClick={() => setActiveTab(tab.id)}>
+                    <span className="tab-icon">{tab.icon}</span>
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+            );
+          }
+          return (
+            <button key={item.id} className={`tab-btn ${activeTab === item.id ? 'active' : ''}`}
+              onClick={() => setActiveTab(item.id)}>
+              <span className="tab-icon">{item.icon}</span>
+              {item.label}
+            </button>
+          );
+        })}
       </nav>
 
       <main className="main-content">
@@ -127,7 +147,7 @@ function App() {
           {activeTab === 'schedule' && <ScheduleBuilder isAdmin={isAdmin} />}
           {activeTab === 'command' && isBoardMember && <CommandCenter />}
           {activeTab === 'dashboard' && isAdmin && <Dashboard masterStudents={masterStudents} />}
-          {activeTab === 'service' && isAdmin && <ServiceHours entries={serviceEntries} onAdd={addServiceEntry} onUpdate={updateServiceEntry} onDelete={deleteServiceEntry} masterStudents={masterStudents} />}
+          {activeTab === 'service' && <ServiceHours entries={serviceEntries} onAdd={addServiceEntry} onUpdate={updateServiceEntry} onDelete={deleteServiceEntry} masterStudents={masterStudents} />}
           {activeTab === 'roster' && isAdmin && (
             <MasterRoster
               students={masterStudents}

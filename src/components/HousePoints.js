@@ -44,13 +44,29 @@ export default function HousePoints({ uid, isAdmin, masterStudents }) {
   const [freezing, setFreezing] = useState(false);
   const [csvPreview, setCsvPreview] = useState([]);
   const [csvImporting, setCsvImporting] = useState(false);
+  const [houseLeadership, setHouseLeadership] = useState({});
+  const [editingLeadership, setEditingLeadership] = useState(false);
 
-  // Check freeze status on load
+  // Check freeze status and load house leadership on load
   useEffect(() => {
     getDoc(doc(db, 'config', 'housePoints')).then(snap => {
-      if (snap.exists() && snap.data().frozen) setIsFrozen(true);
+      if (snap.exists()) {
+        if (snap.data().frozen) setIsFrozen(true);
+        if (snap.data().leadership) setHouseLeadership(snap.data().leadership);
+      }
     }).catch(() => {});
   }, []);
+
+  const saveLeadership = async (updated) => {
+    setHouseLeadership(updated);
+    try {
+      const snap = await getDoc(doc(db, 'config', 'housePoints'));
+      const existing = snap.exists() ? snap.data() : {};
+      await setDoc(doc(db, 'config', 'housePoints'), { ...existing, leadership: updated });
+      window.dispatchEvent(new CustomEvent('toast', { detail: 'House leadership saved' }));
+    } catch (err) { console.error('Save leadership failed:', err); }
+    setEditingLeadership(false);
+  };
 
   // Toggle freeze
   const toggleFreeze = useCallback(async () => {
@@ -442,17 +458,26 @@ export default function HousePoints({ uid, isAdmin, masterStudents }) {
       )}
 
       {/* Leaderboard */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+        <div style={{ fontSize: 11, fontWeight: 600, color: '#6B7280', textTransform: 'uppercase', letterSpacing: '0.5px' }}>House Standings</div>
+        {isAdmin && (
+          <button className="btn btn-sm btn-secondary" style={{ fontSize: 10 }} onClick={() => setEditingLeadership(!editingLeadership)}>
+            {editingLeadership ? 'Cancel' : 'Edit Captains & Prefects'}
+          </button>
+        )}
+      </div>
       <div style={{ display: 'grid', gap: 12, marginBottom: 24 }}>
         {sorted.map((house, idx) => {
           const pts = totals[house] || 0;
           const pct = maxPoints > 0 ? (Math.abs(pts) / maxPoints) * 100 : 0;
           const colors = HOUSE_COLORS[house];
+          const leaders = houseLeadership[house] || {};
           return (
             <div key={house} style={{
               background: colors.light, borderRadius: 10, padding: 16,
-              position: 'relative', overflow: 'hidden', cursor: 'pointer',
+              position: 'relative', overflow: 'hidden', cursor: editingLeadership ? 'default' : 'pointer',
               border: filterHouse === house ? `2px solid ${colors.bg}` : '2px solid transparent',
-            }} onClick={() => setFilterHouse(filterHouse === house ? 'all' : house)}>
+            }} onClick={() => !editingLeadership && setFilterHouse(filterHouse === house ? 'all' : house)}>
               <div style={{
                 position: 'absolute', left: 0, top: 0, bottom: 0,
                 width: `${Math.max(pct, 2)}%`, background: colors.bg, opacity: 0.12,
@@ -466,17 +491,59 @@ export default function HousePoints({ uid, isAdmin, masterStudents }) {
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                     fontWeight: 700, fontSize: 14, fontFamily: 'var(--font-display)',
                   }}>{idx + 1}</span>
-                  <span style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 700, color: colors.bg }}>
-                    {house}
-                  </span>
+                  <div>
+                    <span style={{ fontFamily: 'var(--font-display)', fontSize: 16, fontWeight: 700, color: colors.bg }}>
+                      {house}
+                    </span>
+                    {!editingLeadership && (leaders.captain || leaders.prefect) && (
+                      <div style={{ fontSize: 11, color: colors.bg, opacity: 0.8, marginTop: 2 }}>
+                        {leaders.captain && <span>Captain: <strong>{leaders.captain}</strong></span>}
+                        {leaders.captain && leaders.prefect && <span> · </span>}
+                        {leaders.prefect && <span>Prefect: <strong>{leaders.prefect}</strong></span>}
+                      </div>
+                    )}
+                  </div>
                 </div>
                 <span style={{ fontFamily: 'var(--font-display)', fontSize: 24, fontWeight: 700, color: colors.bg }}>
                   {pts}
                 </span>
               </div>
+              {editingLeadership && (
+                <div style={{ position: 'relative', marginTop: 10, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  <div style={{ flex: 1, minWidth: 150 }}>
+                    <label style={{ fontSize: 10, color: colors.bg, fontWeight: 600, display: 'block', marginBottom: 2 }}>House Captain</label>
+                    <select value={leaders.captain || ''} onChange={e => {
+                      const updated = { ...houseLeadership, [house]: { ...leaders, captain: e.target.value } };
+                      setHouseLeadership(updated);
+                    }} style={{ width: '100%', fontSize: 12, padding: '4px 6px', borderRadius: 4, border: `1px solid ${colors.bg}40` }}>
+                      <option value="">— Select —</option>
+                      {(masterStudents || []).filter(s => !s.house || s.house === house).sort((a, b) => a.name.localeCompare(b.name)).map(s => (
+                        <option key={s.name} value={s.name}>{s.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div style={{ flex: 1, minWidth: 150 }}>
+                    <label style={{ fontSize: 10, color: colors.bg, fontWeight: 600, display: 'block', marginBottom: 2 }}>House Prefect</label>
+                    <select value={leaders.prefect || ''} onChange={e => {
+                      const updated = { ...houseLeadership, [house]: { ...leaders, prefect: e.target.value } };
+                      setHouseLeadership(updated);
+                    }} style={{ width: '100%', fontSize: 12, padding: '4px 6px', borderRadius: 4, border: `1px solid ${colors.bg}40` }}>
+                      <option value="">— Select —</option>
+                      {(masterStudents || []).filter(s => !s.house || s.house === house).sort((a, b) => a.name.localeCompare(b.name)).map(s => (
+                        <option key={s.name} value={s.name}>{s.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              )}
             </div>
           );
         })}
+        {editingLeadership && (
+          <button className="btn btn-sm btn-gold" onClick={() => saveLeadership(houseLeadership)} style={{ justifySelf: 'end' }}>
+            Save Leadership
+          </button>
+        )}
       </div>
 
       {/* Top Students */}
