@@ -99,7 +99,7 @@ export default function CommandCenter() {
       {tab === 'timeline' && <BoardTimeline data={local} update={update} />}
       {tab === 'directory' && <BoardDirectory data={local} update={update} />}
       {tab === 'documents' && <BoardDocuments data={local} update={update} />}
-      {tab === 'minutes' && <BoardMinutes meetings={local.boardMeetings || []} onSave={(meetings) => { update(c => { c.boardMeetings = meetings; }); }} directors={local.directors || []} />}
+      {tab === 'minutes' && <BoardMinutes meetings={local.boardMeetings || []} onSave={(meetings) => { update(c => { c.boardMeetings = meetings; }); }} directors={local.directors || []} meetingDetails={local.meetingDetails || {}} />}
       {tab === 'grants' && <GrantsTracker grants={local.grants || []} onSave={(grants) => { update(c => { c.grants = grants; }); }} />}
       {tab === 'budget' && <BudgetTool />}
       {tab === 'financial' && <FinancialPlanning />}
