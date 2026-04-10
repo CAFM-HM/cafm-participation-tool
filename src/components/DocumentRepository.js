@@ -99,11 +99,17 @@ export default function DocumentRepository({ masterStudents, uid }) {
       createdAt: new Date().toISOString(),
       createdBy: uid,
     };
-    await addDoc(collection(db, 'documentRepository'), record);
-    setNewName(''); setNewDob(''); setNewGrade(''); setNewHouse(''); setNewRole('');
-    setShowAddForm(false);
-    await load();
-    window.dispatchEvent(new CustomEvent('toast', { detail: `${newName.trim()} added to ${section}` }));
+    try {
+      await addDoc(collection(db, 'documentRepository'), record);
+      const savedName = newName.trim();
+      setNewName(''); setNewDob(''); setNewGrade(''); setNewHouse(''); setNewRole('');
+      setShowAddForm(false);
+      await load();
+      window.dispatchEvent(new CustomEvent('toast', { detail: `${savedName} added to ${section}` }));
+    } catch (err) {
+      console.error('Add record failed:', err);
+      alert('Failed to add record: ' + err.message + '\n\nCheck your Firestore rules — they need to allow authenticated writes.');
+    }
   };
 
   const deleteRecord = async (id) => {
