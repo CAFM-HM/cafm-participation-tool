@@ -44,6 +44,7 @@ export default function HousePoints({ uid, isAdmin, masterStudents }) {
   const [freezing, setFreezing] = useState(false);
   const [csvPreview, setCsvPreview] = useState([]);
   const [csvImporting, setCsvImporting] = useState(false);
+  const [importProgress, setImportProgress] = useState('');
   const [houseLeadership, setHouseLeadership] = useState({});
   const [editingLeadership, setEditingLeadership] = useState(false);
 
@@ -178,7 +179,9 @@ export default function HousePoints({ uid, isAdmin, masterStudents }) {
           createdAt,
         };
       });
-      await bulkAddEntries(allEntries);
+      await bulkAddEntries(allEntries, (done, total, msg) => {
+        setImportProgress(msg || `Writing ${done} / ${total}...`);
+      });
       setCsvPreview([]);
       window.dispatchEvent(new CustomEvent('toast', { detail: `Imported ${allEntries.length} house point entries` }));
     } catch (err) {
@@ -362,7 +365,7 @@ export default function HousePoints({ uid, isAdmin, masterStudents }) {
               <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16 }}>
                 <button className="btn btn-secondary" onClick={() => setCsvPreview([])}>Cancel</button>
                 <button className="btn btn-primary" disabled={csvImporting} onClick={handleCsvImport}>
-                  {csvImporting ? `Importing...` : `Import ${csvPreview.length} Entries`}
+                  {csvImporting ? (importProgress || 'Starting import...') : `Import ${csvPreview.length} Entries`}
                 </button>
               </div>
             </div>

@@ -337,18 +337,18 @@ export function useHousePoints() {
     await load();
   }, [load]);
 
-  const bulkAddEntries = useCallback(async (entriesArr) => {
-    const batch = [];
-    for (const entry of entriesArr) {
-      batch.push(addDoc(collection(db, 'housePointEntries'), {
-        ...entry, points: Number(entry.points), createdAt: entry.createdAt || new Date().toISOString(),
-      }));
-      if (batch.length >= 20) {
-        await Promise.all(batch);
-        batch.length = 0;
-      }
+  const bulkAddEntries = useCallback(async (entriesArr, onProgress) => {
+    for (let i = 0; i < entriesArr.length; i += 50) {
+      const chunk = entriesArr.slice(i, i + 50);
+      const promises = chunk.map(entry =>
+        addDoc(collection(db, 'housePointEntries'), {
+          ...entry, points: Number(entry.points), createdAt: entry.createdAt || new Date().toISOString(),
+        })
+      );
+      await Promise.all(promises);
+      if (onProgress) onProgress(Math.min(i + 50, entriesArr.length), entriesArr.length);
     }
-    if (batch.length > 0) await Promise.all(batch);
+    if (onProgress) onProgress(entriesArr.length, entriesArr.length, 'Loading entries...');
     await load();
   }, [load]);
 
