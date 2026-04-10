@@ -19,6 +19,7 @@ function App() {
   const { entries: serviceEntries, loading: serviceLoading, addEntry: addServiceEntry, updateEntry: updateServiceEntry, deleteEntry: deleteServiceEntry } = useServiceHours();
   const [activeTab, setActiveTab] = useState('home');
   const [toast, setToast] = useState(null);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   useEffect(() => {
     const handler = (e) => {
@@ -84,62 +85,77 @@ function App() {
     { section: 'Operations', tabs: operationsTabs },
   ];
 
+  const navItems = tabs.flatMap(item => item.section ? [{ sectionLabel: item.section }, ...item.tabs] : [item]);
+
+  const handleNavClick = (id) => {
+    setActiveTab(id);
+    setSidebarOpen(false);
+  };
+
   return (
-    <div>
-      <header className="app-header">
-        <div className="header-inner">
-          <div className="header-brand" onClick={() => setActiveTab('home')} style={{ cursor: 'pointer' }}>
-            <img src={`${process.env.PUBLIC_URL}/logo.png`} alt="CAFM" className="header-logo" />
-            <div>
-              <div className="school-name">Chesterton Academy of the Florida Martyrs</div>
-              <div className="app-title">Institutional Success Engine</div>
-            </div>
-          </div>
-          <div className="header-user">
-            <span>{displayName}</span>
-            {isAdmin && <span className="badge badge-green">Admin</span>}
-            {(isAdmin || isBoardMember) && (
-              <button className="header-spend-btn" onClick={() => { setActiveTab('command'); window.dispatchEvent(new CustomEvent('navigate-budget-spending')); }}>
-                $ Log Spend
-              </button>
-            )}
-            <button onClick={logout}>Sign Out</button>
+    <div className="app-layout">
+      {/* Sidebar */}
+      <aside className={`sidebar ${sidebarOpen ? 'sidebar-open' : ''}`}>
+        <div className="sidebar-header" onClick={() => handleNavClick('home')} style={{ cursor: 'pointer' }}>
+          <img src={`${process.env.PUBLIC_URL}/logo.png`} alt="CAFM" className="sidebar-logo" />
+          <div className="sidebar-brand">
+            <div className="sidebar-school">CAFM</div>
+            <div className="sidebar-app-title">Institutional Success Engine</div>
           </div>
         </div>
-      </header>
 
-      <nav className="tab-nav">
-        {tabs.map((item, i) => {
-          if (item.section) {
-            // Section group with label
-            const sectionActive = item.tabs.some(t => t.id === activeTab);
+        <nav className="sidebar-nav">
+          {navItems.map((item, i) => {
+            if (item.sectionLabel) {
+              return <div key={item.sectionLabel} className="sidebar-section-label">{item.sectionLabel}</div>;
+            }
             return (
-              <div key={item.section} className="tab-section" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                <span className="tab-section-label" style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px', color: sectionActive ? '#C9A227' : '#9CA3AF', whiteSpace: 'nowrap', pointerEvents: 'none', marginBottom: -2 }}>{item.section}</span>
-                <div style={{ display: 'flex', gap: 0 }}>
-                  {item.tabs.map(tab => (
-                    <button key={tab.id} className={`tab-btn ${activeTab === tab.id ? 'active' : ''}`}
-                      onClick={() => setActiveTab(tab.id)}>
-                      <span className="tab-icon">{tab.icon}</span>
-                      {tab.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
+              <button key={item.id}
+                className={`sidebar-btn ${activeTab === item.id ? 'sidebar-btn-active' : ''}`}
+                onClick={() => handleNavClick(item.id)}>
+                <span className="sidebar-icon">{item.icon}</span>
+                <span className="sidebar-label">{item.label}</span>
+              </button>
             );
-          }
-          return (
-            <button key={item.id} className={`tab-btn ${activeTab === item.id ? 'active' : ''}`}
-              onClick={() => setActiveTab(item.id)}>
-              <span className="tab-icon">{item.icon}</span>
-              {item.label}
-            </button>
-          );
-        })}
-      </nav>
+          })}
+        </nav>
 
-      <main className="main-content">
-        <div className="tab-panel">
+        <div className="sidebar-footer">
+          <div className="sidebar-user-info">
+            <span className="sidebar-user-name">{displayName}</span>
+            {isAdmin && <span className="badge badge-green" style={{ fontSize: 9, padding: '1px 6px' }}>Admin</span>}
+          </div>
+          {(isAdmin || isBoardMember) && (
+            <button className="sidebar-btn sidebar-spend-btn" onClick={() => { handleNavClick('command'); window.dispatchEvent(new CustomEvent('navigate-budget-spending')); }}>
+              <span className="sidebar-icon">$</span>
+              <span className="sidebar-label">Log Spend</span>
+            </button>
+          )}
+          <button className="sidebar-btn sidebar-signout-btn" onClick={logout}>
+            <span className="sidebar-icon">{'\u{1F6AA}'}</span>
+            <span className="sidebar-label">Sign Out</span>
+          </button>
+        </div>
+      </aside>
+
+      {/* Overlay for mobile */}
+      {sidebarOpen && <div className="sidebar-overlay" onClick={() => setSidebarOpen(false)} />}
+
+      {/* Main area */}
+      <div className="main-area">
+        <header className="topbar">
+          <button className="sidebar-toggle" onClick={() => setSidebarOpen(!sidebarOpen)}>
+            <span></span><span></span><span></span>
+          </button>
+          <div className="topbar-title">{navItems.find(n => n.id === activeTab)?.label || 'Home'}</div>
+          <div className="topbar-right">
+            <span className="topbar-user">{displayName}</span>
+            {isAdmin && <span className="badge badge-green" style={{ fontSize: 10 }}>Admin</span>}
+          </div>
+        </header>
+
+        <main className="main-content">
+          <div className="tab-panel">
           {activeTab === 'home' && (
             <Home
               uid={user.uid}
@@ -169,15 +185,16 @@ function App() {
           {activeTab === 'documents' && isAdmin && (
             <DocumentRepository masterStudents={masterStudents} uid={user.uid} />
           )}
-        </div>
-      </main>
+          </div>
+        </main>
 
-      {toast && (
-        <div className="toast">
-          <span className="toast-check">&#10003;</span>
-          {toast}
-        </div>
-      )}
+        {toast && (
+          <div className="toast">
+            <span className="toast-check">&#10003;</span>
+            {toast}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
