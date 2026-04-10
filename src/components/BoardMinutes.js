@@ -26,6 +26,7 @@ export default function BoardMinutes({ meetings, onSave, onDelete, directors }) 
   const [newDate, setNewDate] = useState('');
   const [newTitle, setNewTitle] = useState('');
   const [filterStatus, setFilterStatus] = useState('all');
+  const [newAttendee, setNewAttendee] = useState('');
 
   const sorted = useMemo(() => {
     let list = [...(meetings || [])];
@@ -266,7 +267,6 @@ export default function BoardMinutes({ meetings, onSave, onDelete, directors }) 
     const toggleAction = (aId) => { updateDraft(d => { const a = (d.actionItems || []).find(ai => ai.id === aId); if (a) a.complete = !a.complete; }); };
 
     // Attendee management
-    const [newAttendee, setNewAttendee] = useState('');
     const addAttendee = () => { if (!newAttendee.trim()) return; updateDraft(d => { if (!d.attendees) d.attendees = []; if (!d.attendees.includes(newAttendee.trim())) d.attendees.push(newAttendee.trim()); }); setNewAttendee(''); };
     const removeAttendee = (name) => { updateDraft(d => { d.attendees = (d.attendees || []).filter(a => a !== name); }); };
 
