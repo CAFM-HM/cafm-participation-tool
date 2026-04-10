@@ -192,6 +192,55 @@ export default function DocumentRepository({ masterStudents, uid }) {
     setUploading(null);
   };
 
+  // Link a document from Google Drive (or any URL)
+  const linkDocument = async (recordId, docKey) => {
+    const url = window.prompt('Paste the Google Drive share link (or any URL) for this document:');
+    if (!url || !url.trim()) return;
+    try {
+      const rec = records.find(r => r.id === recordId);
+      const documents = { ...(rec.documents || {}) };
+      documents[docKey] = {
+        fileName: 'Google Drive Link',
+        url: url.trim(),
+        isLink: true,
+        uploadedAt: new Date().toISOString(),
+        uploadedBy: uid,
+      };
+      await updateDoc(doc(db, 'documentRepository', recordId), { documents });
+      await load();
+      window.dispatchEvent(new CustomEvent('toast', { detail: 'Document linked' }));
+    } catch (err) {
+      console.error('Link error:', err);
+      alert('Failed to link document: ' + err.message);
+    }
+  };
+
+  // Link additional document
+  const linkAdditional = async (recordId, label) => {
+    const url = window.prompt('Paste the Google Drive share link (or any URL):');
+    if (!url || !url.trim()) return;
+    const docLabel = label || window.prompt('Label for this document:') || 'Linked Document';
+    try {
+      const rec = records.find(r => r.id === recordId);
+      const additionalDocs = [...(rec.additionalDocs || [])];
+      additionalDocs.push({
+        id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+        label: docLabel,
+        fileName: 'Google Drive Link',
+        url: url.trim(),
+        isLink: true,
+        uploadedAt: new Date().toISOString(),
+        uploadedBy: uid,
+      });
+      await updateDoc(doc(db, 'documentRepository', recordId), { additionalDocs });
+      await load();
+      window.dispatchEvent(new CustomEvent('toast', { detail: 'Document linked' }));
+    } catch (err) {
+      console.error('Link error:', err);
+      alert('Failed to link document: ' + err.message);
+    }
+  };
+
   // Delete a specific document
   const deleteDocument = async (recordId, docKey) => {
     if (!window.confirm('Remove this document?')) return;
@@ -315,10 +364,13 @@ export default function DocumentRepository({ masterStudents, uid }) {
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                     <span style={{ fontSize: 18, width: 24, textAlign: 'center' }}>{uploaded ? '\u2705' : '\u{1F7E0}'}</span>
                     <div>
-                      <div style={{ fontWeight: 600, fontSize: 13, color: '#1B3A5C' }}>{d.label}</div>
+                      <div style={{ fontWeight: 600, fontSize: 13, color: '#1B3A5C' }}>
+                        {d.label}
+                        {uploaded?.isLink && <span style={{ fontSize: 10, color: '#6B7280', marginLeft: 6, fontWeight: 400 }}>(Drive link)</span>}
+                      </div>
                       {uploaded && (
                         <div style={{ fontSize: 11, color: '#6B7280' }}>
-                          {uploaded.fileName} &middot; {new Date(uploaded.uploadedAt).toLocaleDateString()}
+                          {uploaded.isLink ? 'Linked' : uploaded.fileName} &middot; {new Date(uploaded.uploadedAt).toLocaleDateString()}
                         </div>
                       )}
                     </div>
@@ -330,6 +382,10 @@ export default function DocumentRepository({ masterStudents, uid }) {
                         <button className="remove-btn" style={{ fontSize: 10 }} onClick={() => deleteDocument(active.id, d.key)}>x</button>
                       </>
                     )}
+                    <button className="btn btn-sm btn-secondary" style={{ fontSize: 11 }}
+                      onClick={() => linkDocument(active.id, d.key)}>
+                      {'\u{1F517}'} Link
+                    </button>
                     <label className="btn btn-sm btn-primary" style={{ cursor: 'pointer', margin: 0, fontSize: 11, opacity: uploading === d.key ? 0.5 : 1 }}>
                       {uploading === d.key ? 'Uploading...' : (uploaded ? 'Replace' : 'Upload')}
                       <input type="file" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.gif" style={{ display: 'none' }}
@@ -348,6 +404,7 @@ export default function DocumentRepository({ masterStudents, uid }) {
           record={active}
           uploading={uploading}
           onUpload={(file, label) => uploadAdditional(active.id, file, label)}
+          onLink={(label) => linkAdditional(active.id, label)}
           onDelete={(docId) => deleteAdditionalDoc(active.id, docId)}
         />
       </div>
@@ -519,7 +576,7 @@ export default function DocumentRepository({ masterStudents, uid }) {
 }
 
 // Additional Documents sub-component
-function AdditionalDocs({ record, uploading, onUpload, onDelete }) {
+function AdditionalDocs({ record, uploading, onUpload, onLink, onDelete }) {
   const [addLabel, setAddLabel] = useState('');
   const [addFile, setAddFile] = useState(null);
 
@@ -543,8 +600,11 @@ function AdditionalDocs({ record, uploading, onUpload, onDelete }) {
           {(record.additionalDocs || []).map(ad => (
             <div key={ad.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', background: '#F9FAFB', border: '1px solid #E5E7EB', borderRadius: 6 }}>
               <div>
-                <div style={{ fontWeight: 500, fontSize: 13, color: '#1B3A5C' }}>{ad.label}</div>
-                <div style={{ fontSize: 11, color: '#6B7280' }}>{ad.fileName} &middot; {new Date(ad.uploadedAt).toLocaleDateString()}</div>
+                <div style={{ fontWeight: 500, fontSize: 13, color: '#1B3A5C' }}>
+                  {ad.label}
+                  {ad.isLink && <span style={{ fontSize: 10, color: '#6B7280', marginLeft: 6, fontWeight: 400 }}>(Drive link)</span>}
+                </div>
+                <div style={{ fontSize: 11, color: '#6B7280' }}>{ad.isLink ? 'Linked' : ad.fileName} &middot; {new Date(ad.uploadedAt).toLocaleDateString()}</div>
               </div>
               <div style={{ display: 'flex', gap: 6 }}>
                 <a href={ad.url} target="_blank" rel="noopener noreferrer" className="btn btn-sm btn-secondary" style={{ fontSize: 11, textDecoration: 'none' }}>View</a>
@@ -570,6 +630,10 @@ function AdditionalDocs({ record, uploading, onUpload, onDelete }) {
         <button className="btn btn-sm btn-primary" onClick={handleUpload}
           disabled={!addFile || uploading === 'additional'} style={{ fontSize: 11 }}>
           {uploading === 'additional' ? 'Uploading...' : 'Upload'}
+        </button>
+        <button className="btn btn-sm btn-secondary" style={{ fontSize: 11 }}
+          onClick={() => onLink(addLabel)}>
+          {'\u{1F517}'} Link from Drive
         </button>
       </div>
     </div>
