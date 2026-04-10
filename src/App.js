@@ -10,6 +10,7 @@ import MasterRoster from './components/MasterRoster';
 import ScheduleBuilder from './components/ScheduleBuilder';
 import CommandCenter from './components/CommandCenter';
 import ServiceHours from './components/ServiceHours';
+import DocumentRepository from './components/DocumentRepository';
 import { useServiceHours } from './hooks/useFirestore';
 
 function App() {
@@ -73,6 +74,7 @@ function App() {
     ...(isAdmin ? [
       { id: 'dashboard', label: 'Dashboard', icon: '\u{1F4CA}' },
       { id: 'roster', label: 'Roster', icon: '\u{1F4CB}' },
+      { id: 'documents', label: 'Documents', icon: '\u{1F4C1}' },
     ] : []),
   ];
 
@@ -163,6 +165,9 @@ function App() {
               onBulkImport={bulkImport}
               onRefresh={refreshRoster}
             />
+          )}
+          {activeTab === 'documents' && isAdmin && (
+            <DocumentRepository masterStudents={masterStudents} uid={user.uid} />
           )}
         </div>
       </main>
