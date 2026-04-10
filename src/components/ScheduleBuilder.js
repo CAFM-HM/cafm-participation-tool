@@ -60,196 +60,367 @@ function getOccupiedIndices(pIdx, duration, periods) {
 }
 
 // ============================================================
-// AUTO-SCHEDULE GENERATOR
+// AUTO-SCHEDULE GENERATOR — Smart solver with backtracking,
+// randomized restarts, and quality scoring
 // ============================================================
 function autoGenerate(config, periods) {
   const classes = config.classes || [];
   const teachers = config.teachers || [];
   const rooms = config.rooms || [];
+  const studentGroups = config.studentGroups || [];
   const classPeriods = periods.filter(p => p.type === 'class');
   if (classes.length === 0 || classPeriods.length === 0) return null;
 
-  // Build list of tasks: each class needs N day-slots
-  const tasks = [];
-  classes.forEach(cls => {
-    const need = cls.daysPerWeek || (cls.days ? cls.days.length : 5);
-    for (let i = 0; i < need; i++) {
-      tasks.push({ classId: cls.id, teacherId: cls.teacherId, groupIds: cls.groupIds || [], duration: cls.duration || 1 });
-    }
-  });
-
-  // Sort tasks by most constrained first (fewer options = schedule first)
-  // Double periods first, then by teacher availability (less available = first)
-  tasks.sort((a, b) => {
-    if (b.duration !== a.duration) return b.duration - a.duration; // doubles first
-    const tA = teachers.find(t => t.id === a.teacherId);
-    const tB = teachers.find(t => t.id === b.teacherId);
-    const unavailA = tA?.unavailable?.length || 0;
-    const unavailB = tB?.unavailable?.length || 0;
-    return unavailB - unavailA; // more constrained teachers first
-  });
-
-  // State tracking
-  const grid = {}; // "day-pIdx" -> [{ classId, roomId }]
-  const teacherSchedule = {}; // teacherId -> { day -> Set<pIdx> }
-  const roomSchedule = {}; // roomId -> { day -> Set<pIdx> }
-  const groupSchedule = {}; // groupId -> { day -> Set<pIdx> }
-  const classDays = {}; // classId -> Set<day>
-
-  teachers.forEach(t => { teacherSchedule[t.id] = {}; DAYS.forEach(d => teacherSchedule[t.id][d] = new Set()); });
-  rooms.forEach(r => { roomSchedule[r.id] = {}; DAYS.forEach(d => roomSchedule[r.id][d] = new Set()); });
-  (config.studentGroups || []).forEach(g => { groupSchedule[g.id] = {}; DAYS.forEach(d => groupSchedule[g.id][d] = new Set()); });
-  classes.forEach(c => { classDays[c.id] = new Set(); });
-
   const getKey = (day, pIdx) => `${day}-${pIdx}`;
+  const NUM_ATTEMPTS = 60;
 
-  // Check if placing a task at (day, pIdx) is valid
-  const canPlace = (task, day, pIdx) => {
-    const dur = task.duration;
+  // Pre-compute teacher lookup for speed
+  const teacherMap = {};
+  teachers.forEach(t => { teacherMap[t.id] = t; });
+
+  // Build task list: each class×day-needed = one task
+  const buildTasks = () => {
+    const tasks = [];
+    classes.forEach(cls => {
+      const need = cls.daysPerWeek || (cls.days ? cls.days.length : 5);
+      for (let i = 0; i < need; i++) {
+        tasks.push({ classId: cls.id, teacherId: cls.teacherId, groupIds: cls.groupIds || [], duration: cls.duration || 1 });
+      }
+    });
+    return tasks;
+  };
+
+  // Create fresh state
+  const freshState = () => {
+    const state = {
+      grid: {},
+      teacherSlots: {}, // teacherId -> { day -> Set<pIdx> }
+      roomSlots: {},     // roomId -> { day -> Set<pIdx> }
+      groupSlots: {},    // groupId -> { day -> Set<pIdx> }
+      classDays: {},     // classId -> Set<day>
+      classPeriodMap: {} // classId -> [pIdx, pIdx, ...] — which period indices it's been placed at
+    };
+    teachers.forEach(t => { state.teacherSlots[t.id] = {}; DAYS.forEach(d => state.teacherSlots[t.id][d] = new Set()); });
+    rooms.forEach(r => { state.roomSlots[r.id] = {}; DAYS.forEach(d => state.roomSlots[r.id][d] = new Set()); });
+    studentGroups.forEach(g => { state.groupSlots[g.id] = {}; DAYS.forEach(d => state.groupSlots[g.id][d] = new Set()); });
+    classes.forEach(c => { state.classDays[c.id] = new Set(); state.classPeriodMap[c.id] = []; });
+    return state;
+  };
+
+  // Get occupied period indices for a placement
+  const getOccupied = (pIdx, dur) => {
     const startOrder = classPeriods.findIndex(p => p.index === pIdx);
-    if (startOrder === -1) return false;
-    // Check enough consecutive class periods for duration
-    if (startOrder + dur > classPeriods.length) return false;
+    if (startOrder === -1 || startOrder + dur > classPeriods.length) return null;
+    const indices = [];
+    for (let i = 0; i < dur; i++) indices.push(classPeriods[startOrder + i].index);
+    return indices;
+  };
 
-    const occupiedIndices = [];
-    for (let i = 0; i < dur; i++) occupiedIndices.push(classPeriods[startOrder + i].index);
+  // Validity check
+  const canPlace = (task, day, pIdx, state) => {
+    const occupied = getOccupied(pIdx, task.duration);
+    if (!occupied) return false;
+    if (state.classDays[task.classId].has(day)) return false;
 
-    // Already scheduled this class on this day?
-    if (classDays[task.classId].has(day)) return false;
-
-    for (const oi of occupiedIndices) {
-      // Teacher conflict
-      if (task.teacherId && teacherSchedule[task.teacherId]?.[day]?.has(oi)) return false;
-
-      // Teacher availability
+    for (const oi of occupied) {
+      if (task.teacherId && state.teacherSlots[task.teacherId]?.[day]?.has(oi)) return false;
       if (task.teacherId) {
-        const t = teachers.find(t => t.id === task.teacherId);
+        const t = teacherMap[task.teacherId];
         if (t && !isTeacherAvailable(t, oi, day, periods)) return false;
       }
-
-      // Student group conflict
       for (const gId of task.groupIds) {
-        if (groupSchedule[gId]?.[day]?.has(oi)) return false;
+        if (state.groupSlots[gId]?.[day]?.has(oi)) return false;
       }
-
-      // Room — we'll find one, so don't check yet
     }
 
-    // Full-time teacher check: would this leave < 2 free periods on this day?
+    // Full-time teacher: keep ≥ 2 free periods per day
     if (task.teacherId) {
-      const t = teachers.find(t => t.id === task.teacherId);
+      const t = teacherMap[task.teacherId];
       if (t?.type === 'ft') {
-        const currentTeaching = teacherSchedule[task.teacherId][day].size;
-        const afterTeaching = currentTeaching + dur;
-        const totalClassPeriods = classPeriods.length;
-        if (totalClassPeriods - afterTeaching < 2) return false;
+        const after = (state.teacherSlots[task.teacherId][day]?.size || 0) + task.duration;
+        if (classPeriods.length - after < 2) return false;
       }
     }
-
     return true;
   };
 
-  // Find best room for a task at (day, pIdx)
-  const findRoom = (task, day, pIdx) => {
-    const dur = task.duration;
-    const startOrder = classPeriods.findIndex(p => p.index === pIdx);
-    const occupiedIndices = [];
-    for (let i = 0; i < dur; i++) occupiedIndices.push(classPeriods[startOrder + i].index);
-
-    // Prefer teacher's default room
-    const teacher = teachers.find(t => t.id === task.teacherId);
-    if (teacher?.defaultRoom) {
-      const ok = occupiedIndices.every(oi => !roomSchedule[teacher.defaultRoom]?.[day]?.has(oi));
-      if (ok) return teacher.defaultRoom;
+  // Find best room
+  const findRoom = (task, day, pIdx, state) => {
+    const occupied = getOccupied(pIdx, task.duration);
+    if (!occupied) return '';
+    const t = teacherMap[task.teacherId];
+    if (t?.defaultRoom) {
+      if (occupied.every(oi => !state.roomSlots[t.defaultRoom]?.[day]?.has(oi))) return t.defaultRoom;
     }
-
-    // Find any available room
     for (const room of rooms) {
-      const ok = occupiedIndices.every(oi => !roomSchedule[room.id]?.[day]?.has(oi));
-      if (ok) return room.id;
+      if (occupied.every(oi => !state.roomSlots[room.id]?.[day]?.has(oi))) return room.id;
     }
-    return ''; // no room available, still place the class
+    return '';
   };
 
-  // Place a task
-  const place = (task, day, pIdx, roomId) => {
-    const dur = task.duration;
-    const startOrder = classPeriods.findIndex(p => p.index === pIdx);
-    const occupiedIndices = [];
-    for (let i = 0; i < dur; i++) occupiedIndices.push(classPeriods[startOrder + i].index);
-
+  // Place a task into state
+  const place = (task, day, pIdx, roomId, state) => {
+    const occupied = getOccupied(pIdx, task.duration);
     const key = getKey(day, pIdx);
-    if (!grid[key]) grid[key] = [];
-    grid[key].push({ classId: task.classId, roomId });
-
-    classDays[task.classId].add(day);
-
-    for (const oi of occupiedIndices) {
-      if (task.teacherId && teacherSchedule[task.teacherId]) teacherSchedule[task.teacherId][day].add(oi);
-      if (roomId && roomSchedule[roomId]) roomSchedule[roomId][day].add(oi);
+    if (!state.grid[key]) state.grid[key] = [];
+    state.grid[key].push({ classId: task.classId, roomId });
+    state.classDays[task.classId].add(day);
+    state.classPeriodMap[task.classId].push(pIdx);
+    for (const oi of occupied) {
+      if (task.teacherId && state.teacherSlots[task.teacherId]) state.teacherSlots[task.teacherId][day].add(oi);
+      if (roomId && state.roomSlots[roomId]) state.roomSlots[roomId][day].add(oi);
       for (const gId of task.groupIds) {
-        if (groupSchedule[gId]) groupSchedule[gId][day].add(oi);
+        if (state.groupSlots[gId]) state.groupSlots[gId][day].add(oi);
       }
     }
   };
 
-  // Try to schedule each task
-  const unplaced = [];
-  for (const task of tasks) {
-    let placed = false;
+  // Unplace a task (for backtracking)
+  const unplace = (task, day, pIdx, roomId, state) => {
+    const occupied = getOccupied(pIdx, task.duration);
+    const key = getKey(day, pIdx);
+    if (state.grid[key]) {
+      state.grid[key] = state.grid[key].filter(a => a.classId !== task.classId);
+      if (state.grid[key].length === 0) delete state.grid[key];
+    }
+    state.classDays[task.classId].delete(day);
+    const pidxArr = state.classPeriodMap[task.classId];
+    const rmIdx = pidxArr.indexOf(pIdx);
+    if (rmIdx !== -1) pidxArr.splice(rmIdx, 1);
+    for (const oi of occupied) {
+      if (task.teacherId && state.teacherSlots[task.teacherId]) state.teacherSlots[task.teacherId][day].delete(oi);
+      if (roomId && state.roomSlots[roomId]) state.roomSlots[roomId][day].delete(oi);
+      for (const gId of task.groupIds) {
+        if (state.groupSlots[gId]) state.groupSlots[gId][day].delete(oi);
+      }
+    }
+  };
 
-    // Try days in order, spread classes across the week
-    // Sort days by how few classes are already on that day for this teacher (balance load)
-    const dayOrder = [...DAYS].sort((a, b) => {
-      const aLoad = task.teacherId ? (teacherSchedule[task.teacherId]?.[a]?.size || 0) : 0;
-      const bLoad = task.teacherId ? (teacherSchedule[task.teacherId]?.[b]?.size || 0) : 0;
-      return aLoad - bLoad;
+  // Count valid options for a task (for MRV heuristic)
+  const countOptions = (task, state) => {
+    let count = 0;
+    for (const day of DAYS) {
+      if (state.classDays[task.classId].has(day)) continue;
+      for (const cp of classPeriods) {
+        if (canPlace(task, day, cp.index, state)) count++;
+      }
+    }
+    return count;
+  };
+
+  // Shuffle array in place (Fisher-Yates)
+  const shuffle = (arr) => {
+    for (let i = arr.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+    return arr;
+  };
+
+  // ── SCORE a completed schedule ──
+  // Higher = better
+  const scoreSchedule = (state, placedCount, totalTasks) => {
+    let score = 0;
+
+    // Massive bonus for placing all classes (1000 pts per placed task)
+    score += placedCount * 1000;
+
+    // Consistency: reward classes that land on the same period across days (0–200 pts per class)
+    classes.forEach(cls => {
+      const pIndices = state.classPeriodMap[cls.id];
+      if (pIndices.length <= 1) return;
+      // Check how many land on the most common period
+      const freq = {};
+      pIndices.forEach(p => { freq[p] = (freq[p] || 0) + 1; });
+      const maxFreq = Math.max(...Object.values(freq));
+      score += (maxFreq / pIndices.length) * 200;
     });
 
-    for (const day of dayOrder) {
-      if (classDays[task.classId].has(day)) continue; // already on this day
+    // Teacher load balance: reward even spread across days (0–100 pts per teacher)
+    teachers.forEach(t => {
+      const loads = DAYS.map(d => state.teacherSlots[t.id]?.[d]?.size || 0);
+      const avg = loads.reduce((a, b) => a + b, 0) / 5;
+      const variance = loads.reduce((s, l) => s + (l - avg) ** 2, 0) / 5;
+      score += Math.max(0, 100 - variance * 20); // lower variance = higher score
+    });
 
-      // Try each class period
+    // Student group load balance: reward even spread (0–100 pts per group)
+    studentGroups.forEach(g => {
+      const loads = DAYS.map(d => state.groupSlots[g.id]?.[d]?.size || 0);
+      const avg = loads.reduce((a, b) => a + b, 0) / 5;
+      const variance = loads.reduce((s, l) => s + (l - avg) ** 2, 0) / 5;
+      score += Math.max(0, 100 - variance * 20);
+    });
+
+    // Minimize teacher gaps: penalize holes between first and last class per day
+    teachers.forEach(t => {
+      DAYS.forEach(day => {
+        const slots = state.teacherSlots[t.id]?.[day];
+        if (!slots || slots.size < 2) return;
+        const sorted = [...slots].sort((a, b) => a - b);
+        const span = sorted[sorted.length - 1] - sorted[0] + 1;
+        const gaps = span - slots.size;
+        score -= gaps * 15; // penalty per gap period
+      });
+    });
+
+    // Prefer teacher's default room: bonus when assigned
+    Object.entries(state.grid).forEach(([, assignments]) => {
+      (assignments || []).forEach(a => {
+        const cls = classes.find(c => c.id === a.classId);
+        if (!cls) return;
+        const t = teacherMap[cls.teacherId];
+        if (t?.defaultRoom && a.roomId === t.defaultRoom) score += 10;
+      });
+    });
+
+    return score;
+  };
+
+  // ── SOLVE with backtracking + MRV ──
+  const solve = (tasks, state, depth, maxBacktracks) => {
+    if (depth >= tasks.length) return { placed: depth, state };
+
+    // MRV: pick the unplaced task with fewest valid options
+    let bestIdx = -1, bestOptions = Infinity;
+    for (let i = depth; i < tasks.length; i++) {
+      const opts = countOptions(tasks[i], state);
+      if (opts < bestOptions) { bestOptions = opts; bestIdx = i; }
+      if (opts === 0) break; // can't place this one, try anyway (will skip)
+    }
+
+    // Swap to front
+    if (bestIdx !== depth) [tasks[depth], tasks[bestIdx]] = [tasks[bestIdx], tasks[depth]];
+
+    const task = tasks[depth];
+
+    // Build list of valid (day, pIdx) placements
+    const options = [];
+    for (const day of DAYS) {
+      if (state.classDays[task.classId].has(day)) continue;
       for (const cp of classPeriods) {
-        if (canPlace(task, day, cp.index)) {
-          const roomId = findRoom(task, day, cp.index);
-          place(task, day, cp.index, roomId);
-          placed = true;
-          break;
+        if (canPlace(task, day, cp.index, state)) {
+          options.push({ day, pIdx: cp.index });
         }
       }
-      if (placed) break;
     }
 
-    if (!placed) {
-      const cls = classes.find(c => c.id === task.classId);
-      unplaced.push(cls?.name || task.classId);
+    // Sort options by preference:
+    // 1. Days where teacher has lightest load (spread)
+    // 2. Period that matches where this class was already placed (consistency)
+    // 3. Randomize within ties for variety across attempts
+    const existingPeriods = state.classPeriodMap[task.classId];
+    options.sort((a, b) => {
+      // Prefer days with lighter teacher load
+      const loadA = task.teacherId ? (state.teacherSlots[task.teacherId]?.[a.day]?.size || 0) : 0;
+      const loadB = task.teacherId ? (state.teacherSlots[task.teacherId]?.[b.day]?.size || 0) : 0;
+      if (loadA !== loadB) return loadA - loadB;
+
+      // Prefer same period as prior placements of this class (consistency)
+      const matchA = existingPeriods.includes(a.pIdx) ? 0 : 1;
+      const matchB = existingPeriods.includes(b.pIdx) ? 0 : 1;
+      if (matchA !== matchB) return matchA - matchB;
+
+      return 0;
+    });
+
+    // Shuffle groups of equivalent options for randomization
+    // (light shuffle: swap adjacent pairs randomly)
+    for (let i = 0; i < options.length - 1; i++) {
+      if (Math.random() < 0.3) [options[i], options[i + 1]] = [options[i + 1], options[i]];
     }
+
+    let backtracks = 0;
+    for (const opt of options) {
+      const roomId = findRoom(task, opt.day, opt.pIdx, state);
+      place(task, opt.day, opt.pIdx, roomId, state);
+
+      const result = solve(tasks, state, depth + 1, maxBacktracks - backtracks);
+      if (result.placed === tasks.length) return result; // perfect — done
+
+      // Backtrack
+      unplace(task, opt.day, opt.pIdx, roomId, state);
+      backtracks++;
+      if (backtracks >= maxBacktracks) break; // budget exhausted for this level
+    }
+
+    // Couldn't place this task — skip it and continue (greedy fallback)
+    return solve(tasks, state, depth + 1, maxBacktracks);
+  };
+
+  // ── RUN MULTIPLE ATTEMPTS ──
+  let bestResult = null;
+  let bestScore = -Infinity;
+
+  for (let attempt = 0; attempt < NUM_ATTEMPTS; attempt++) {
+    const tasks = buildTasks();
+    const state = freshState();
+
+    // First attempt: use pure MRV ordering. Rest: shuffle with bias.
+    if (attempt > 0) {
+      // Group tasks by class, shuffle class order, keep same-class tasks together
+      const byClass = {};
+      tasks.forEach(t => { if (!byClass[t.classId]) byClass[t.classId] = []; byClass[t.classId].push(t); });
+      const classOrder = shuffle(Object.keys(byClass));
+      tasks.length = 0;
+      classOrder.forEach(cId => byClass[cId].forEach(t => tasks.push(t)));
+    }
+
+    // Allow more backtracking in early attempts, less later (annealing)
+    const maxBT = attempt < 10 ? 8 : attempt < 30 ? 4 : 2;
+    const result = solve(tasks, state, 0, maxBT);
+    const score = scoreSchedule(result.state, result.placed, tasks.length);
+
+    if (score > bestScore) {
+      bestScore = score;
+      bestResult = { state: JSON.parse(JSON.stringify(result.state, (k, v) => v instanceof Set ? [...v] : v)), placed: result.placed, totalTasks: tasks.length };
+    }
+
+    // Perfect solution found — stop early
+    if (result.placed === tasks.length && attempt >= 5) break;
   }
 
-  // Find empty slots after generation
+  // Reconstruct sets from arrays (JSON serialization converted Sets to arrays)
+  const finalGrid = bestResult.state.grid;
+
+  // Find empty slots
   const emptySlots = [];
   DAYS.forEach(day => {
     classPeriods.forEach(cp => {
       const key = getKey(day, cp.index);
-      if (!grid[key] || grid[key].length === 0) {
-        // Check if it's a double-period continuation
+      if (!finalGrid[key] || finalGrid[key].length === 0) {
         const prevCp = classPeriods[classPeriods.findIndex(p => p.index === cp.index) - 1];
         if (prevCp) {
           const prevKey = getKey(day, prevCp.index);
-          const prevArr = grid[prevKey] || [];
+          const prevArr = finalGrid[prevKey] || [];
           const isDoubleExt = prevArr.some(a => {
             const cls = classes.find(c => c.id === a.classId);
             return cls && (cls.duration || 1) >= 2;
           });
-          if (isDoubleExt) return; // skip — this is a double period continuation
+          if (isDoubleExt) return;
         }
         emptySlots.push({ day, periodNum: cp.num, periodIndex: cp.index });
       }
     });
   });
 
-  return { grid, unplaced, emptySlots };
+  // Find unplaced classes
+  const unplaced = [];
+  const placedDays = {};
+  classes.forEach(c => { placedDays[c.id] = new Set(); });
+  Object.entries(finalGrid).forEach(([key, assignments]) => {
+    const [day] = key.split('-');
+    (assignments || []).forEach(a => { if (a?.classId && placedDays[a.classId]) placedDays[a.classId].add(day); });
+  });
+  classes.forEach(cls => {
+    const need = cls.daysPerWeek || (cls.days ? cls.days.length : 5);
+    const have = placedDays[cls.id].size;
+    if (have < need) {
+      for (let i = 0; i < need - have; i++) unplaced.push(cls.name);
+    }
+  });
+
+  return { grid: finalGrid, unplaced, emptySlots, attempts: NUM_ATTEMPTS, score: bestScore };
 }
 
 // ============================================================
@@ -768,7 +939,7 @@ function GridPanel({ config, update, periods, conflicts }) {
     if (!result) { setGenResult({ error: 'Add classes and set up school day settings first.' }); setTimeout(() => setGenResult(null), 3000); return; }
 
     update(c => { c.grid = result.grid; });
-    setGenResult({ unplaced: result.unplaced, emptySlots: result.emptySlots });
+    setGenResult({ unplaced: result.unplaced, emptySlots: result.emptySlots, attempts: result.attempts, score: result.score });
   };
 
   const getAssignments = (day, pIdx) => {
@@ -841,6 +1012,9 @@ function GridPanel({ config, update, periods, conflicts }) {
             <div>
               <div style={{ fontWeight: 600, marginBottom: 4, color: genResult.unplaced.length > 0 ? '#92400E' : '#065F46' }}>
                 {genResult.unplaced.length > 0 ? 'Schedule generated with issues' : '✓ Schedule generated successfully'}
+                <span style={{ fontWeight: 400, fontSize: 11, color: '#9CA3AF', marginLeft: 8 }}>
+                  ({genResult.attempts} attempts, best score: {Math.round(genResult.score)})
+                </span>
               </div>
               {genResult.unplaced.length > 0 && (
                 <div style={{ marginBottom: 6 }}>
