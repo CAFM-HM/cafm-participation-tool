@@ -227,7 +227,29 @@ function autoGenerate(config, periods) {
     }
   }
 
-  return { grid, unplaced };
+  // Find empty slots after generation
+  const emptySlots = [];
+  DAYS.forEach(day => {
+    classPeriods.forEach(cp => {
+      const key = getKey(day, cp.index);
+      if (!grid[key] || grid[key].length === 0) {
+        // Check if it's a double-period continuation
+        const prevCp = classPeriods[classPeriods.findIndex(p => p.index === cp.index) - 1];
+        if (prevCp) {
+          const prevKey = getKey(day, prevCp.index);
+          const prevArr = grid[prevKey] || [];
+          const isDoubleExt = prevArr.some(a => {
+            const cls = classes.find(c => c.id === a.classId);
+            return cls && (cls.duration || 1) >= 2;
+          });
+          if (isDoubleExt) return; // skip — this is a double period continuation
+        }
+        emptySlots.push({ day, periodNum: cp.num, periodIndex: cp.index });
+      }
+    });
+  });
+
+  return { grid, unplaced, emptySlots };
 }
 
 // ============================================================
@@ -734,7 +756,7 @@ function ClassesPanel({ config, update }) {
 // ============================================================
 function GridPanel({ config, update, periods, conflicts }) {
   const [pickerCell, setPickerCell] = useState(null); // "day-pIdx"
-  const [genMsg, setGenMsg] = useState(null);
+  const [genResult, setGenResult] = useState(null); // { unplaced, emptySlots }
   const grid = config.grid || {};
   const classPeriods = periods.filter(p => p.type === 'class');
 
@@ -743,16 +765,10 @@ function GridPanel({ config, update, periods, conflicts }) {
     if (hasExisting && !window.confirm('This will clear the current schedule and generate a new one. Continue?')) return;
 
     const result = autoGenerate(config, periods);
-    if (!result) { setGenMsg('Add classes and set up school day settings first.'); setTimeout(() => setGenMsg(null), 3000); return; }
+    if (!result) { setGenResult({ error: 'Add classes and set up school day settings first.' }); setTimeout(() => setGenResult(null), 3000); return; }
 
     update(c => { c.grid = result.grid; });
-
-    if (result.unplaced.length > 0) {
-      setGenMsg(`Schedule generated! Could not place: ${result.unplaced.join(', ')}. Adjust manually.`);
-    } else {
-      setGenMsg('Schedule generated successfully — all classes placed!');
-    }
-    setTimeout(() => setGenMsg(null), 5000);
+    setGenResult({ unplaced: result.unplaced, emptySlots: result.emptySlots });
   };
 
   const getAssignments = (day, pIdx) => {
@@ -813,10 +829,57 @@ function GridPanel({ config, update, periods, conflicts }) {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
         <h3 className="section-title" style={{ marginBottom: 0 }}>Schedule Grid</h3>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          {genMsg && <span style={{ fontSize: 12, color: genMsg.includes('Could not') ? '#CA8A04' : '#059669', fontWeight: 500 }}>{genMsg}</span>}
           <button className="btn btn-gold btn-sm" onClick={handleGenerate}>⚡ Auto-Generate</button>
         </div>
       </div>
+
+      {genResult && !genResult.error && (
+        <div style={{ marginBottom: 16, padding: 12, borderRadius: 8, border: '1px solid', fontSize: 13,
+          borderColor: genResult.unplaced.length > 0 ? '#FDE68A' : '#A7F3D0',
+          background: genResult.unplaced.length > 0 ? '#FFFBEB' : '#ECFDF5' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start' }}>
+            <div>
+              <div style={{ fontWeight: 600, marginBottom: 4, color: genResult.unplaced.length > 0 ? '#92400E' : '#065F46' }}>
+                {genResult.unplaced.length > 0 ? 'Schedule generated with issues' : '✓ Schedule generated successfully'}
+              </div>
+              {genResult.unplaced.length > 0 && (
+                <div style={{ marginBottom: 6 }}>
+                  <span style={{ color: '#DC2626', fontWeight: 500 }}>Could not place:</span>{' '}
+                  {genResult.unplaced.map((name, i) => <span key={i} className="badge" style={{ background: '#FEE2E2', color: '#991B1B', marginRight: 4 }}>{name}</span>)}
+                </div>
+              )}
+              {genResult.emptySlots.length > 0 && (
+                <div>
+                  <span style={{ fontWeight: 500, color: '#6B7280' }}>Open periods:</span>{' '}
+                  {(() => {
+                    // Group empty slots by day
+                    const byDay = {};
+                    genResult.emptySlots.forEach(s => {
+                      if (!byDay[s.day]) byDay[s.day] = [];
+                      byDay[s.day].push(s.periodNum);
+                    });
+                    return Object.entries(byDay).map(([day, pNums]) => (
+                      <span key={day} className="badge" style={{ background: '#F3F4F6', color: '#4B5563', marginRight: 6 }}>
+                        {DAY_SHORT[day]}: Period {pNums.join(', ')}
+                      </span>
+                    ));
+                  })()}
+                </div>
+              )}
+              {genResult.emptySlots.length === 0 && genResult.unplaced.length === 0 && (
+                <div style={{ color: '#065F46' }}>All periods filled — no open slots.</div>
+              )}
+            </div>
+            <button className="remove-btn" onClick={() => setGenResult(null)} style={{ fontSize: 14 }}>×</button>
+          </div>
+        </div>
+      )}
+
+      {genResult?.error && (
+        <div style={{ marginBottom: 16, padding: 12, background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 8, fontSize: 13, color: '#991B1B' }}>
+          {genResult.error}
+        </div>
+      )}
 
       {unscheduled.length > 0 && (
         <div style={{ marginBottom: 16, padding: 12, background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 8, fontSize: 13 }}>
