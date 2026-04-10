@@ -156,21 +156,36 @@ export default function HousePoints({ uid, isAdmin, masterStudents }) {
 
   const handleCsvImport = async () => {
     setCsvImporting(true);
-    const allEntries = csvPreview.map(row => ({
-      studentName: row.studentName,
-      house: row.house,
-      points: row.signedPoints,
-      category: row.category,
-      reason: row.reason,
-      type: row.type,
-      target: row.target,
-      addedBy: uid,
-      createdAt: row.date ? new Date(row.date + 'T12:00:00').toISOString() : new Date().toISOString(),
-    }));
-    await bulkAddEntries(allEntries);
+    try {
+      const now = new Date().toISOString();
+      const allEntries = csvPreview.map(row => {
+        let createdAt = now;
+        if (row.date) {
+          try {
+            const d = new Date(row.date);
+            if (!isNaN(d.getTime())) createdAt = d.toISOString();
+          } catch (_) { /* use default */ }
+        }
+        return {
+          studentName: row.studentName,
+          house: row.house,
+          points: row.signedPoints,
+          category: row.category,
+          reason: row.reason,
+          type: row.type,
+          target: row.target,
+          addedBy: uid,
+          createdAt,
+        };
+      });
+      await bulkAddEntries(allEntries);
+      setCsvPreview([]);
+      window.dispatchEvent(new CustomEvent('toast', { detail: `Imported ${allEntries.length} house point entries` }));
+    } catch (err) {
+      console.error('Import error:', err);
+      alert('Import failed: ' + err.message);
+    }
     setCsvImporting(false);
-    setCsvPreview([]);
-    window.dispatchEvent(new CustomEvent('toast', { detail: `Imported ${csvPreview.length} house point entries` }));
   };
 
   const matchingStudents = (masterStudents || []).filter(s =>

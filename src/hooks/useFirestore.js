@@ -321,7 +321,7 @@ export function useHousePoints() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const q = query(collection(db, 'housePointEntries'), orderBy('createdAt', 'desc'), limit(500));
+      const q = query(collection(db, 'housePointEntries'), orderBy('createdAt', 'desc'), limit(2000));
       const snap = await getDocs(q);
       setEntries(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     } catch (err) { console.error(err); }
