@@ -547,7 +547,7 @@ function BoardDirectory({ data, update }) {
   const [editingId, setEditingId] = useState(null);
   const [newDir, setNewDir] = useState({ name: '', role: 'Member', email: '', phone: '', termStart: '', termEnd: '', oathDate: '', oathNote: '' });
   const directors = data.directors || [];
-  const ROLES = ['President', 'Vice President', 'Secretary', 'Treasurer', 'Member', 'Chaplain'];
+  const ROLES = ['President', 'Vice President', 'Secretary', 'Treasurer', 'Member', 'Chaplain', 'Ex-Officio'];
 
   const addDirector = () => {
     if (!newDir.name.trim()) return;
@@ -557,7 +557,7 @@ function BoardDirectory({ data, update }) {
   const removeDirector = (id) => { if (window.confirm('Remove this director?')) { update(c => { c.directors = (c.directors || []).filter(d => d.id !== id); }); if (editingId === id) setEditingId(null); } };
   const updateDirector = (id, field, value) => { update(c => { const d = (c.directors || []).find(d => d.id === id); if (d) d[field] = value; }); };
 
-  const roleOrder = { 'President': 0, 'Vice President': 1, 'Secretary': 2, 'Treasurer': 3, 'Member': 4, 'Chaplain': 5 };
+  const roleOrder = { 'President': 0, 'Vice President': 1, 'Secretary': 2, 'Treasurer': 3, 'Chaplain': 4, 'Member': 5, 'Ex-Officio': 6 };
   const sorted = [...directors].sort((a, b) => (roleOrder[a.role] || 9) - (roleOrder[b.role] || 9) || a.name.localeCompare(b.name));
 
   return (
@@ -591,7 +591,7 @@ function BoardDirectory({ data, update }) {
           {sorted.map(d => {
             const isEditing = editingId === d.id;
             const termExpired = d.termEnd && new Date(d.termEnd) < new Date();
-            const termSoon = d.termEnd && !termExpired && (new Date(d.termEnd) - new Date()) < 90 * 86400000;
+            const termSoon = d.termEnd && !termExpired && (new Date(d.termEnd) - new Date()) < 180 * 86400000;
             return (
               <div key={d.id} className="cc-director-card">
                 <div className="cc-director-header">
@@ -608,7 +608,7 @@ function BoardDirectory({ data, update }) {
                         {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
                       </select>
                     ) : (
-                      <div className="cc-director-role"><span className={`badge ${d.role === 'Chaplain' ? 'badge-gray' : 'badge-green'}`}>{d.role}</span></div>
+                      <div className="cc-director-role"><span className={`badge ${d.role === 'Chaplain' || d.role === 'Ex-Officio' ? 'badge-gray' : 'badge-green'}`}>{d.role}</span></div>
                     )}
                   </div>
                   <div style={{ display: 'flex', gap: 4 }}>
