@@ -416,19 +416,27 @@ function AddUnavailability({ periods, onAdd }) {
 }
 
 // ============================================================
-// CLASSES PANEL — now with days and duration
+// CLASSES PANEL — with days/week and inline editing
 // ============================================================
 function ClassesPanel({ config, update }) {
-  const [nc, setNc] = useState({ name: '', teacherId: '', groupIds: [], days: [...DAYS], duration: 1 });
+  const [nc, setNc] = useState({ name: '', teacherId: '', groupIds: [], daysPerWeek: 5, duration: 1 });
+  const [editingId, setEditingId] = useState(null);
 
   const addClass = () => {
     if (!nc.name.trim()) return;
-    update(c => { c.classes.push({ id: genId(), ...nc, name: nc.name.trim() }); });
-    setNc({ name: '', teacherId: '', groupIds: [], days: [...DAYS], duration: 1 });
+    update(c => { c.classes.push({ id: genId(), name: nc.name.trim(), teacherId: nc.teacherId, groupIds: nc.groupIds, daysPerWeek: nc.daysPerWeek, duration: nc.duration }); });
+    setNc({ name: '', teacherId: '', groupIds: [], daysPerWeek: 5, duration: 1 });
   };
 
   const toggleGroup = (gId) => setNc(p => ({ ...p, groupIds: p.groupIds.includes(gId) ? p.groupIds.filter(g => g !== gId) : [...p.groupIds, gId] }));
-  const toggleDay = (d) => setNc(p => ({ ...p, days: p.days.includes(d) ? p.days.filter(x => x !== d) : [...p.days, d] }));
+
+  const updateClass = (cIdx, field, value) => { update(c => { c.classes[cIdx][field] = value; }); };
+  const toggleEditGroup = (cIdx, gId) => {
+    update(c => {
+      const groups = c.classes[cIdx].groupIds || [];
+      c.classes[cIdx].groupIds = groups.includes(gId) ? groups.filter(g => g !== gId) : [...groups, gId];
+    });
+  };
 
   return (
     <div>
@@ -443,19 +451,18 @@ function ClassesPanel({ config, update }) {
             {(config.teachers || []).map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
           </select>
           <div className="sched-field" style={{ flex: 0 }}>
+            <label style={{ fontSize: 11 }}>Days/Week</label>
+            <input type="number" value={nc.daysPerWeek} min={1} max={5}
+              onChange={e => setNc({ ...nc, daysPerWeek: Math.min(5, Math.max(1, parseInt(e.target.value) || 1)) })}
+              style={{ width: 60 }} />
+          </div>
+          <div className="sched-field" style={{ flex: 0 }}>
             <label style={{ fontSize: 11 }}>Duration</label>
             <select value={nc.duration} onChange={e => setNc({ ...nc, duration: parseInt(e.target.value) })} style={{ width: 100 }}>
-              <option value={1}>Single (1 period)</option>
-              <option value={2}>Double (2 periods)</option>
+              <option value={1}>Single</option>
+              <option value={2}>Double</option>
             </select>
           </div>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
-          <span style={{ fontSize: 12, color: '#6B7280' }}>Days:</span>
-          {DAYS.map(d => (
-            <button key={d} className={`btn btn-sm ${nc.days.includes(d) ? 'btn-primary' : 'btn-secondary'}`}
-              onClick={() => toggleDay(d)} style={{ minWidth: 36, padding: '4px 6px', fontSize: 11 }}>{DAY_SHORT[d]}</button>
-          ))}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
           <span style={{ fontSize: 12, color: '#6B7280' }}>Students:</span>
@@ -472,18 +479,74 @@ function ClassesPanel({ config, update }) {
       ) : (
         <div style={{ overflowX: 'auto' }}>
           <table className="data-table">
-            <thead><tr><th>Class</th><th>Teacher</th><th>Students</th><th>Days</th><th>Duration</th><th></th></tr></thead>
+            <thead><tr><th>Class</th><th>Teacher</th><th>Students</th><th>Days/Wk</th><th>Duration</th><th></th></tr></thead>
             <tbody>
               {(config.classes || []).map((cls, cIdx) => {
                 const teacher = (config.teachers || []).find(t => t.id === cls.teacherId);
+                const isEditing = editingId === cls.id;
+                // Support legacy 'days' array — convert to daysPerWeek for display
+                const daysPerWeek = cls.daysPerWeek || (cls.days ? cls.days.length : 5);
                 return (
                   <tr key={cls.id}>
-                    <td style={{ fontWeight: 500 }}>{cls.name}</td>
-                    <td>{teacher?.name || <span style={{ color: '#DC2626' }}>Unassigned</span>}</td>
-                    <td>{(cls.groupIds || []).map(gId => { const g = (config.studentGroups || []).find(sg => sg.id === gId); return g ? <span key={gId} className="badge" style={{ background: g.color + '22', color: g.color, marginRight: 4 }}>{g.name}</span> : null; })}</td>
-                    <td style={{ fontSize: 12 }}>{(cls.days || DAYS).map(d => DAY_SHORT[d]).join(', ')}</td>
-                    <td>{(cls.duration || 1) === 2 ? 'Double' : 'Single'}</td>
-                    <td><button className="remove-btn" onClick={() => { if (window.confirm(`Remove ${cls.name}?`)) update(c => { c.classes.splice(cIdx, 1); }); }}>×</button></td>
+                    <td>
+                      {isEditing ? (
+                        <input type="text" value={cls.name} onChange={e => updateClass(cIdx, 'name', e.target.value)}
+                          style={{ fontWeight: 500, fontSize: 13, border: '1px solid #D1D5DB', borderRadius: 4, padding: '3px 6px', width: '100%' }} />
+                      ) : (
+                        <span style={{ fontWeight: 500 }}>{cls.name}</span>
+                      )}
+                    </td>
+                    <td>
+                      {isEditing ? (
+                        <select value={cls.teacherId || ''} onChange={e => updateClass(cIdx, 'teacherId', e.target.value)}
+                          style={{ fontSize: 13, padding: '3px 4px', border: '1px solid #D1D5DB', borderRadius: 4 }}>
+                          <option value="">— None —</option>
+                          {(config.teachers || []).map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                        </select>
+                      ) : (
+                        teacher?.name || <span style={{ color: '#DC2626' }}>Unassigned</span>
+                      )}
+                    </td>
+                    <td>
+                      {isEditing ? (
+                        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                          {(config.studentGroups || []).map(g => (
+                            <button key={g.id} className={`btn btn-sm ${(cls.groupIds || []).includes(g.id) ? 'btn-primary' : 'btn-secondary'}`}
+                              onClick={() => toggleEditGroup(cIdx, g.id)}
+                              style={{ fontSize: 10, padding: '2px 6px', ...((cls.groupIds || []).includes(g.id) ? { background: g.color } : {}) }}>{g.name}</button>
+                          ))}
+                        </div>
+                      ) : (
+                        (cls.groupIds || []).map(gId => { const g = (config.studentGroups || []).find(sg => sg.id === gId); return g ? <span key={gId} className="badge" style={{ background: g.color + '22', color: g.color, marginRight: 4 }}>{g.name}</span> : null; })
+                      )}
+                    </td>
+                    <td>
+                      {isEditing ? (
+                        <input type="number" value={daysPerWeek} min={1} max={5}
+                          onChange={e => updateClass(cIdx, 'daysPerWeek', Math.min(5, Math.max(1, parseInt(e.target.value) || 1)))}
+                          style={{ width: 50, fontSize: 13, padding: '3px 6px', border: '1px solid #D1D5DB', borderRadius: 4 }} />
+                      ) : (
+                        <span style={{ fontSize: 12 }}>{daysPerWeek}×</span>
+                      )}
+                    </td>
+                    <td>
+                      {isEditing ? (
+                        <select value={cls.duration || 1} onChange={e => updateClass(cIdx, 'duration', parseInt(e.target.value))}
+                          style={{ fontSize: 13, padding: '3px 4px', border: '1px solid #D1D5DB', borderRadius: 4 }}>
+                          <option value={1}>Single</option>
+                          <option value={2}>Double</option>
+                        </select>
+                      ) : (
+                        (cls.duration || 1) === 2 ? 'Double' : 'Single'
+                      )}
+                    </td>
+                    <td>
+                      <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                        <button className="btn btn-sm btn-secondary" onClick={() => setEditingId(isEditing ? null : cls.id)}
+                          style={{ fontSize: 11, padding: '2px 8px' }}>{isEditing ? 'Done' : 'Edit'}</button>
+                        <button className="remove-btn" onClick={() => { if (window.confirm(`Remove ${cls.name}?`)) update(c => { c.classes.splice(cIdx, 1); }); }}>×</button>
+                      </div>
+                    </td>
                   </tr>
                 );
               })}
@@ -541,7 +604,7 @@ function GridPanel({ config, update, periods, conflicts }) {
 
   const unscheduled = (config.classes || []).filter(cls => {
     const scheduled = classDayCounts[cls.id]?.size || 0;
-    return scheduled < (cls.days || DAYS).length;
+    return scheduled < (cls.daysPerWeek || (cls.days ? cls.days.length : 5));
   });
 
   // Check if a period is "blocked" by a double-period class from the previous period
@@ -565,7 +628,7 @@ function GridPanel({ config, update, periods, conflicts }) {
           <span style={{ fontWeight: 600, color: '#92400E' }}>Needs scheduling:</span>{' '}
           {unscheduled.map(cls => {
             const have = classDayCounts[cls.id]?.size || 0;
-            const need = (cls.days || DAYS).length;
+            const need = cls.daysPerWeek || (cls.days ? cls.days.length : 5);
             return <span key={cls.id} className="badge" style={{ marginLeft: 6, background: '#FDE68A', color: '#92400E' }}>{cls.name} ({have}/{need} days)</span>;
           })}
         </div>
@@ -666,7 +729,12 @@ function CellPicker({ config, day, periodIndex, periods, onAdd, onCancel }) {
   };
 
   // Filter to classes that should be on this day
-  const availableClasses = (config.classes || []).filter(cls => (cls.days || DAYS).includes(day));
+  // Show all classes — daysPerWeek controls how many days they need, not which specific days
+  const availableClasses = (config.classes || []).filter(cls => {
+    // Support legacy 'days' array — if it exists, filter by specific day
+    if (cls.days && !cls.daysPerWeek) return cls.days.includes(day);
+    return true;
+  });
 
   return (
     <div style={{ background: '#EFF6FF', padding: 6, borderRadius: 6, marginTop: 2 }}>
