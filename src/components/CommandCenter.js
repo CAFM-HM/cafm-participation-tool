@@ -558,7 +558,7 @@ function BoardDirectory({ data, update }) {
   const updateDirector = (id, field, value) => { update(c => { const d = (c.directors || []).find(d => d.id === id); if (d) d[field] = value; }); };
 
   const roleOrder = { 'President': 0, 'Vice President': 1, 'Secretary': 2, 'Treasurer': 3, 'Chaplain': 4, 'Member': 5, 'Ex-Officio': 6 };
-  const sorted = [...directors].sort((a, b) => (roleOrder[a.role] || 9) - (roleOrder[b.role] || 9) || a.name.localeCompare(b.name));
+  const sorted = [...directors].sort((a, b) => (roleOrder[a.role] ?? 9) - (roleOrder[b.role] ?? 9) || a.name.localeCompare(b.name));
 
   return (
     <div>
