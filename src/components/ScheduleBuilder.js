@@ -387,18 +387,18 @@ function autoGenerate(config, periods) {
   };
 
   // ── SOLVE with backtracking + MRV ──
-  const solve = (tasks, state, depth, maxBacktracks) => {
-    if (depth >= tasks.length) return { placed: depth, state };
+  // `placed` tracks actual successful placements (not depth)
+  const solve = (tasks, state, depth, maxBacktracks, placedSoFar) => {
+    if (depth >= tasks.length) return { placed: placedSoFar || 0, state };
 
     // MRV: pick the unplaced task with fewest valid options
     let bestIdx = -1, bestOptions = Infinity;
     for (let i = depth; i < tasks.length; i++) {
       const opts = countOptions(tasks[i], state);
       if (opts < bestOptions) { bestOptions = opts; bestIdx = i; }
-      if (opts === 0) break; // can't place this one, try anyway (will skip)
+      if (opts === 0) break;
     }
 
-    // Swap to front
     if (bestIdx !== depth) [tasks[depth], tasks[bestIdx]] = [tasks[bestIdx], tasks[depth]];
 
     const task = tasks[depth];
@@ -414,27 +414,19 @@ function autoGenerate(config, periods) {
       }
     }
 
-    // Sort options by preference:
-    // 1. Days where teacher has lightest load (spread)
-    // 2. Period that matches where this class was already placed (consistency)
-    // 3. Randomize within ties for variety across attempts
+    // Sort by preference
     const existingPeriods = state.classPeriodMap[task.classId];
     options.sort((a, b) => {
-      // Prefer days with lighter teacher load
       const loadA = task.teacherId ? (state.teacherSlots[task.teacherId]?.[a.day]?.size || 0) : 0;
       const loadB = task.teacherId ? (state.teacherSlots[task.teacherId]?.[b.day]?.size || 0) : 0;
       if (loadA !== loadB) return loadA - loadB;
-
-      // Prefer same period as prior placements of this class (consistency)
       const matchA = existingPeriods.includes(a.pIdx) ? 0 : 1;
       const matchB = existingPeriods.includes(b.pIdx) ? 0 : 1;
       if (matchA !== matchB) return matchA - matchB;
-
       return 0;
     });
 
-    // Shuffle groups of equivalent options for randomization
-    // (light shuffle: swap adjacent pairs randomly)
+    // Light shuffle for randomization
     for (let i = 0; i < options.length - 1; i++) {
       if (Math.random() < 0.3) [options[i], options[i + 1]] = [options[i + 1], options[i]];
     }
@@ -444,7 +436,7 @@ function autoGenerate(config, periods) {
       const roomId = findRoom(task, opt.day, opt.pIdx, state);
       place(task, opt.day, opt.pIdx, roomId, state);
 
-      // Also place concurrent partners at the same slot
+      // Also place concurrent partners
       const partnerPlacements = [];
       for (const partnerId of (task.concurrentPartners || [])) {
         const partner = classes.find(c => c.id === partnerId);
@@ -455,18 +447,18 @@ function autoGenerate(config, periods) {
         partnerPlacements.push({ task: pTask, roomId: pRoom });
       }
 
-      const result = solve(tasks, state, depth + 1, maxBacktracks - backtracks);
-      if (result.placed === tasks.length) return result; // perfect — done
+      const result = solve(tasks, state, depth + 1, maxBacktracks - backtracks, (placedSoFar || 0) + 1);
+      if (result.placed === tasks.length) return result; // perfect
 
-      // Backtrack — unplace partners first, then main task
+      // Backtrack
       for (const pp of partnerPlacements) unplace(pp.task, opt.day, opt.pIdx, pp.roomId, state);
       unplace(task, opt.day, opt.pIdx, roomId, state);
       backtracks++;
-      if (backtracks >= maxBacktracks) break; // budget exhausted for this level
+      if (backtracks >= maxBacktracks) break;
     }
 
-    // Couldn't place this task — skip it and continue (greedy fallback)
-    return solve(tasks, state, depth + 1, maxBacktracks);
+    // Couldn't place this task — skip it (don't increment placedSoFar)
+    return solve(tasks, state, depth + 1, maxBacktracks, placedSoFar || 0);
   };
 
   // ── RUN MULTIPLE ATTEMPTS ──
@@ -550,7 +542,7 @@ function autoGenerate(config, periods) {
 
     // Allow more backtracking in early attempts, less later (annealing)
     const maxBT = attempt < 10 ? 8 : attempt < 30 ? 4 : 2;
-    const result = solve(remainingTasks, state, 0, maxBT);
+    const result = solve(remainingTasks, state, 0, maxBT, 0);
     const totalPlaced = result.placed + pinnedPlacements.length;
     const totalTasks = remainingTasks.length + pinnedPlacements.length;
     const score = scoreSchedule(result.state, totalPlaced, totalTasks);
