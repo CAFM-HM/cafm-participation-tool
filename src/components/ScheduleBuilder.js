@@ -539,7 +539,7 @@ async function autoGenerate(config, periods) {
     });
   });
 
-  // Find unplaced classes
+  // Find unplaced classes and diagnose WHY they couldn't be placed
   const unplaced = [];
   const placedDays = {};
   classes.forEach(c => { placedDays[c.id] = new Set(); });
@@ -547,11 +547,128 @@ async function autoGenerate(config, periods) {
     const [day] = key.split('-');
     (assignments || []).forEach(a => { if (a?.classId && placedDays[a.classId]) placedDays[a.classId].add(day); });
   });
+
+  // Reconstruct tracking state from the final grid to diagnose failures
+  const diagState = freshState();
+  Object.entries(finalGrid).forEach(([key, assignments]) => {
+    const [day, pIdxStr] = key.split('-');
+    const pIdx = parseInt(pIdxStr);
+    (assignments || []).forEach(a => {
+      const cls = classes.find(c => c.id === a.classId);
+      if (!cls) return;
+      const dur = cls.duration || 1;
+      const occupied = getOccupied(pIdx, dur);
+      if (!occupied) return;
+      diagState.classDays[a.classId]?.add(day);
+      if (diagState.classPeriodMap[a.classId]) diagState.classPeriodMap[a.classId].push(pIdx);
+      for (const oi of occupied) {
+        if (cls.teacherId && diagState.teacherSlots[cls.teacherId]) diagState.teacherSlots[cls.teacherId][day]?.add(oi);
+        if (a.roomId && diagState.roomSlots[a.roomId]) diagState.roomSlots[a.roomId][day]?.add(oi);
+        for (const gId of (cls.groupIds || [])) {
+          if (diagState.groupSlots[gId]) diagState.groupSlots[gId][day]?.add(oi);
+        }
+      }
+    });
+  });
+
+  // Diagnose why a class can't be placed on remaining days
+  const diagnose = (cls) => {
+    const need = cls.daysPerWeek || (cls.days ? cls.days.length : 5);
+    const have = placedDays[cls.id].size;
+    if (have >= need) return null;
+    const missing = need - have;
+    const reasons = [];
+    const teacher = teacherMap[cls.teacherId];
+    const teacherName = teacher?.name || 'Unassigned teacher';
+    const groupNames = (cls.groupIds || []).map(gId => {
+      const g = studentGroups.find(sg => sg.id === gId);
+      return g ? g.name : gId;
+    });
+
+    // Check each remaining day
+    const remainingDays = DAYS.filter(d => !placedDays[cls.id].has(d));
+    for (const day of remainingDays) {
+      const dayReasons = [];
+      let anyPeriodWorks = false;
+
+      for (const cp of classPeriods) {
+        const occupied = getOccupied(cp.index, cls.duration || 1);
+        if (!occupied) continue;
+
+        // Early release
+        const earlyBlocked = occupied.some(oi => !isPeriodValidForDay(day, oi, sd, periods));
+        if (earlyBlocked) continue; // skip — this period simply doesn't exist on this day
+
+        // Teacher conflict
+        const teacherBusy = occupied.some(oi => cls.teacherId && diagState.teacherSlots[cls.teacherId]?.[day]?.has(oi));
+        if (teacherBusy) {
+          if (!dayReasons.includes('teacher')) dayReasons.push('teacher');
+          continue;
+        }
+
+        // Teacher unavailable
+        const teacherUnavail = occupied.some(oi => {
+          if (!cls.teacherId) return false;
+          const t = teacherMap[cls.teacherId];
+          return t && !isTeacherAvailable(t, oi, day, periods);
+        });
+        if (teacherUnavail) {
+          if (!dayReasons.includes('unavailable')) dayReasons.push('unavailable');
+          continue;
+        }
+
+        // Student group conflict
+        let groupConflict = false;
+        for (const oi of occupied) {
+          for (const gId of (cls.groupIds || [])) {
+            if (diagState.groupSlots[gId]?.[day]?.has(oi)) {
+              // Check if it's from a concurrent partner (that's OK)
+              const key = getKey(day, oi);
+              const existing = finalGrid[key] || [];
+              const realConflict = existing.some(a => {
+                const eCls = classes.find(c => c.id === a.classId);
+                if (!eCls || !(eCls.groupIds || []).includes(gId)) return false;
+                return !areConcurrent(cls.id, a.classId);
+              });
+              if (realConflict) { groupConflict = true; break; }
+            }
+          }
+          if (groupConflict) break;
+        }
+        if (groupConflict) {
+          if (!dayReasons.includes('group')) dayReasons.push('group');
+          continue;
+        }
+
+        // If we get here, this period should work
+        anyPeriodWorks = true;
+        break;
+      }
+
+      if (!anyPeriodWorks && dayReasons.length > 0) {
+        const reasonText = dayReasons.map(r => {
+          if (r === 'teacher') return `${teacherName} is teaching another class every open period`;
+          if (r === 'unavailable') return `${teacherName} is marked unavailable`;
+          if (r === 'group') return `${groupNames.join(', ')} ${groupNames.length > 1 ? 'are' : 'is'} in another class every open period`;
+          return r;
+        }).join('; ');
+        reasons.push(`${DAY_LABELS[day] || day}: ${reasonText}`);
+      } else if (!anyPeriodWorks) {
+        reasons.push(`${DAY_LABELS[day] || day}: no valid periods available`);
+      }
+    }
+
+    return { name: cls.name, missing, placed: have, needed: need, reasons };
+  };
+
+  const DAY_LABELS = { mon: 'Monday', tue: 'Tuesday', wed: 'Wednesday', thu: 'Thursday', fri: 'Friday' };
+
   classes.forEach(cls => {
     const need = cls.daysPerWeek || (cls.days ? cls.days.length : 5);
     const have = placedDays[cls.id].size;
     if (have < need) {
-      for (let i = 0; i < need - have; i++) unplaced.push(cls.name);
+      const diag = diagnose(cls);
+      if (diag) unplaced.push(diag);
     }
   });
 
@@ -1423,8 +1540,19 @@ function GridPanel({ config, update, periods, conflicts }) {
               </div>
               {genResult.unplaced.length > 0 && (
                 <div style={{ marginBottom: 6 }}>
-                  <span style={{ color: '#DC2626', fontWeight: 500 }}>Could not place:</span>{' '}
-                  {genResult.unplaced.map((name, i) => <span key={i} className="badge" style={{ background: '#FEE2E2', color: '#991B1B', marginRight: 4 }}>{name}</span>)}
+                  <span style={{ color: '#DC2626', fontWeight: 500 }}>Could not fully place:</span>
+                  {genResult.unplaced.map((item, i) => (
+                    <div key={i} style={{ marginTop: 4, marginLeft: 8 }}>
+                      <span className="badge" style={{ background: '#FEE2E2', color: '#991B1B', marginRight: 6 }}>
+                        {item.name} ({item.placed}/{item.needed} days)
+                      </span>
+                      {item.reasons && item.reasons.length > 0 && (
+                        <div style={{ marginLeft: 16, marginTop: 2, fontSize: 12, color: '#6B7280' }}>
+                          {item.reasons.map((r, j) => <div key={j}>↳ {r}</div>)}
+                        </div>
+                      )}
+                    </div>
+                  ))}
                 </div>
               )}
               {genResult.emptySlots.length > 0 && (
