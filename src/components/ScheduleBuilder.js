@@ -1132,15 +1132,17 @@ function GridPanel({ config, update, periods, conflicts }) {
 
                       return (
                         <td key={day} className={`sched-grid-cell ${cellConflicts.length > 0 ? 'has-conflict' : ''}`}>
-                          {blocked ? (() => {
-                            const btc = getTeacherColor(blocked.cls.teacherId, config.teachers || []);
-                            return (
-                            <div className="sched-grid-double-cont" style={{ background: btc.bg, borderLeft: `3px solid ${btc.border}` }}>
-                              <span style={{ fontSize: 11, color: btc.text, fontStyle: 'italic' }}>
-                                ← {blocked.cls.name} (cont.)
-                              </span>
-                            </div>);
-                          })()
+                          {blocked ? (
+                            (() => {
+                              const btc = getTeacherColor(blocked.cls.teacherId, config.teachers || []);
+                              return (
+                                <div className="sched-grid-double-cont" style={{ background: btc.bg, borderLeft: `3px solid ${btc.border}` }}>
+                                  <span style={{ fontSize: 11, color: btc.text, fontStyle: 'italic' }}>
+                                    ← {blocked.cls.name} (cont.)
+                                  </span>
+                                </div>
+                              );
+                            })()
                           ) : (
                             <>
                               {assignments.map(a => {
