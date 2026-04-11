@@ -445,7 +445,41 @@ function autoGenerate(config, periods) {
     }
   });
 
-  return { grid: finalGrid, unplaced, emptySlots, attempts: NUM_ATTEMPTS, score: bestScore };
+  // Find student group (grade) gaps — periods where a group has nothing scheduled
+  const groupGaps = [];
+  studentGroups.forEach(group => {
+    DAYS.forEach(day => {
+      classPeriods.forEach(cp => {
+        // Check if any class in this cell includes this group
+        const key = getKey(day, cp.index);
+        const assignments = finalGrid[key] || [];
+        const hasClass = assignments.some(a => {
+          const cls = classes.find(c => c.id === a.classId);
+          return cls && (cls.groupIds || []).includes(group.id);
+        });
+
+        // Also check if a double-period from previous period covers this slot
+        if (!hasClass) {
+          const prevCpObj = classPeriods[classPeriods.findIndex(p => p.index === cp.index) - 1];
+          if (prevCpObj) {
+            const prevKey = getKey(day, prevCpObj.index);
+            const prevAssignments = finalGrid[prevKey] || [];
+            const coveredByDouble = prevAssignments.some(a => {
+              const cls = classes.find(c => c.id === a.classId);
+              return cls && (cls.duration || 1) >= 2 && (cls.groupIds || []).includes(group.id);
+            });
+            if (coveredByDouble) return;
+          }
+        }
+
+        if (!hasClass) {
+          groupGaps.push({ groupName: group.name, groupColor: group.color, day, periodNum: cp.num });
+        }
+      });
+    });
+  });
+
+  return { grid: finalGrid, unplaced, emptySlots, groupGaps, attempts: NUM_ATTEMPTS, score: bestScore };
 }
 
 // ============================================================
@@ -964,7 +998,7 @@ function GridPanel({ config, update, periods, conflicts }) {
     if (!result) { setGenResult({ error: 'Add classes and set up school day settings first.' }); setTimeout(() => setGenResult(null), 3000); return; }
 
     update(c => { c.grid = result.grid; });
-    setGenResult({ unplaced: result.unplaced, emptySlots: result.emptySlots, attempts: result.attempts, score: result.score });
+    setGenResult({ unplaced: result.unplaced, emptySlots: result.emptySlots, groupGaps: result.groupGaps, attempts: result.attempts, score: result.score });
   };
 
   const getAssignments = (day, pIdx) => {
@@ -1007,6 +1041,40 @@ function GridPanel({ config, update, periods, conflicts }) {
     const scheduled = classDayCounts[cls.id]?.size || 0;
     return scheduled < (cls.daysPerWeek || (cls.days ? cls.days.length : 5));
   });
+
+  // Detect student group gaps (grades with nothing to do during a period)
+  const liveGroupGaps = useMemo(() => {
+    const groups = config.studentGroups || [];
+    const classes_ = config.classes || [];
+    if (groups.length === 0 || Object.keys(grid).length === 0) return [];
+    const gaps = [];
+    groups.forEach(group => {
+      DAYS.forEach(day => {
+        classPeriods.forEach(cp => {
+          const key = gk(day, cp.index);
+          const assignments = grid[key] ? (Array.isArray(grid[key]) ? grid[key] : [grid[key]]) : [];
+          let hasClass = assignments.some(a => {
+            const cls = classes_.find(c => c.id === a.classId);
+            return cls && (cls.groupIds || []).includes(group.id);
+          });
+          // Check double-period continuation
+          if (!hasClass) {
+            const prevCpObj = classPeriods[classPeriods.findIndex(p => p.index === cp.index) - 1];
+            if (prevCpObj) {
+              const prevKey = gk(day, prevCpObj.index);
+              const prevArr = grid[prevKey] ? (Array.isArray(grid[prevKey]) ? grid[prevKey] : [grid[prevKey]]) : [];
+              hasClass = prevArr.some(a => {
+                const cls = classes_.find(c => c.id === a.classId);
+                return cls && (cls.duration || 1) >= 2 && (cls.groupIds || []).includes(group.id);
+              });
+            }
+          }
+          if (!hasClass) gaps.push({ groupName: group.name, groupColor: group.color, day, periodNum: cp.num });
+        });
+      });
+    });
+    return gaps;
+  }, [config.studentGroups, config.classes, grid, classPeriods]);
 
   // Check if a period is "blocked" by a double-period class from the previous period
   const isBlockedByDouble = (day, pIdx) => {
@@ -1065,8 +1133,34 @@ function GridPanel({ config, update, periods, conflicts }) {
                   })()}
                 </div>
               )}
-              {genResult.emptySlots.length === 0 && genResult.unplaced.length === 0 && (
-                <div style={{ color: '#065F46' }}>All periods filled — no open slots.</div>
+              {genResult.groupGaps && genResult.groupGaps.length > 0 && (
+                <div style={{ marginTop: 6 }}>
+                  <span style={{ fontWeight: 500, color: '#DC2626' }}>⚠ Free periods by group:</span>
+                  <div style={{ marginTop: 4, display: 'flex', flexDirection: 'column', gap: 3 }}>
+                    {(() => {
+                      // Group by student group name
+                      const byGroup = {};
+                      genResult.groupGaps.forEach(g => {
+                        if (!byGroup[g.groupName]) byGroup[g.groupName] = { color: g.groupColor, days: {} };
+                        if (!byGroup[g.groupName].days[g.day]) byGroup[g.groupName].days[g.day] = [];
+                        byGroup[g.groupName].days[g.day].push(g.periodNum);
+                      });
+                      return Object.entries(byGroup).map(([name, info]) => (
+                        <div key={name} style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                          <span className="badge" style={{ background: (info.color || '#6B7280') + '22', color: info.color || '#6B7280', fontWeight: 600 }}>{name}</span>
+                          {Object.entries(info.days).map(([day, pNums]) => (
+                            <span key={day} style={{ fontSize: 11, color: '#6B7280' }}>
+                              {DAY_SHORT[day]}: P{pNums.join(', P')}
+                            </span>
+                          ))}
+                        </div>
+                      ));
+                    })()}
+                  </div>
+                </div>
+              )}
+              {genResult.emptySlots.length === 0 && genResult.unplaced.length === 0 && (!genResult.groupGaps || genResult.groupGaps.length === 0) && (
+                <div style={{ color: '#065F46' }}>All periods filled — no open slots. All groups have full schedules.</div>
               )}
             </div>
             <button className="remove-btn" onClick={() => setGenResult(null)} style={{ fontSize: 14 }}>×</button>
@@ -1088,6 +1182,32 @@ function GridPanel({ config, update, periods, conflicts }) {
             const need = cls.daysPerWeek || (cls.days ? cls.days.length : 5);
             return <span key={cls.id} className="badge" style={{ marginLeft: 6, background: '#FDE68A', color: '#92400E' }}>{cls.name} ({have}/{need} days)</span>;
           })}
+        </div>
+      )}
+
+      {liveGroupGaps.length > 0 && Object.keys(grid).length > 0 && (
+        <div style={{ marginBottom: 16, padding: 12, background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 8, fontSize: 13 }}>
+          <span style={{ fontWeight: 600, color: '#991B1B' }}>⚠ Groups with free periods:</span>
+          <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 4 }}>
+            {(() => {
+              const byGroup = {};
+              liveGroupGaps.forEach(g => {
+                if (!byGroup[g.groupName]) byGroup[g.groupName] = { color: g.groupColor, days: {} };
+                if (!byGroup[g.groupName].days[g.day]) byGroup[g.groupName].days[g.day] = [];
+                byGroup[g.groupName].days[g.day].push(g.periodNum);
+              });
+              return Object.entries(byGroup).map(([name, info]) => (
+                <div key={name} style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                  <span className="badge" style={{ background: (info.color || '#6B7280') + '22', color: info.color || '#6B7280', fontWeight: 600, minWidth: 60 }}>{name}</span>
+                  {Object.entries(info.days).map(([day, pNums]) => (
+                    <span key={day} style={{ fontSize: 11, color: '#6B7280' }}>
+                      {DAY_SHORT[day]}: P{pNums.join(', P')}
+                    </span>
+                  ))}
+                </div>
+              ));
+            })()}
+          </div>
         </div>
       )}
 
