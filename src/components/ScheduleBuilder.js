@@ -1532,7 +1532,7 @@ function GridPanel({ config, update, periods, conflicts }) {
         </div>
       )}
 
-      {liveGroupGaps.length > 0 && Object.keys(grid).length > 0 && (
+      {liveGroupGaps.length > 0 && Object.keys(grid).length > 0 && !genResult && (
         <div style={{ marginBottom: 16, padding: 12, background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 8, fontSize: 13 }}>
           <span style={{ fontWeight: 600, color: '#991B1B' }}>⚠ Groups with free periods:</span>
           <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 4 }}>
