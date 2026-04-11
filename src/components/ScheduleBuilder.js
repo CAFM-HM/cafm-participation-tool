@@ -104,8 +104,13 @@ function getOccupiedIndices(pIdx, duration, periods) {
 // AUTO-SCHEDULE GENERATOR — Smart solver with backtracking,
 // randomized restarts, and quality scoring
 // ============================================================
-async function autoGenerate(config, periods) {
-  const classes = config.classes || [];
+async function autoGenerate(config, periods, semester) {
+  // Filter classes by active semester: 'full' classes always included
+  const allClasses = config.classes || [];
+  const classes = allClasses.filter(cls => {
+    const s = cls.semester || 'full';
+    return s === 'full' || s === semester;
+  });
   const teachers = config.teachers || [];
   const rooms = config.rooms || [];
   const studentGroups = config.studentGroups || [];
@@ -886,7 +891,96 @@ async function autoGenerate(config, periods) {
     });
   });
 
-  return { grid: finalGrid, unplaced, emptySlots, groupGaps, attempts: NUM_ATTEMPTS, score: bestScore };
+  // ── MONTE CARLO SUGGESTIONS — if classes couldn't be placed, try alternate configs ──
+  const suggestions = [];
+  if (unplaced.length > 0) {
+    const unplacedIds = new Set(unplaced.map(u => u.name));
+
+    // Suggestion 1: Try reducing days/week for unplaced classes
+    for (const item of unplaced) {
+      const cls = classes.find(c => c.name === item.name);
+      if (!cls) continue;
+      const currentDays = cls.daysPerWeek || 5;
+      if (currentDays > 1) {
+        suggestions.push({
+          type: 'reduce_days',
+          className: cls.name,
+          current: currentDays,
+          suggested: currentDays - 1,
+          text: `Try reducing ${cls.name} from ${currentDays} to ${currentDays - 1} days/week`
+        });
+      }
+    }
+
+    // Suggestion 2: Check if a teacher is overloaded
+    const teacherLoad = {};
+    classes.forEach(cls => {
+      if (!cls.teacherId) return;
+      if (!teacherLoad[cls.teacherId]) teacherLoad[cls.teacherId] = { name: '', totalPeriods: 0, classes: [] };
+      const t = teachers.find(t => t.id === cls.teacherId);
+      teacherLoad[cls.teacherId].name = t?.name || 'Unknown';
+      const dpw = cls.daysPerWeek || 5;
+      const lab = cls.labDaysPerWeek || 0;
+      const dur = cls.duration || 1;
+      const totalPeriods = lab > 0 ? (dpw - lab) * 1 + lab * 2 : dpw * dur;
+      teacherLoad[cls.teacherId].totalPeriods += totalPeriods;
+      teacherLoad[cls.teacherId].classes.push(cls.name);
+    });
+    const maxPeriodsPerWeek = classPeriods.length * 5;
+    Object.entries(teacherLoad).forEach(([tid, info]) => {
+      if (info.totalPeriods > maxPeriodsPerWeek * 0.85) {
+        suggestions.push({
+          type: 'teacher_overloaded',
+          text: `${info.name} is assigned ${info.totalPeriods} periods/week (max available: ${maxPeriodsPerWeek}). Consider moving a class to another teacher.`
+        });
+      }
+    });
+
+    // Suggestion 3: Check student group overload
+    const groupLoad = {};
+    studentGroups.forEach(g => { groupLoad[g.id] = { name: g.name, totalPeriods: 0 }; });
+    classes.forEach(cls => {
+      const dpw = cls.daysPerWeek || 5;
+      const lab = cls.labDaysPerWeek || 0;
+      const dur = cls.duration || 1;
+      const totalPeriods = lab > 0 ? (dpw - lab) * 1 + lab * 2 : dpw * dur;
+      (cls.groupIds || []).forEach(gId => {
+        if (groupLoad[gId]) groupLoad[gId].totalPeriods += totalPeriods;
+      });
+    });
+    Object.entries(groupLoad).forEach(([gid, info]) => {
+      if (info.totalPeriods > maxPeriodsPerWeek) {
+        suggestions.push({
+          type: 'group_overloaded',
+          text: `${info.name} has ${info.totalPeriods} class-periods/week but only ${maxPeriodsPerWeek} slots available. Reduce class days or move a class to semester-only.`
+        });
+      }
+    });
+
+    // Suggestion 4: If lab classes couldn't be placed, suggest removing lab
+    unplaced.forEach(item => {
+      const cls = classes.find(c => c.name === item.name);
+      if (cls && (cls.labDaysPerWeek || 0) > 0) {
+        suggestions.push({
+          type: 'remove_lab',
+          text: `${cls.name} has a lab day (double period). Try making it all single periods to free up slots.`
+        });
+      }
+    });
+
+    // Suggestion 5: If full-year class, suggest making it semester-only
+    unplaced.forEach(item => {
+      const cls = classes.find(c => c.name === item.name);
+      if (cls && (cls.semester || 'full') === 'full') {
+        suggestions.push({
+          type: 'semester_split',
+          text: `${cls.name} is full-year. Could it be offered only one semester to free up schedule space?`
+        });
+      }
+    });
+  }
+
+  return { grid: finalGrid, unplaced, emptySlots, groupGaps, attempts: NUM_ATTEMPTS, score: bestScore, suggestions };
 }
 
 // ============================================================
@@ -916,106 +1010,7 @@ export default function ScheduleBuilder({ isAdmin }) {
   // ============================================================
   // CONFLICT DETECTION
   // ============================================================
-  const conflicts = useMemo(() => {
-    if (!local) return {};
-    const issues = {};
-    const grid = local.grid || {};
-
-    DAYS.forEach(day => {
-      // Build a map: periodIndex -> list of { classId, roomId }
-      const periodMap = {};
-      periods.filter(p => p.type === 'class').forEach(p => { periodMap[p.index] = []; });
-
-      Object.entries(grid).forEach(([key, assignments]) => {
-        if (!key.startsWith(day + '-')) return;
-        const pIdx = parseInt(key.split('-')[1]);
-        const arr = Array.isArray(assignments) ? assignments : [assignments];
-        arr.forEach(a => {
-          if (!a?.classId) return;
-          const cls = (local.classes || []).find(c => c.id === a.classId);
-          const occupied = getOccupiedIndices(pIdx, a.duration || cls?.duration || 1, periods);
-          occupied.forEach(oi => {
-            if (periodMap[oi]) periodMap[oi].push({ ...a, sourceIdx: pIdx });
-          });
-        });
-      });
-
-      // Check each period
-      Object.entries(periodMap).forEach(([pIdxStr, assignments]) => {
-        const pIdx = parseInt(pIdxStr);
-        const key = gk(day, pIdx);
-        const dayIssues = [];
-        const teacherSlots = {}, roomSlots = {}, groupSlots = {};
-
-        assignments.forEach(a => {
-          const cls = (local.classes || []).find(c => c.id === a.classId);
-          if (!cls) return;
-
-          if (cls.teacherId) {
-            if (teacherSlots[cls.teacherId]) {
-              const other = (local.classes || []).find(c => c.id === teacherSlots[cls.teacherId]);
-              const t = (local.teachers || []).find(t => t.id === cls.teacherId);
-              dayIssues.push(`${t?.name || 'Teacher'} double-booked (${cls.name} & ${other?.name})`);
-            }
-            teacherSlots[cls.teacherId] = a.classId;
-            const t = (local.teachers || []).find(t => t.id === cls.teacherId);
-            if (t && !isTeacherAvailable(t, pIdx, day, periods))
-              dayIssues.push(`${t.name} unavailable`);
-          }
-
-          if (a.roomId) {
-            if (roomSlots[a.roomId]) {
-              const other = (local.classes || []).find(c => c.id === roomSlots[a.roomId]);
-              const r = (local.rooms || []).find(r => r.id === a.roomId);
-              dayIssues.push(`${r?.name} double-booked (${cls.name} & ${other?.name})`);
-            }
-            roomSlots[a.roomId] = a.classId;
-          }
-
-          (cls.groupIds || []).forEach(gId => {
-            if (groupSlots[gId]) {
-              const otherCls = (local.classes || []).find(c => c.id === groupSlots[gId]);
-              // Skip conflict if both classes are in the same concurrent group
-              const isConcurrent = cls.concurrentGroup && otherCls?.concurrentGroup && cls.concurrentGroup === otherCls.concurrentGroup;
-              if (!isConcurrent) {
-                const g = (local.studentGroups || []).find(g => g.id === gId);
-                dayIssues.push(`${g?.name} double-booked (${cls.name} & ${otherCls?.name})`);
-              }
-            }
-            groupSlots[gId] = a.classId;
-          });
-        });
-        if (dayIssues.length > 0) {
-          if (!issues[key]) issues[key] = [];
-          issues[key].push(...dayIssues);
-        }
-      });
-    });
-
-    // FT planning period check
-    issues.general = [];
-    const ftTeachers = (local.teachers || []).filter(t => t.type === 'ft');
-    const cpIndices = periods.filter(p => p.type === 'class').map(p => p.index);
-    ftTeachers.forEach(teacher => {
-      DAYS.forEach(day => {
-        // Only count periods valid for this day (early release)
-        const validCpIndices = cpIndices.filter(pIdx => isPeriodValidForDay(day, pIdx, local.schoolDay, periods));
-        let teaching = 0;
-        validCpIndices.forEach(pIdx => {
-          const key = gk(day, pIdx);
-          const arr = grid[key] ? (Array.isArray(grid[key]) ? grid[key] : [grid[key]]) : [];
-          if (arr.some(a => { const c = (local.classes || []).find(c => c.id === a.classId); return c?.teacherId === teacher.id; }))
-            teaching++;
-        });
-        const free = validCpIndices.length - teaching;
-        if (free < 2)
-          issues.general.push(`${teacher.name} has only ${free} free period${free !== 1 ? 's' : ''} on ${DAY_SHORT[day]} (min 2)`);
-      });
-    });
-    if (issues.general.length === 0) delete issues.general;
-
-    return issues;
-  }, [local, periods]);
+  // Conflicts are now computed inside GridPanel (depends on active semester)
 
   if (loading || !local) return <div style={{ padding: 40, textAlign: 'center', color: '#9CA3AF' }}>Loading schedule...</div>;
 
@@ -1058,7 +1053,7 @@ export default function ScheduleBuilder({ isAdmin }) {
       {tab === 'settings' && <SettingsPanel config={local} update={update} periods={periods} />}
       {tab === 'teachers' && <TeachersPanel config={local} update={update} periods={periods} />}
       {tab === 'classes' && <ClassesPanel config={local} update={update} />}
-      {tab === 'grid' && <GridPanel config={local} update={update} periods={periods} conflicts={conflicts} />}
+      {tab === 'grid' && <GridPanel config={local} update={update} periods={periods} />}
       {tab === 'preview' && <SchedulePreview config={local} />}
     </div>
   );
@@ -1298,13 +1293,13 @@ function PinAdder({ onAdd }) {
 // CLASSES PANEL — with days/week and inline editing
 // ============================================================
 function ClassesPanel({ config, update }) {
-  const [nc, setNc] = useState({ name: '', teacherId: '', groupIds: [], daysPerWeek: 5, duration: 1, labDaysPerWeek: 0, concurrentGroup: '' });
+  const [nc, setNc] = useState({ name: '', teacherId: '', groupIds: [], daysPerWeek: 5, duration: 1, labDaysPerWeek: 0, semester: 'full', concurrentGroup: '' });
   const [editingId, setEditingId] = useState(null);
 
   const addClass = () => {
     if (!nc.name.trim()) return;
-    update(c => { c.classes.push({ id: genId(), name: nc.name.trim(), teacherId: nc.teacherId, groupIds: nc.groupIds, daysPerWeek: nc.daysPerWeek, duration: nc.duration, labDaysPerWeek: nc.labDaysPerWeek || 0, concurrentGroup: nc.concurrentGroup || '' }); });
-    setNc({ name: '', teacherId: '', groupIds: [], daysPerWeek: 5, duration: 1, labDaysPerWeek: 0, concurrentGroup: '' });
+    update(c => { c.classes.push({ id: genId(), name: nc.name.trim(), teacherId: nc.teacherId, groupIds: nc.groupIds, daysPerWeek: nc.daysPerWeek, duration: nc.duration, labDaysPerWeek: nc.labDaysPerWeek || 0, semester: nc.semester || 'full', concurrentGroup: nc.concurrentGroup || '' }); });
+    setNc({ name: '', teacherId: '', groupIds: [], daysPerWeek: 5, duration: 1, labDaysPerWeek: 0, semester: 'full', concurrentGroup: '' });
   };
 
   // Get existing concurrent group labels for the dropdown
@@ -1404,7 +1399,15 @@ function ClassesPanel({ config, update }) {
           </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
-          <span style={{ fontSize: 12, color: '#6B7280' }}>Students:</span>
+          <div className="sched-field" style={{ flex: 0 }}>
+            <label style={{ fontSize: 11 }}>Semester</label>
+            <select value={nc.semester} onChange={e => setNc({ ...nc, semester: e.target.value })} style={{ width: 90 }}>
+              <option value="full">Full Year</option>
+              <option value="s1">Sem 1</option>
+              <option value="s2">Sem 2</option>
+            </select>
+          </div>
+          <span style={{ fontSize: 12, color: '#6B7280', marginLeft: 8 }}>Students:</span>
           {(config.studentGroups || []).map(g => (
             <button key={g.id} className={`btn btn-sm ${nc.groupIds.includes(g.id) ? 'btn-primary' : 'btn-secondary'}`}
               onClick={() => toggleGroup(g.id)} style={nc.groupIds.includes(g.id) ? { background: g.color } : {}}>{g.name}</button>
@@ -1418,7 +1421,7 @@ function ClassesPanel({ config, update }) {
       ) : (
         <div style={{ overflowX: 'auto' }}>
           <table className="data-table">
-            <thead><tr><th style={{ width: 30 }}>#</th><th style={{ width: 40 }}></th><th>Class</th><th>Teacher</th><th>Students</th><th>Days/Wk</th><th>Duration</th><th>Concurrent</th><th></th></tr></thead>
+            <thead><tr><th style={{ width: 30 }}>#</th><th style={{ width: 40 }}></th><th>Class</th><th>Teacher</th><th>Students</th><th>Days/Wk</th><th>Duration</th><th>Sem</th><th>Concurrent</th><th></th></tr></thead>
             <tbody>
               {(config.classes || []).map((cls, cIdx) => {
                 const teacher = (config.teachers || []).find(t => t.id === cls.teacherId);
@@ -1502,6 +1505,22 @@ function ClassesPanel({ config, update }) {
                         (cls.labDaysPerWeek || 0) > 0
                           ? <span style={{ fontSize: 12 }}>{daysPerWeek - cls.labDaysPerWeek}× single + {cls.labDaysPerWeek}× lab</span>
                           : (cls.duration || 1) === 2 ? 'Double' : 'Single'
+                      )}
+                    </td>
+                    <td>
+                      {isEditing ? (
+                        <select value={cls.semester || 'full'} onChange={e => updateClass(cIdx, 'semester', e.target.value)}
+                          style={{ fontSize: 12, padding: '2px 4px', border: '1px solid #D1D5DB', borderRadius: 4 }}>
+                          <option value="full">Full</option>
+                          <option value="s1">S1</option>
+                          <option value="s2">S2</option>
+                        </select>
+                      ) : (
+                        <span className="badge" style={{ fontSize: 10,
+                          background: (cls.semester || 'full') === 'full' ? '#E5E7EB' : (cls.semester === 's1' ? '#DBEAFE' : '#FCE7F3'),
+                          color: (cls.semester || 'full') === 'full' ? '#6B7280' : (cls.semester === 's1' ? '#1E40AF' : '#9D174D') }}>
+                          {(cls.semester || 'full') === 'full' ? 'Full' : cls.semester === 's1' ? 'S1' : 'S2'}
+                        </span>
                       )}
                     </td>
                     <td>
@@ -1610,30 +1629,92 @@ function ClassesPanel({ config, update }) {
 // ============================================================
 // GRID PANEL — full M-F grid
 // ============================================================
-function GridPanel({ config, update, periods, conflicts }) {
+function GridPanel({ config, update, periods }) {
   const [pickerCell, setPickerCell] = useState(null); // "day-pIdx"
   const [genResult, setGenResult] = useState(null); // { unplaced, emptySlots }
   const [dragData, setDragData] = useState(null); // { classId, fromDay, fromPIdx, roomId }
   const [dropTarget, setDropTarget] = useState(null); // "day-pIdx"
-  const grid = config.grid || {};
+  const [semester, setSemester] = useState('s1'); // which semester we're building
+  const gridKey = semester === 's1' ? 'gridS1' : 'gridS2';
+  const grid = config[gridKey] || config.grid || {}; // fallback to legacy grid
   const classPeriods = periods.filter(p => p.type === 'class');
+
+  // Conflict detection for current semester grid
+  const conflicts = useMemo(() => {
+    const issues = {};
+    DAYS.forEach(day => {
+      const periodMap = {};
+      periods.filter(p => p.type === 'class').forEach(p => { periodMap[p.index] = []; });
+      Object.entries(grid).forEach(([key, assignments]) => {
+        if (!key.startsWith(day + '-')) return;
+        const pIdx = parseInt(key.split('-')[1]);
+        const arr = Array.isArray(assignments) ? assignments : [assignments];
+        arr.forEach(a => {
+          if (!a?.classId) return;
+          const cls = (config.classes || []).find(c => c.id === a.classId);
+          const occupied = getOccupiedIndices(pIdx, a.duration || cls?.duration || 1, periods);
+          occupied.forEach(oi => { if (periodMap[oi]) periodMap[oi].push({ ...a, sourceIdx: pIdx }); });
+        });
+      });
+      Object.entries(periodMap).forEach(([pIdxStr, assignments]) => {
+        const pIdx = parseInt(pIdxStr);
+        const key = gk(day, pIdx);
+        const dayIssues = [];
+        const teacherSlots = {}, roomSlots = {}, groupSlots = {};
+        assignments.forEach(a => {
+          const cls = (config.classes || []).find(c => c.id === a.classId);
+          if (!cls) return;
+          if (cls.teacherId) {
+            if (teacherSlots[cls.teacherId]) {
+              const other = (config.classes || []).find(c => c.id === teacherSlots[cls.teacherId]);
+              const t = (config.teachers || []).find(t => t.id === cls.teacherId);
+              dayIssues.push(`${t?.name || 'Teacher'} double-booked (${cls.name} & ${other?.name})`);
+            }
+            teacherSlots[cls.teacherId] = a.classId;
+            const t = (config.teachers || []).find(t => t.id === cls.teacherId);
+            if (t && !isTeacherAvailable(t, pIdx, day, periods)) dayIssues.push(`${t.name} unavailable`);
+          }
+          if (a.roomId) {
+            if (roomSlots[a.roomId]) {
+              const other = (config.classes || []).find(c => c.id === roomSlots[a.roomId]);
+              const r = (config.rooms || []).find(r => r.id === a.roomId);
+              dayIssues.push(`${r?.name} double-booked (${cls.name} & ${other?.name})`);
+            }
+            roomSlots[a.roomId] = a.classId;
+          }
+          (cls.groupIds || []).forEach(gId => {
+            if (groupSlots[gId]) {
+              const otherCls = (config.classes || []).find(c => c.id === groupSlots[gId]);
+              const isConcurrent = cls.concurrentGroup && otherCls?.concurrentGroup && cls.concurrentGroup === otherCls.concurrentGroup;
+              if (!isConcurrent) {
+                const g = (config.studentGroups || []).find(g => g.id === gId);
+                dayIssues.push(`${g?.name} double-booked (${cls.name} & ${otherCls?.name})`);
+              }
+            }
+            groupSlots[gId] = a.classId;
+          });
+        });
+        if (dayIssues.length > 0) { if (!issues[key]) issues[key] = []; issues[key].push(...dayIssues); }
+      });
+    });
+    return issues;
+  }, [config, grid, periods]);
 
   const [generating, setGenerating] = useState(false);
   const handleGenerate = async () => {
-    const hasExisting = Object.keys(config.grid || {}).length > 0;
-    if (hasExisting && !window.confirm('This will clear the current schedule and generate a new one. Continue?')) return;
+    const hasExisting = Object.keys(grid).length > 0;
+    if (hasExisting && !window.confirm(`This will clear the ${semester === 's1' ? 'Semester 1' : 'Semester 2'} schedule and generate a new one. Continue?`)) return;
 
     setGenerating(true);
     setGenResult(null);
-    // Yield one frame so the UI updates with "Generating..." before we start
     await new Promise(r => setTimeout(r, 50));
 
-    const result = await autoGenerate(config, periods);
+    const result = await autoGenerate(config, periods, semester);
     setGenerating(false);
     if (!result) { setGenResult({ error: 'Add classes and set up school day settings first.' }); setTimeout(() => setGenResult(null), 3000); return; }
 
-    update(c => { c.grid = result.grid; });
-    setGenResult({ unplaced: result.unplaced, emptySlots: result.emptySlots, groupGaps: result.groupGaps, attempts: result.attempts, score: result.score });
+    update(c => { c[gridKey] = result.grid; });
+    setGenResult({ unplaced: result.unplaced, emptySlots: result.emptySlots, groupGaps: result.groupGaps, attempts: result.attempts, score: result.score, suggestions: result.suggestions });
   };
 
   const getAssignments = (day, pIdx) => {
@@ -1644,11 +1725,11 @@ function GridPanel({ config, update, periods, conflicts }) {
 
   const addToCell = (day, pIdx, classId, roomId) => {
     update(c => {
-      if (!c.grid) c.grid = {};
+      if (!c[gridKey]) c[gridKey] = {};
       const key = gk(day, pIdx);
-      const existing = c.grid[key] ? (Array.isArray(c.grid[key]) ? c.grid[key] : [c.grid[key]]) : [];
+      const existing = c[gridKey][key] ? (Array.isArray(c[gridKey][key]) ? c[gridKey][key] : [c[gridKey][key]]) : [];
       existing.push({ classId, roomId });
-      c.grid[key] = existing;
+      c[gridKey][key] = existing;
     });
     setPickerCell(null);
   };
@@ -1656,10 +1737,10 @@ function GridPanel({ config, update, periods, conflicts }) {
   const removeFromCell = (day, pIdx, classId) => {
     update(c => {
       const key = gk(day, pIdx);
-      if (!c.grid?.[key]) return;
-      const arr = Array.isArray(c.grid[key]) ? c.grid[key] : [c.grid[key]];
-      c.grid[key] = arr.filter(a => a.classId !== classId);
-      if (c.grid[key].length === 0) delete c.grid[key];
+      if (!c[gridKey]?.[key]) return;
+      const arr = Array.isArray(c[gridKey][key]) ? c[gridKey][key] : [c[gridKey][key]];
+      c[gridKey][key] = arr.filter(a => a.classId !== classId);
+      if (c[gridKey][key].length === 0) delete c[gridKey][key];
     });
   };
 
@@ -1694,19 +1775,20 @@ function GridPanel({ config, update, periods, conflicts }) {
 
     // Move: remove from old cell, add to new cell
     update(c => {
-      if (!c.grid) c.grid = {};
+      if (!c[gridKey]) c[gridKey] = {};
+      const g = c[gridKey];
       // Remove from source
       const srcKey = gk(fromDay, fromPIdx);
-      if (c.grid[srcKey]) {
-        const srcArr = Array.isArray(c.grid[srcKey]) ? c.grid[srcKey] : [c.grid[srcKey]];
-        c.grid[srcKey] = srcArr.filter(a => a.classId !== classId);
-        if (c.grid[srcKey].length === 0) delete c.grid[srcKey];
+      if (g[srcKey]) {
+        const srcArr = Array.isArray(g[srcKey]) ? g[srcKey] : [g[srcKey]];
+        g[srcKey] = srcArr.filter(a => a.classId !== classId);
+        if (g[srcKey].length === 0) delete g[srcKey];
       }
       // Add to destination
       const destKey = gk(day, pIdx);
-      const destArr = c.grid[destKey] ? (Array.isArray(c.grid[destKey]) ? c.grid[destKey] : [c.grid[destKey]]) : [];
+      const destArr = g[destKey] ? (Array.isArray(g[destKey]) ? g[destKey] : [g[destKey]]) : [];
       destArr.push({ classId, roomId });
-      c.grid[destKey] = destArr;
+      g[destKey] = destArr;
     });
   };
 
@@ -1782,6 +1864,14 @@ function GridPanel({ config, update, periods, conflicts }) {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
         <h3 className="section-title" style={{ marginBottom: 0 }}>Schedule Grid</h3>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <div style={{ display: 'flex', borderRadius: 6, overflow: 'hidden', border: '1px solid #D1D5DB' }}>
+            <button onClick={() => { setSemester('s1'); setGenResult(null); }}
+              style={{ padding: '4px 12px', fontSize: 12, fontWeight: 600, border: 'none', cursor: 'pointer',
+                background: semester === 's1' ? '#1B3A5C' : '#F3F4F6', color: semester === 's1' ? '#fff' : '#6B7280' }}>Sem 1</button>
+            <button onClick={() => { setSemester('s2'); setGenResult(null); }}
+              style={{ padding: '4px 12px', fontSize: 12, fontWeight: 600, border: 'none', cursor: 'pointer', borderLeft: '1px solid #D1D5DB',
+                background: semester === 's2' ? '#1B3A5C' : '#F3F4F6', color: semester === 's2' ? '#fff' : '#6B7280' }}>Sem 2</button>
+          </div>
           <button className="btn btn-gold btn-sm" onClick={handleGenerate} disabled={generating}>{generating ? '⏳ Generating...' : '⚡ Auto-Generate'}</button>
         </div>
       </div>
@@ -1857,6 +1947,14 @@ function GridPanel({ config, update, periods, conflicts }) {
                       ));
                     })()}
                   </div>
+                </div>
+              )}
+              {genResult.suggestions && genResult.suggestions.length > 0 && (
+                <div style={{ marginTop: 8, padding: 8, background: '#EFF6FF', borderRadius: 6, border: '1px solid #BFDBFE' }}>
+                  <div style={{ fontWeight: 600, fontSize: 12, color: '#1E40AF', marginBottom: 4 }}>💡 Suggestions to fix placement:</div>
+                  {genResult.suggestions.map((s, i) => (
+                    <div key={i} style={{ fontSize: 12, color: '#1E40AF', paddingLeft: 8, marginTop: 2 }}>• {s.text}</div>
+                  ))}
                 </div>
               )}
               {genResult.emptySlots.length === 0 && genResult.unplaced.length === 0 && (!genResult.groupGaps || genResult.groupGaps.length === 0) && (
