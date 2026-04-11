@@ -103,13 +103,38 @@ function autoGenerate(config, periods) {
   const teacherMap = {};
   teachers.forEach(t => { teacherMap[t.id] = t; });
 
+  // Build concurrent group lookup: concurrentGroup label -> [classId, classId, ...]
+  const concurrentMap = {};
+  classes.forEach(cls => {
+    if (cls.concurrentGroup) {
+      if (!concurrentMap[cls.concurrentGroup]) concurrentMap[cls.concurrentGroup] = [];
+      concurrentMap[cls.concurrentGroup].push(cls.id);
+    }
+  });
+
+  // Check if two classes are in the same concurrent group
+  const areConcurrent = (classIdA, classIdB) => {
+    const clsA = classes.find(c => c.id === classIdA);
+    const clsB = classes.find(c => c.id === classIdB);
+    return clsA?.concurrentGroup && clsB?.concurrentGroup && clsA.concurrentGroup === clsB.concurrentGroup;
+  };
+
   // Build task list: each class×day-needed = one task
+  // Concurrent classes are bundled — only the first class in a group creates tasks
   const buildTasks = () => {
     const tasks = [];
+    const handledConcurrent = new Set();
     classes.forEach(cls => {
+      if (cls.concurrentGroup && handledConcurrent.has(cls.concurrentGroup)) return;
+      if (cls.concurrentGroup) handledConcurrent.add(cls.concurrentGroup);
+
       const need = cls.daysPerWeek || (cls.days ? cls.days.length : 5);
+      const partners = cls.concurrentGroup ? (concurrentMap[cls.concurrentGroup] || []) : [cls.id];
       for (let i = 0; i < need; i++) {
-        tasks.push({ classId: cls.id, teacherId: cls.teacherId, groupIds: cls.groupIds || [], duration: cls.duration || 1 });
+        tasks.push({
+          classId: cls.id, teacherId: cls.teacherId, groupIds: cls.groupIds || [],
+          duration: cls.duration || 1, concurrentPartners: partners.filter(id => id !== cls.id)
+        });
       }
     });
     return tasks;
@@ -141,7 +166,7 @@ function autoGenerate(config, periods) {
     return indices;
   };
 
-  // Validity check
+  // Validity check — also validates concurrent partners can be placed
   const canPlace = (task, day, pIdx, state) => {
     const occupied = getOccupied(pIdx, task.duration);
     if (!occupied) return false;
@@ -153,8 +178,19 @@ function autoGenerate(config, periods) {
         const t = teacherMap[task.teacherId];
         if (t && !isTeacherAvailable(t, oi, day, periods)) return false;
       }
+      // Student group conflict — skip if the existing class is a concurrent partner
       for (const gId of task.groupIds) {
-        if (state.groupSlots[gId]?.[day]?.has(oi)) return false;
+        if (state.groupSlots[gId]?.[day]?.has(oi)) {
+          // Check if the conflict is from a concurrent partner (that's OK)
+          const key = getKey(day, oi);
+          const existing = state.grid[key] || [];
+          const conflictFromNonPartner = existing.some(a => {
+            const cls = classes.find(c => c.id === a.classId);
+            if (!cls || !(cls.groupIds || []).includes(gId)) return false;
+            return !areConcurrent(task.classId, a.classId);
+          });
+          if (conflictFromNonPartner) return false;
+        }
       }
     }
 
@@ -166,6 +202,29 @@ function autoGenerate(config, periods) {
         if (classPeriods.length - after < 2) return false;
       }
     }
+
+    // Check concurrent partners can also be placed here
+    for (const partnerId of (task.concurrentPartners || [])) {
+      const partner = classes.find(c => c.id === partnerId);
+      if (!partner) continue;
+      if (state.classDays[partnerId]?.has(day)) return false;
+      for (const oi of occupied) {
+        if (partner.teacherId && state.teacherSlots[partner.teacherId]?.[day]?.has(oi)) return false;
+        if (partner.teacherId) {
+          const t = teacherMap[partner.teacherId];
+          if (t && !isTeacherAvailable(t, oi, day, periods)) return false;
+        }
+      }
+      // Check FT teacher planning for partner
+      if (partner.teacherId) {
+        const t = teacherMap[partner.teacherId];
+        if (t?.type === 'ft') {
+          const after = (state.teacherSlots[partner.teacherId][day]?.size || 0) + (partner.duration || 1);
+          if (classPeriods.length - after < 2) return false;
+        }
+      }
+    }
+
     return true;
   };
 
@@ -360,10 +419,22 @@ function autoGenerate(config, periods) {
       const roomId = findRoom(task, opt.day, opt.pIdx, state);
       place(task, opt.day, opt.pIdx, roomId, state);
 
+      // Also place concurrent partners at the same slot
+      const partnerPlacements = [];
+      for (const partnerId of (task.concurrentPartners || [])) {
+        const partner = classes.find(c => c.id === partnerId);
+        if (!partner) continue;
+        const pTask = { classId: partnerId, teacherId: partner.teacherId, groupIds: partner.groupIds || [], duration: partner.duration || 1 };
+        const pRoom = findRoom(pTask, opt.day, opt.pIdx, state);
+        place(pTask, opt.day, opt.pIdx, pRoom, state);
+        partnerPlacements.push({ task: pTask, roomId: pRoom });
+      }
+
       const result = solve(tasks, state, depth + 1, maxBacktracks - backtracks);
       if (result.placed === tasks.length) return result; // perfect — done
 
-      // Backtrack
+      // Backtrack — unplace partners first, then main task
+      for (const pp of partnerPlacements) unplace(pp.task, opt.day, opt.pIdx, pp.roomId, state);
       unplace(task, opt.day, opt.pIdx, roomId, state);
       backtracks++;
       if (backtracks >= maxBacktracks) break; // budget exhausted for this level
@@ -567,9 +638,13 @@ export default function ScheduleBuilder({ isAdmin }) {
 
           (cls.groupIds || []).forEach(gId => {
             if (groupSlots[gId]) {
-              const other = (local.classes || []).find(c => c.id === groupSlots[gId]);
-              const g = (local.studentGroups || []).find(g => g.id === gId);
-              dayIssues.push(`${g?.name} double-booked (${cls.name} & ${other?.name})`);
+              const otherCls = (local.classes || []).find(c => c.id === groupSlots[gId]);
+              // Skip conflict if both classes are in the same concurrent group
+              const isConcurrent = cls.concurrentGroup && otherCls?.concurrentGroup && cls.concurrentGroup === otherCls.concurrentGroup;
+              if (!isConcurrent) {
+                const g = (local.studentGroups || []).find(g => g.id === gId);
+                dayIssues.push(`${g?.name} double-booked (${cls.name} & ${otherCls?.name})`);
+              }
             }
             groupSlots[gId] = a.classId;
           });
@@ -842,14 +917,21 @@ function AddUnavailability({ periods, onAdd }) {
 // CLASSES PANEL — with days/week and inline editing
 // ============================================================
 function ClassesPanel({ config, update }) {
-  const [nc, setNc] = useState({ name: '', teacherId: '', groupIds: [], daysPerWeek: 5, duration: 1 });
+  const [nc, setNc] = useState({ name: '', teacherId: '', groupIds: [], daysPerWeek: 5, duration: 1, concurrentGroup: '' });
   const [editingId, setEditingId] = useState(null);
 
   const addClass = () => {
     if (!nc.name.trim()) return;
-    update(c => { c.classes.push({ id: genId(), name: nc.name.trim(), teacherId: nc.teacherId, groupIds: nc.groupIds, daysPerWeek: nc.daysPerWeek, duration: nc.duration }); });
-    setNc({ name: '', teacherId: '', groupIds: [], daysPerWeek: 5, duration: 1 });
+    update(c => { c.classes.push({ id: genId(), name: nc.name.trim(), teacherId: nc.teacherId, groupIds: nc.groupIds, daysPerWeek: nc.daysPerWeek, duration: nc.duration, concurrentGroup: nc.concurrentGroup || '' }); });
+    setNc({ name: '', teacherId: '', groupIds: [], daysPerWeek: 5, duration: 1, concurrentGroup: '' });
   };
+
+  // Get existing concurrent group labels for the dropdown
+  const existingConcurrentGroups = useMemo(() => {
+    const groups = new Set();
+    (config.classes || []).forEach(cls => { if (cls.concurrentGroup) groups.add(cls.concurrentGroup); });
+    return [...groups].sort();
+  }, [config.classes]);
 
   const toggleGroup = (gId) => setNc(p => ({ ...p, groupIds: p.groupIds.includes(gId) ? p.groupIds.filter(g => g !== gId) : [...p.groupIds, gId] }));
 
@@ -909,6 +991,23 @@ function ClassesPanel({ config, update }) {
               <option value={2}>Double</option>
             </select>
           </div>
+          <div className="sched-field" style={{ flex: 0 }}>
+            <label style={{ fontSize: 11 }}>Concurrent</label>
+            <div style={{ display: 'flex', gap: 4 }}>
+              <select value={existingConcurrentGroups.includes(nc.concurrentGroup) ? nc.concurrentGroup : (nc.concurrentGroup ? '__custom__' : '')}
+                onChange={e => { if (e.target.value === '__custom__') return; setNc({ ...nc, concurrentGroup: e.target.value }); }}
+                style={{ width: 80 }}>
+                <option value="">None</option>
+                {existingConcurrentGroups.map(g => <option key={g} value={g}>{g}</option>)}
+                <option value="__custom__">New...</option>
+              </select>
+              {(nc.concurrentGroup && !existingConcurrentGroups.includes(nc.concurrentGroup)) || nc.concurrentGroup === '__custom__' ? (
+                <input type="text" placeholder="e.g. A" value={nc.concurrentGroup === '__custom__' ? '' : nc.concurrentGroup}
+                  onChange={e => setNc({ ...nc, concurrentGroup: e.target.value.toUpperCase() })}
+                  style={{ width: 50, fontSize: 12, padding: '2px 4px', border: '1px solid #D1D5DB', borderRadius: 4 }} />
+              ) : null}
+            </div>
+          </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
           <span style={{ fontSize: 12, color: '#6B7280' }}>Students:</span>
@@ -925,7 +1024,7 @@ function ClassesPanel({ config, update }) {
       ) : (
         <div style={{ overflowX: 'auto' }}>
           <table className="data-table">
-            <thead><tr><th style={{ width: 30 }}>#</th><th style={{ width: 40 }}></th><th>Class</th><th>Teacher</th><th>Students</th><th>Days/Wk</th><th>Duration</th><th></th></tr></thead>
+            <thead><tr><th style={{ width: 30 }}>#</th><th style={{ width: 40 }}></th><th>Class</th><th>Teacher</th><th>Students</th><th>Days/Wk</th><th>Duration</th><th>Concurrent</th><th></th></tr></thead>
             <tbody>
               {(config.classes || []).map((cls, cIdx) => {
                 const teacher = (config.teachers || []).find(t => t.id === cls.teacherId);
@@ -995,6 +1094,25 @@ function ClassesPanel({ config, update }) {
                       )}
                     </td>
                     <td>
+                      {isEditing ? (
+                        <div style={{ display: 'flex', gap: 4 }}>
+                          <select value={existingConcurrentGroups.includes(cls.concurrentGroup) ? cls.concurrentGroup : (cls.concurrentGroup ? '__custom__' : '')}
+                            onChange={e => { if (e.target.value !== '__custom__') updateClass(cIdx, 'concurrentGroup', e.target.value); }}
+                            style={{ fontSize: 12, padding: '2px 4px', border: '1px solid #D1D5DB', borderRadius: 4, width: 60 }}>
+                            <option value="">None</option>
+                            {existingConcurrentGroups.map(g => <option key={g} value={g}>{g}</option>)}
+                            <option value="__custom__">New...</option>
+                          </select>
+                          {cls.concurrentGroup && !existingConcurrentGroups.includes(cls.concurrentGroup) ? (
+                            <input type="text" value={cls.concurrentGroup} onChange={e => updateClass(cIdx, 'concurrentGroup', e.target.value.toUpperCase())}
+                              style={{ width: 40, fontSize: 12, padding: '2px 4px', border: '1px solid #D1D5DB', borderRadius: 4 }} />
+                          ) : null}
+                        </div>
+                      ) : (
+                        cls.concurrentGroup ? <span className="badge badge-gray" style={{ fontSize: 11 }}>{cls.concurrentGroup}</span> : <span style={{ color: '#D1D5DB', fontSize: 11 }}>—</span>
+                      )}
+                    </td>
+                    <td>
                       <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
                         <button className="btn btn-sm btn-secondary" onClick={() => setEditingId(isEditing ? null : cls.id)}
                           style={{ fontSize: 11, padding: '2px 8px' }}>{isEditing ? 'Done' : 'Edit'}</button>
@@ -1029,7 +1147,10 @@ function ClassesPanel({ config, update }) {
                       const dpw = cls.daysPerWeek || (cls.days ? cls.days.length : 5);
                       return (
                         <div key={cls.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12, padding: '3px 6px', background: i % 2 === 0 ? '#F9FAFB' : 'transparent', borderRadius: 4 }}>
-                          <span style={{ fontWeight: 500, color: '#1B3A5C' }}>{cls.name}</span>
+                          <span style={{ fontWeight: 500, color: '#1B3A5C' }}>
+                            {cls.name}
+                            {cls.concurrentGroup && <span className="badge badge-gray" style={{ fontSize: 9, marginLeft: 4, padding: '1px 4px' }}>{cls.concurrentGroup}</span>}
+                          </span>
                           <span style={{ color: '#6B7280', fontSize: 11 }}>{t?.name || '—'} · {dpw}×{(cls.duration || 1) === 2 ? ' (dbl)' : ''}</span>
                         </div>
                       );
