@@ -113,9 +113,9 @@ async function autoGenerate(config, periods) {
   if (classes.length === 0 || classPeriods.length === 0) return null;
 
   const getKey = (day, pIdx) => `${day}-${pIdx}`;
-  const NUM_ATTEMPTS = 8;
+  const NUM_ATTEMPTS = 30;
   const startTime = Date.now();
-  const TIME_LIMIT = 2000; // 2 second max
+  const TIME_LIMIT = 5000; // 5 second max
   const yieldToUI = () => new Promise(resolve => setTimeout(resolve, 0));
 
   // Pre-compute teacher lookup for speed
@@ -290,6 +290,39 @@ async function autoGenerate(config, periods) {
     }
   };
 
+  // Unplace a task from state (for repair phase)
+  const unplace = (task, day, pIdx, roomId, state) => {
+    const occupied = getOccupied(pIdx, task.duration);
+    const key = getKey(day, pIdx);
+    if (state.grid[key]) {
+      state.grid[key] = state.grid[key].filter(a => a.classId !== task.classId);
+      if (state.grid[key].length === 0) delete state.grid[key];
+    }
+    state.classDays[task.classId].delete(day);
+    const pidxArr = state.classPeriodMap[task.classId];
+    const rmIdx = pidxArr.indexOf(pIdx);
+    if (rmIdx !== -1) pidxArr.splice(rmIdx, 1);
+    for (const oi of occupied) {
+      if (task.teacherId && state.teacherSlots[task.teacherId]) state.teacherSlots[task.teacherId][day].delete(oi);
+      if (roomId && state.roomSlots[roomId]) state.roomSlots[roomId][day].delete(oi);
+      for (const gId of task.groupIds) {
+        if (state.groupSlots[gId]) state.groupSlots[gId][day].delete(oi);
+      }
+    }
+  };
+
+  // Count valid placement options for a task (for MRV ordering)
+  const countOptions = (task, state) => {
+    let count = 0;
+    for (const day of DAYS) {
+      if (state.classDays[task.classId].has(day)) continue;
+      for (const cp of classPeriods) {
+        if (canPlace(task, day, cp.index, state)) count++;
+      }
+    }
+    return count;
+  };
+
   // Shuffle array in place (Fisher-Yates)
   const shuffle = (arr) => {
     for (let i = arr.length - 1; i > 0; i--) {
@@ -421,14 +454,121 @@ async function autoGenerate(config, periods) {
     return true;
   };
 
-  // ── GREEDY SOLVER ──
-  // Single pass — no hard FT planning constraint, just soft preference in sorting
-  const solve = (tasks, state) => {
-    let placed = 0;
+  // ── Find what's blocking a task and return eviction candidates ──
+  const findBlockers = (task, state) => {
+    // For each day this class could go on, find which placements are blocking it
+    const blockers = [];
+    for (const day of DAYS) {
+      if (state.classDays[task.classId].has(day)) continue;
+      for (const cp of classPeriods) {
+        const occupied = getOccupied(cp.index, task.duration);
+        if (!occupied) continue;
+        if (occupied.some(oi => !isPeriodValidForDay(day, oi, sd, periods))) continue;
+        if (isOccupiedByDoublePeriod(day, cp.index, state)) continue;
 
+        // Find what's blocking this specific slot
+        const slotBlockers = [];
+        let blocked = false;
+        for (const oi of occupied) {
+          // Teacher conflict
+          if (task.teacherId && state.teacherSlots[task.teacherId]?.[day]?.has(oi)) {
+            const key = getKey(day, oi);
+            const existing = state.grid[key] || [];
+            existing.forEach(a => {
+              const cls = classes.find(c => c.id === a.classId);
+              if (cls && cls.teacherId === task.teacherId) slotBlockers.push({ classId: a.classId, day, pIdx: oi, roomId: a.roomId, duration: a.duration || cls.duration || 1 });
+            });
+            blocked = true;
+          }
+          // Group conflict
+          for (const gId of task.groupIds) {
+            if (state.groupSlots[gId]?.[day]?.has(oi)) {
+              const key = getKey(day, oi);
+              const existing = state.grid[key] || [];
+              existing.forEach(a => {
+                const cls = classes.find(c => c.id === a.classId);
+                if (cls && (cls.groupIds || []).includes(gId) && !areConcurrent(task.classId, a.classId)) {
+                  slotBlockers.push({ classId: a.classId, day, pIdx: oi, roomId: a.roomId, duration: a.duration || cls.duration || 1 });
+                }
+              });
+              blocked = true;
+            }
+          }
+        }
+        if (blocked && slotBlockers.length > 0) blockers.push(...slotBlockers);
+      }
+    }
+    return blockers;
+  };
+
+  // ── SOLVER with greedy pass + repair phase ──
+  const solve = (tasks, state, useRepair) => {
+    let placed = 0;
+    const unplacedTasks = [];
+
+    // Greedy pass
     for (const task of tasks) {
       if (tryPlace(task, state)) {
         placed++;
+      } else {
+        unplacedTasks.push(task);
+      }
+    }
+
+    // Repair phase: for each unplaced task, try evicting a blocker and re-placing both
+    if (useRepair && unplacedTasks.length > 0) {
+      const maxRepairs = 20; // limit repair attempts
+      let repairs = 0;
+      for (let i = unplacedTasks.length - 1; i >= 0 && repairs < maxRepairs; i--) {
+        const task = unplacedTasks[i];
+        const blockers = findBlockers(task, state);
+        if (blockers.length === 0) continue;
+
+        // Try evicting each unique blocker and see if both can be placed
+        const tried = new Set();
+        for (const blocker of blockers) {
+          const bKey = `${blocker.classId}-${blocker.day}-${blocker.pIdx}`;
+          if (tried.has(bKey)) continue;
+          tried.add(bKey);
+          repairs++;
+
+          const blockerCls = classes.find(c => c.id === blocker.classId);
+          if (!blockerCls) continue;
+          const blockerTask = { classId: blocker.classId, teacherId: blockerCls.teacherId, groupIds: blockerCls.groupIds || [], duration: blocker.duration };
+
+          // Temporarily remove the blocker
+          unplace(blockerTask, blocker.day, blocker.pIdx, blocker.roomId, state);
+
+          // Try placing the unplaced task
+          if (tryPlace(task, state)) {
+            // Now try re-placing the evicted blocker somewhere else
+            if (tryPlace(blockerTask, state)) {
+              // Success! Both placed
+              placed += 2; // task + blocker re-placed (blocker was already counted, so +1 net for task, but blocker was removed then re-added)
+              placed--; // blocker was already counted in original placed, we removed and re-placed it
+              unplacedTasks.splice(i, 1);
+              break;
+            } else {
+              // Can't re-place blocker — undo everything
+              // Remove the task we just placed
+              // Find where task was placed
+              const taskDay = [...state.classDays[task.classId]].pop();
+              const taskPIdx = state.classPeriodMap[task.classId][state.classPeriodMap[task.classId].length - 1];
+              if (taskDay !== undefined && taskPIdx !== undefined) {
+                const tKey = getKey(taskDay, taskPIdx);
+                const tAssignment = (state.grid[tKey] || []).find(a => a.classId === task.classId);
+                unplace(task, taskDay, taskPIdx, tAssignment?.roomId || '', state);
+              }
+              // Put blocker back
+              place(blockerTask, blocker.day, blocker.pIdx, blocker.roomId, state);
+            }
+          } else {
+            // Can't place task even after removing blocker — put blocker back
+            place(blockerTask, blocker.day, blocker.pIdx, blocker.roomId, state);
+          }
+
+          if (repairs >= maxRepairs) break;
+        }
       }
     }
 
@@ -504,17 +644,34 @@ async function autoGenerate(config, periods) {
       taskDayCounts[key].kept++;
     }
 
-    // First attempt: use pure MRV ordering. Rest: shuffle with bias.
-    if (attempt > 0) {
-      // Group tasks by class, shuffle class order, keep same-class tasks together
-      const byClass = {};
-      remainingTasks.forEach(t => { if (!byClass[t.classId]) byClass[t.classId] = []; byClass[t.classId].push(t); });
+    // Sort tasks: MRV on first attempt, shuffled MRV on rest
+    // Group by class, sort classes by constraint difficulty, keep same-class tasks together
+    const byClass = {};
+    remainingTasks.forEach(t => { if (!byClass[t.classId]) byClass[t.classId] = []; byClass[t.classId].push(t); });
+
+    if (attempt === 0) {
+      // Pure MRV: most constrained classes first
+      const classIds = Object.keys(byClass);
+      classIds.sort((a, b) => {
+        const optsA = byClass[a].reduce((sum, t) => sum + countOptions(t, state), 0);
+        const optsB = byClass[b].reduce((sum, t) => sum + countOptions(t, state), 0);
+        return optsA - optsB; // fewer options = more constrained = first
+      });
+      remainingTasks.length = 0;
+      classIds.forEach(cId => byClass[cId].forEach(t => remainingTasks.push(t)));
+    } else {
+      // Shuffled with MRV bias: shuffle class order but put lab/double tasks first within each class
       const classOrder = shuffle(Object.keys(byClass));
       remainingTasks.length = 0;
-      classOrder.forEach(cId => byClass[cId].forEach(t => remainingTasks.push(t)));
+      classOrder.forEach(cId => {
+        // Sort within class: lab/double period tasks first (harder to place)
+        byClass[cId].sort((a, b) => b.duration - a.duration);
+        byClass[cId].forEach(t => remainingTasks.push(t));
+      });
     }
 
-    const result = solve(remainingTasks, state);
+    const useRepair = attempt < 10; // use repair on first 10 attempts
+    const result = solve(remainingTasks, state, useRepair);
     const totalPlaced = result.placed + pinnedPlacements.length;
     const totalTasks = remainingTasks.length + pinnedPlacements.length;
     const score = scoreSchedule(result.state, totalPlaced, totalTasks);
