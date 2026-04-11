@@ -221,16 +221,6 @@ async function autoGenerate(config, periods) {
       }
     }
 
-    // Full-time teacher: keep ≥ 2 free periods per day (account for early release)
-    if (task.teacherId) {
-      const t = teacherMap[task.teacherId];
-      if (t?.type === 'ft') {
-        const dayPeriodCount = classPeriods.filter(cp => isPeriodValidForDay(day, cp.index, sd, periods)).length;
-        const after = (state.teacherSlots[task.teacherId][day]?.size || 0) + task.duration;
-        if (dayPeriodCount - after < 2) return false;
-      }
-    }
-
     // Check concurrent partners can also be placed here
     for (const partnerId of (task.concurrentPartners || [])) {
       const partner = classes.find(c => c.id === partnerId);
@@ -241,14 +231,6 @@ async function autoGenerate(config, periods) {
         if (partner.teacherId) {
           const t = teacherMap[partner.teacherId];
           if (t && !isTeacherAvailable(t, oi, day, periods)) return false;
-        }
-      }
-      // Check FT teacher planning for partner
-      if (partner.teacherId) {
-        const t = teacherMap[partner.teacherId];
-        if (t?.type === 'ft') {
-          const after = (state.teacherSlots[partner.teacherId][day]?.size || 0) + (partner.duration || 1);
-          if (classPeriods.length - after < 2) return false;
         }
       }
     }
@@ -356,54 +338,76 @@ async function autoGenerate(config, periods) {
     return score;
   };
 
-  // ── GREEDY SOLVER with randomized restarts ──
-  // No recursion, no backtracking — fast linear pass
+  // ── Helper: count free periods a FT teacher would have on a day after placement ──
+  const ftTeacherFreeAfter = (teacherId, day, addDuration, state) => {
+    const t = teacherMap[teacherId];
+    if (!t || t.type !== 'ft') return 99;
+    const dayPeriodCount = classPeriods.filter(cp => isPeriodValidForDay(day, cp.index, sd, periods)).length;
+    const after = (state.teacherSlots[teacherId][day]?.size || 0) + addDuration;
+    return dayPeriodCount - after;
+  };
+
+  // ── Place a single task, returning true if successful ──
+  const tryPlace = (task, state) => {
+    const options = [];
+    for (const day of DAYS) {
+      if (state.classDays[task.classId].has(day)) continue;
+      for (const cp of classPeriods) {
+        if (canPlace(task, day, cp.index, state)) {
+          options.push({ day, pIdx: cp.index });
+        }
+      }
+    }
+    if (options.length === 0) return false;
+
+    // Sort by preference: prefer days with more teacher free periods, lighter load, consistent period
+    const existingPeriods = state.classPeriodMap[task.classId];
+    options.sort((a, b) => {
+      // Prefer days where FT teacher keeps more free periods (soft preference)
+      if (task.teacherId) {
+        const freeA = ftTeacherFreeAfter(task.teacherId, a.day, task.duration, state);
+        const freeB = ftTeacherFreeAfter(task.teacherId, b.day, task.duration, state);
+        if (freeA !== freeB) return freeB - freeA; // more free = better
+      }
+      // Lighter teacher load
+      const loadA = task.teacherId ? (state.teacherSlots[task.teacherId]?.[a.day]?.size || 0) : 0;
+      const loadB = task.teacherId ? (state.teacherSlots[task.teacherId]?.[b.day]?.size || 0) : 0;
+      if (loadA !== loadB) return loadA - loadB;
+      // Prefer consistent period across days
+      const matchA = existingPeriods.includes(a.pIdx) ? 0 : 1;
+      const matchB = existingPeriods.includes(b.pIdx) ? 0 : 1;
+      if (matchA !== matchB) return matchA - matchB;
+      return 0;
+    });
+
+    // Light shuffle for randomization across attempts
+    for (let i = 0; i < options.length - 1; i++) {
+      if (Math.random() < 0.3) [options[i], options[i + 1]] = [options[i + 1], options[i]];
+    }
+
+    const opt = options[0];
+    const roomId = findRoom(task, opt.day, opt.pIdx, state);
+    place(task, opt.day, opt.pIdx, roomId, state);
+
+    // Also place concurrent partners
+    for (const partnerId of (task.concurrentPartners || [])) {
+      const partner = classes.find(c => c.id === partnerId);
+      if (!partner) continue;
+      const pTask = { classId: partnerId, teacherId: partner.teacherId, groupIds: partner.groupIds || [], duration: partner.duration || 1 };
+      const pRoom = findRoom(pTask, opt.day, opt.pIdx, state);
+      place(pTask, opt.day, opt.pIdx, pRoom, state);
+    }
+    return true;
+  };
+
+  // ── GREEDY SOLVER ──
+  // Single pass — no hard FT planning constraint, just soft preference in sorting
   const solve = (tasks, state) => {
     let placed = 0;
 
     for (const task of tasks) {
-      // Build list of valid placements
-      const options = [];
-      for (const day of DAYS) {
-        if (state.classDays[task.classId].has(day)) continue;
-        for (const cp of classPeriods) {
-          if (canPlace(task, day, cp.index, state)) {
-            options.push({ day, pIdx: cp.index });
-          }
-        }
-      }
-
-      if (options.length === 0) continue; // skip — can't place
-
-      // Sort by preference
-      const existingPeriods = state.classPeriodMap[task.classId];
-      options.sort((a, b) => {
-        const loadA = task.teacherId ? (state.teacherSlots[task.teacherId]?.[a.day]?.size || 0) : 0;
-        const loadB = task.teacherId ? (state.teacherSlots[task.teacherId]?.[b.day]?.size || 0) : 0;
-        if (loadA !== loadB) return loadA - loadB;
-        const matchA = existingPeriods.includes(a.pIdx) ? 0 : 1;
-        const matchB = existingPeriods.includes(b.pIdx) ? 0 : 1;
-        if (matchA !== matchB) return matchA - matchB;
-        return 0;
-      });
-
-      // Light shuffle for randomization across attempts
-      for (let i = 0; i < options.length - 1; i++) {
-        if (Math.random() < 0.3) [options[i], options[i + 1]] = [options[i + 1], options[i]];
-      }
-
-      const opt = options[0];
-      const roomId = findRoom(task, opt.day, opt.pIdx, state);
-      place(task, opt.day, opt.pIdx, roomId, state);
-      placed++;
-
-      // Also place concurrent partners
-      for (const partnerId of (task.concurrentPartners || [])) {
-        const partner = classes.find(c => c.id === partnerId);
-        if (!partner) continue;
-        const pTask = { classId: partnerId, teacherId: partner.teacherId, groupIds: partner.groupIds || [], duration: partner.duration || 1 };
-        const pRoom = findRoom(pTask, opt.day, opt.pIdx, state);
-        place(pTask, opt.day, opt.pIdx, pRoom, state);
+      if (tryPlace(task, state)) {
+        placed++;
       }
     }
 
