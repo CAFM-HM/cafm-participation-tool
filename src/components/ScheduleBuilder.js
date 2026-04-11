@@ -861,9 +861,32 @@ function ClassesPanel({ config, update }) {
     });
   };
 
+  const moveClass = (fromIdx, toIdx) => {
+    if (toIdx < 0 || toIdx >= (config.classes || []).length) return;
+    update(c => {
+      const item = c.classes.splice(fromIdx, 1)[0];
+      c.classes.splice(toIdx, 0, item);
+    });
+  };
+
+  // Build grade summary
+  const gradeSummary = useMemo(() => {
+    const groups = config.studentGroups || [];
+    const classes_ = config.classes || [];
+    return groups.map(group => {
+      const groupClasses = classes_.filter(cls => (cls.groupIds || []).includes(group.id));
+      const totalPeriodsPerWeek = groupClasses.reduce((sum, cls) => {
+        const dpw = cls.daysPerWeek || (cls.days ? cls.days.length : 5);
+        const dur = cls.duration || 1;
+        return sum + dpw * dur;
+      }, 0);
+      return { group, classes: groupClasses, totalPeriodsPerWeek };
+    });
+  }, [config.studentGroups, config.classes]);
+
   return (
     <div>
-      <h3 className="section-title" style={{ marginBottom: 12 }}>Classes</h3>
+      <h3 className="section-title" style={{ marginBottom: 12 }}>Classes ({(config.classes || []).length})</h3>
       <div className="card" style={{ marginBottom: 16, background: '#F9FAFB' }}>
         <div style={{ fontSize: 12, fontWeight: 600, color: '#6B7280', marginBottom: 8 }}>ADD NEW CLASS</div>
         <div className="sched-inline-row">
@@ -902,15 +925,23 @@ function ClassesPanel({ config, update }) {
       ) : (
         <div style={{ overflowX: 'auto' }}>
           <table className="data-table">
-            <thead><tr><th>Class</th><th>Teacher</th><th>Students</th><th>Days/Wk</th><th>Duration</th><th></th></tr></thead>
+            <thead><tr><th style={{ width: 30 }}>#</th><th style={{ width: 40 }}></th><th>Class</th><th>Teacher</th><th>Students</th><th>Days/Wk</th><th>Duration</th><th></th></tr></thead>
             <tbody>
               {(config.classes || []).map((cls, cIdx) => {
                 const teacher = (config.teachers || []).find(t => t.id === cls.teacherId);
                 const isEditing = editingId === cls.id;
-                // Support legacy 'days' array — convert to daysPerWeek for display
                 const daysPerWeek = cls.daysPerWeek || (cls.days ? cls.days.length : 5);
                 return (
                   <tr key={cls.id}>
+                    <td style={{ color: '#9CA3AF', fontSize: 12, fontWeight: 600, textAlign: 'center' }}>{cIdx + 1}</td>
+                    <td>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                        <button onClick={() => moveClass(cIdx, cIdx - 1)} disabled={cIdx === 0}
+                          style={{ background: 'none', border: 'none', cursor: cIdx === 0 ? 'default' : 'pointer', fontSize: 10, color: cIdx === 0 ? '#D1D5DB' : '#6B7280', padding: 0, lineHeight: 1 }}>▲</button>
+                        <button onClick={() => moveClass(cIdx, cIdx + 1)} disabled={cIdx === (config.classes || []).length - 1}
+                          style={{ background: 'none', border: 'none', cursor: cIdx === (config.classes || []).length - 1 ? 'default' : 'pointer', fontSize: 10, color: cIdx === (config.classes || []).length - 1 ? '#D1D5DB' : '#6B7280', padding: 0, lineHeight: 1 }}>▼</button>
+                      </div>
+                    </td>
                     <td>
                       {isEditing ? (
                         <input type="text" value={cls.name} onChange={e => updateClass(cIdx, 'name', e.target.value)}
@@ -975,6 +1006,39 @@ function ClassesPanel({ config, update }) {
               })}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {/* Grade Summary */}
+      {gradeSummary.length > 0 && (config.classes || []).length > 0 && (
+        <div style={{ marginTop: 24 }}>
+          <h3 className="section-title" style={{ marginBottom: 12 }}>Classes by Grade</h3>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 12 }}>
+            {gradeSummary.map(({ group, classes: groupClasses, totalPeriodsPerWeek }) => (
+              <div key={group.id} className="card" style={{ border: `2px solid ${group.color}22`, padding: 12 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                  <span className="badge" style={{ background: group.color + '22', color: group.color, fontWeight: 600, fontSize: 13 }}>{group.name}</span>
+                  <span style={{ fontSize: 11, color: '#6B7280' }}>{groupClasses.length} classes · {totalPeriodsPerWeek} periods/wk</span>
+                </div>
+                {groupClasses.length === 0 ? (
+                  <div style={{ fontSize: 12, color: '#9CA3AF', fontStyle: 'italic' }}>No classes assigned</div>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                    {groupClasses.map((cls, i) => {
+                      const t = (config.teachers || []).find(t => t.id === cls.teacherId);
+                      const dpw = cls.daysPerWeek || (cls.days ? cls.days.length : 5);
+                      return (
+                        <div key={cls.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12, padding: '3px 6px', background: i % 2 === 0 ? '#F9FAFB' : 'transparent', borderRadius: 4 }}>
+                          <span style={{ fontWeight: 500, color: '#1B3A5C' }}>{cls.name}</span>
+                          <span style={{ color: '#6B7280', fontSize: 11 }}>{t?.name || '—'} · {dpw}×{(cls.duration || 1) === 2 ? ' (dbl)' : ''}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </div>
