@@ -39,22 +39,38 @@ function minToTime(m) { return `${Math.floor(m / 60).toString().padStart(2, '0')
 function formatTime(t) { const [h, m] = t.split(':').map(Number); return `${h === 0 ? 12 : h > 12 ? h - 12 : h}:${m.toString().padStart(2, '0')} ${h >= 12 ? 'PM' : 'AM'}`; }
 function gk(day, pIdx) { return `${day}-${pIdx}`; }
 
-function computePeriods(sd) {
+function computePeriods(sd, overrideEndTime) {
   const { startTime, endTime, periodMinutes, passingMinutes, lunchAfterPeriod, lunchMinutes } = sd;
-  const start = timeToMin(startTime), end = timeToMin(endTime);
+  const start = timeToMin(startTime), end = timeToMin(overrideEndTime || endTime);
   const periods = [];
   let cursor = start, num = 1;
   while (cursor + periodMinutes <= end) {
     periods.push({ index: periods.length, num, type: 'class', start: minToTime(cursor), end: minToTime(cursor + periodMinutes), label: `Period ${num}` });
     cursor += periodMinutes; num++;
     if (periods.filter(p => p.type === 'class').length === lunchAfterPeriod && !periods.some(p => p.type === 'lunch')) {
-      periods.push({ index: periods.length, num: null, type: 'lunch', start: minToTime(cursor), end: minToTime(cursor + lunchMinutes), label: 'Lunch' });
-      cursor += lunchMinutes;
+      if (cursor + lunchMinutes <= end) {
+        periods.push({ index: periods.length, num: null, type: 'lunch', start: minToTime(cursor), end: minToTime(cursor + lunchMinutes), label: 'Lunch' });
+        cursor += lunchMinutes;
+      }
     }
     if (cursor + passingMinutes + periodMinutes <= end) cursor += passingMinutes;
     else cursor += passingMinutes;
   }
   return periods;
+}
+
+// Get the max period index that's valid for a given day (early release support)
+function getMaxPeriodForDay(day, sd, periods) {
+  if (!sd.earlyReleaseDay || sd.earlyReleaseDay !== day || !sd.earlyReleaseEndTime) return null; // no limit
+  const earlyPeriods = computePeriods(sd, sd.earlyReleaseEndTime);
+  const earlyMaxIndex = earlyPeriods.length > 0 ? earlyPeriods[earlyPeriods.length - 1].index : -1;
+  return earlyMaxIndex;
+}
+
+function isPeriodValidForDay(day, periodIndex, sd, periods) {
+  const maxIdx = getMaxPeriodForDay(day, sd, periods);
+  if (maxIdx === null) return true; // no early release
+  return periodIndex <= maxIdx;
 }
 
 function isTeacherAvailable(teacher, pIdx, day, periods) {
@@ -166,11 +182,19 @@ function autoGenerate(config, periods) {
     return indices;
   };
 
+  // Pre-compute early release info
+  const sd = config.schoolDay;
+
   // Validity check — also validates concurrent partners can be placed
   const canPlace = (task, day, pIdx, state) => {
     const occupied = getOccupied(pIdx, task.duration);
     if (!occupied) return false;
     if (state.classDays[task.classId].has(day)) return false;
+
+    // Check early release — all occupied periods must be valid for this day
+    for (const oi of occupied) {
+      if (!isPeriodValidForDay(day, oi, sd, periods)) return false;
+    }
 
     for (const oi of occupied) {
       if (task.teacherId && state.teacherSlots[task.teacherId]?.[day]?.has(oi)) return false;
@@ -194,12 +218,13 @@ function autoGenerate(config, periods) {
       }
     }
 
-    // Full-time teacher: keep ≥ 2 free periods per day
+    // Full-time teacher: keep ≥ 2 free periods per day (account for early release)
     if (task.teacherId) {
       const t = teacherMap[task.teacherId];
       if (t?.type === 'ft') {
+        const dayPeriodCount = classPeriods.filter(cp => isPeriodValidForDay(day, cp.index, sd, periods)).length;
         const after = (state.teacherSlots[task.teacherId][day]?.size || 0) + task.duration;
-        if (classPeriods.length - after < 2) return false;
+        if (dayPeriodCount - after < 2) return false;
       }
     }
 
@@ -479,10 +504,11 @@ function autoGenerate(config, periods) {
   // Reconstruct sets from arrays (JSON serialization converted Sets to arrays)
   const finalGrid = bestResult.state.grid;
 
-  // Find empty slots
+  // Find empty slots (skip early release periods)
   const emptySlots = [];
   DAYS.forEach(day => {
     classPeriods.forEach(cp => {
+      if (!isPeriodValidForDay(day, cp.index, sd, periods)) return;
       const key = getKey(day, cp.index);
       if (!finalGrid[key] || finalGrid[key].length === 0) {
         const prevCp = classPeriods[classPeriods.findIndex(p => p.index === cp.index) - 1];
@@ -521,6 +547,8 @@ function autoGenerate(config, periods) {
   studentGroups.forEach(group => {
     DAYS.forEach(day => {
       classPeriods.forEach(cp => {
+        // Skip early release periods
+        if (!isPeriodValidForDay(day, cp.index, sd, periods)) return;
         // Check if any class in this cell includes this group
         const key = getKey(day, cp.index);
         const assignments = finalGrid[key] || [];
@@ -662,14 +690,16 @@ export default function ScheduleBuilder({ isAdmin }) {
     const cpIndices = periods.filter(p => p.type === 'class').map(p => p.index);
     ftTeachers.forEach(teacher => {
       DAYS.forEach(day => {
+        // Only count periods valid for this day (early release)
+        const validCpIndices = cpIndices.filter(pIdx => isPeriodValidForDay(day, pIdx, local.schoolDay, periods));
         let teaching = 0;
-        cpIndices.forEach(pIdx => {
+        validCpIndices.forEach(pIdx => {
           const key = gk(day, pIdx);
           const arr = grid[key] ? (Array.isArray(grid[key]) ? grid[key] : [grid[key]]) : [];
           if (arr.some(a => { const c = (local.classes || []).find(c => c.id === a.classId); return c?.teacherId === teacher.id; }))
             teaching++;
         });
-        const free = cpIndices.length - teaching;
+        const free = validCpIndices.length - teaching;
         if (free < 2)
           issues.general.push(`${teacher.name} has only ${free} free period${free !== 1 ? 's' : ''} on ${DAY_SHORT[day]} (min 2)`);
       });
@@ -743,6 +773,31 @@ function SettingsPanel({ config, update, periods }) {
         <div className="sched-field"><label>Passing Period (min)</label><input type="number" value={sd.passingMinutes} min={0} max={15} onChange={e => upd('passingMinutes', parseInt(e.target.value) || 5)} /></div>
         <div className="sched-field"><label>Lunch After Period #</label><input type="number" value={sd.lunchAfterPeriod} min={1} max={10} onChange={e => upd('lunchAfterPeriod', parseInt(e.target.value) || 4)} /></div>
         <div className="sched-field"><label>Lunch Length (min)</label><input type="number" value={sd.lunchMinutes} min={15} max={60} onChange={e => upd('lunchMinutes', parseInt(e.target.value) || 30)} /></div>
+      </div>
+
+      <h3 className="section-title" style={{ marginTop: 24, marginBottom: 12 }}>Early Release Day</h3>
+      <div className="sched-form-grid">
+        <div className="sched-field">
+          <label>Day</label>
+          <select value={sd.earlyReleaseDay || ''} onChange={e => upd('earlyReleaseDay', e.target.value)}>
+            <option value="">None</option>
+            {DAYS.map(d => <option key={d} value={d}>{DAY_LABELS[d]}</option>)}
+          </select>
+        </div>
+        <div className="sched-field">
+          <label>End Time</label>
+          <input type="time" value={sd.earlyReleaseEndTime || sd.endTime}
+            disabled={!sd.earlyReleaseDay}
+            onChange={e => upd('earlyReleaseEndTime', e.target.value)} />
+        </div>
+        {sd.earlyReleaseDay && sd.earlyReleaseEndTime && (
+          <div className="sched-field">
+            <label>Periods on {DAY_SHORT[sd.earlyReleaseDay]}</label>
+            <div style={{ fontSize: 13, fontWeight: 600, color: '#1B3A5C', paddingTop: 6 }}>
+              {computePeriods(sd, sd.earlyReleaseEndTime).filter(p => p.type === 'class').length} class periods
+            </div>
+          </div>
+        )}
       </div>
 
       <h3 className="section-title" style={{ marginTop: 24, marginBottom: 12 }}>Generated Periods ({periods.length})</h3>
@@ -1236,6 +1291,8 @@ function GridPanel({ config, update, periods, conflicts }) {
     groups.forEach(group => {
       DAYS.forEach(day => {
         classPeriods.forEach(cp => {
+          // Skip periods that don't exist on early release day
+          if (!isPeriodValidForDay(day, cp.index, config.schoolDay, periods)) return;
           const key = gk(day, cp.index);
           const assignments = grid[key] ? (Array.isArray(grid[key]) ? grid[key] : [grid[key]]) : [];
           let hasClass = assignments.some(a => {
@@ -1414,7 +1471,12 @@ function GridPanel({ config, update, periods, conflicts }) {
           <thead>
             <tr>
               <th className="sched-grid-time-col">Time</th>
-              {DAYS.map(d => <th key={d} className="sched-grid-day-col">{DAY_LABELS[d]}</th>)}
+              {DAYS.map(d => <th key={d} className="sched-grid-day-col">
+                {DAY_LABELS[d]}
+                {config.schoolDay.earlyReleaseDay === d && (
+                  <div style={{ fontSize: 10, fontWeight: 400, color: '#CA8A04' }}>Early Release</div>
+                )}
+              </th>)}
             </tr>
           </thead>
           <tbody>
@@ -1431,9 +1493,18 @@ function GridPanel({ config, update, periods, conflicts }) {
                   ) : (
                     DAYS.map(day => {
                       const key = gk(day, period.index);
+                      const periodValid = isPeriodValidForDay(day, period.index, config.schoolDay, periods);
                       const assignments = getAssignments(day, period.index);
                       const cellConflicts = conflicts[key] || [];
                       const blocked = isBlockedByDouble(day, period.index);
+
+                      if (!periodValid) {
+                        return (
+                          <td key={day} style={{ background: '#F3F4F6', textAlign: 'center', verticalAlign: 'middle' }}>
+                            <span style={{ fontSize: 11, color: '#9CA3AF', fontStyle: 'italic' }}>Early Release</span>
+                          </td>
+                        );
+                      }
 
                       return (
                         <td key={day} className={`sched-grid-cell ${cellConflicts.length > 0 ? 'has-conflict' : ''}`}>
