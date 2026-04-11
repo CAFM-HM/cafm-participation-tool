@@ -188,11 +188,27 @@ async function autoGenerate(config, periods) {
   // Pre-compute early release info
   const sd = config.schoolDay;
 
+  // Check if a period is occupied by a double-period class from the previous period
+  const isOccupiedByDoublePeriod = (day, pIdx, state) => {
+    const cpOrder = classPeriods.findIndex(p => p.index === pIdx);
+    if (cpOrder <= 0) return false;
+    const prevPIdx = classPeriods[cpOrder - 1].index;
+    const prevKey = getKey(day, prevPIdx);
+    const prevAssignments = state.grid[prevKey] || [];
+    return prevAssignments.some(a => {
+      const cls = classes.find(c => c.id === a.classId);
+      return cls && (cls.duration || 1) >= 2;
+    });
+  };
+
   // Validity check — also validates concurrent partners can be placed
   const canPlace = (task, day, pIdx, state) => {
     const occupied = getOccupied(pIdx, task.duration);
     if (!occupied) return false;
     if (state.classDays[task.classId].has(day)) return false;
+
+    // Don't place in slots occupied by double-period continuation from previous period
+    if (isOccupiedByDoublePeriod(day, pIdx, state)) return false;
 
     // Check early release — all occupied periods must be valid for this day
     for (const oi of occupied) {
@@ -1765,56 +1781,60 @@ function GridPanel({ config, update, periods, conflicts }) {
                           onDragLeave={handleDragLeave}
                           onDrop={(e) => handleDrop(e, day, period.index)}
                           style={isDropHover ? { background: '#DBEAFE', outline: '2px dashed #3B82F6', outlineOffset: '-2px' } : undefined}>
-                          {blocked ? (
-                            (() => {
-                              const btc = getTeacherColor(blocked.cls.teacherId, config.teachers || []);
+                          {blocked && (() => {
+                            const btc = getTeacherColor(blocked.cls.teacherId, config.teachers || []);
+                            return (
+                              <div className="sched-grid-double-cont" style={{ background: btc.bg, borderLeft: `3px solid ${btc.border}` }}>
+                                <span style={{ fontSize: 11, color: btc.text, fontStyle: 'italic' }}>
+                                  ← {blocked.cls.name} (cont.)
+                                </span>
+                              </div>
+                            );
+                          })()}
+
+                          {/* Show classes — filter out the double-period source class if present */}
+                          {(() => {
+                            const visibleAssignments = blocked
+                              ? assignments.filter(a => a.classId !== blocked.assignment.classId)
+                              : assignments;
+                            return visibleAssignments.map(a => {
+                              const cls = (config.classes || []).find(c => c.id === a.classId);
+                              const room = (config.rooms || []).find(r => r.id === a.roomId);
+                              const teacher = cls ? (config.teachers || []).find(t => t.id === cls.teacherId) : null;
+                              if (!cls) return null;
+                              const tc = getTeacherColor(cls.teacherId, config.teachers || []);
+                              const isDragging = dragData?.classId === a.classId && dragData?.fromDay === day && dragData?.fromPIdx === period.index;
                               return (
-                                <div className="sched-grid-double-cont" style={{ background: btc.bg, borderLeft: `3px solid ${btc.border}` }}>
-                                  <span style={{ fontSize: 11, color: btc.text, fontStyle: 'italic' }}>
-                                    ← {blocked.cls.name} (cont.)
-                                  </span>
+                                <div key={a.classId} className={`sched-grid-class-chip ${(cls.duration || 1) === 2 ? 'double' : ''}`}
+                                  draggable
+                                  onDragStart={(e) => handleDragStart(e, a.classId, day, period.index, a.roomId)}
+                                  onDragEnd={handleDragEnd}
+                                  style={{ background: tc.bg, borderLeft: `3px solid ${tc.border}`, cursor: 'grab',
+                                    opacity: isDragging ? 0.4 : 1 }}>
+                                  <div>
+                                    <div style={{ fontWeight: 600, fontSize: 12, color: tc.text }}>{cls.name}</div>
+                                    <div style={{ fontSize: 10, color: tc.text, opacity: 0.7 }}>{teacher?.name} · {room?.name || '?'}</div>
+                                  </div>
+                                  <button className="remove-btn" style={{ fontSize: 12, color: tc.text }} onClick={() => removeFromCell(day, period.index, a.classId)}>×</button>
                                 </div>
                               );
-                            })()
-                          ) : (
-                            <>
-                              {assignments.map(a => {
-                                const cls = (config.classes || []).find(c => c.id === a.classId);
-                                const room = (config.rooms || []).find(r => r.id === a.roomId);
-                                const teacher = cls ? (config.teachers || []).find(t => t.id === cls.teacherId) : null;
-                                if (!cls) return null;
-                                const tc = getTeacherColor(cls.teacherId, config.teachers || []);
-                                const isDragging = dragData?.classId === a.classId && dragData?.fromDay === day && dragData?.fromPIdx === period.index;
-                                return (
-                                  <div key={a.classId} className={`sched-grid-class-chip ${(cls.duration || 1) === 2 ? 'double' : ''}`}
-                                    draggable
-                                    onDragStart={(e) => handleDragStart(e, a.classId, day, period.index, a.roomId)}
-                                    onDragEnd={handleDragEnd}
-                                    style={{ background: tc.bg, borderLeft: `3px solid ${tc.border}`, cursor: 'grab',
-                                      opacity: isDragging ? 0.4 : 1 }}>
-                                    <div>
-                                      <div style={{ fontWeight: 600, fontSize: 12, color: tc.text }}>{cls.name}</div>
-                                      <div style={{ fontSize: 10, color: tc.text, opacity: 0.7 }}>{teacher?.name} · {room?.name || '?'}</div>
-                                    </div>
-                                    <button className="remove-btn" style={{ fontSize: 12, color: tc.text }} onClick={() => removeFromCell(day, period.index, a.classId)}>×</button>
-                                  </div>
-                                );
-                              })}
+                            });
+                          })()}
 
-                              {pickerCell === key ? (
-                                <CellPicker config={config} day={day} periodIndex={period.index} periods={periods}
-                                  onAdd={(cId, rId) => addToCell(day, period.index, cId, rId)}
-                                  onCancel={() => setPickerCell(null)} />
-                              ) : (
-                                <button className="schedule-add-btn" onClick={() => setPickerCell(key)}>+</button>
-                              )}
+                          {!blocked && (
+                            pickerCell === key ? (
+                              <CellPicker config={config} day={day} periodIndex={period.index} periods={periods}
+                                onAdd={(cId, rId) => addToCell(day, period.index, cId, rId)}
+                                onCancel={() => setPickerCell(null)} />
+                            ) : (
+                              <button className="schedule-add-btn" onClick={() => setPickerCell(key)}>+</button>
+                            )
+                          )}
 
-                              {cellConflicts.length > 0 && (
-                                <div style={{ marginTop: 2 }}>
-                                  {cellConflicts.map((c, i) => <div key={i} style={{ fontSize: 10, color: '#DC2626' }}>{c}</div>)}
-                                </div>
-                              )}
-                            </>
+                          {cellConflicts.length > 0 && (
+                            <div style={{ marginTop: 2 }}>
+                              {cellConflicts.map((c, i) => <div key={i} style={{ fontSize: 10, color: '#DC2626' }}>{c}</div>)}
+                            </div>
                           )}
                         </td>
                       );
