@@ -1031,12 +1031,6 @@ export default function ScheduleBuilder({ isAdmin }) {
         </div>
       </div>
 
-      {conflicts.general?.length > 0 && (
-        <div className="schedule-warnings">
-          {conflicts.general.map((w, i) => <div key={i} className="schedule-warning-item">{w}</div>)}
-        </div>
-      )}
-
       <div style={{ display: 'flex', gap: 6, marginBottom: 16, flexWrap: 'wrap' }}>
         {[
           { id: 'grid', label: 'Schedule Grid' },
