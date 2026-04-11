@@ -9,6 +9,31 @@ const DAY_SHORT = { mon: 'Mon', tue: 'Tue', wed: 'Wed', thu: 'Thu', fri: 'Fri' }
 const DAY_LABELS = { mon: 'Monday', tue: 'Tuesday', wed: 'Wednesday', thu: 'Thursday', fri: 'Friday' };
 
 function genId() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
+
+// Distinct, accessible teacher colors — bg (light) and text (dark) pairs
+const TEACHER_COLORS = [
+  { bg: '#DBEAFE', text: '#1E40AF', border: '#93C5FD' }, // blue
+  { bg: '#FCE7F3', text: '#9D174D', border: '#F9A8D4' }, // pink
+  { bg: '#D1FAE5', text: '#065F46', border: '#6EE7B7' }, // green
+  { bg: '#FEF3C7', text: '#92400E', border: '#FCD34D' }, // amber
+  { bg: '#EDE9FE', text: '#5B21B6', border: '#C4B5FD' }, // violet
+  { bg: '#FFEDD5', text: '#9A3412', border: '#FDBA74' }, // orange
+  { bg: '#CCFBF1', text: '#115E59', border: '#5EEAD4' }, // teal
+  { bg: '#FEE2E2', text: '#991B1B', border: '#FCA5A5' }, // red
+  { bg: '#E0E7FF', text: '#3730A3', border: '#A5B4FC' }, // indigo
+  { bg: '#F5F3FF', text: '#6D28D9', border: '#DDD6FE' }, // purple
+  { bg: '#ECFDF5', text: '#047857', border: '#A7F3D0' }, // emerald
+  { bg: '#FFF7ED', text: '#C2410C', border: '#FED7AA' }, // warm orange
+  { bg: '#F0F9FF', text: '#0369A1', border: '#7DD3FC' }, // sky
+  { bg: '#FDF2F8', text: '#BE185D', border: '#FBCFE8' }, // rose
+  { bg: '#FEFCE8', text: '#854D0E', border: '#FDE047' }, // yellow
+];
+
+function getTeacherColor(teacherId, teachers) {
+  const idx = teachers.findIndex(t => t.id === teacherId);
+  if (idx === -1) return { bg: '#F3F4F6', text: '#4B5563', border: '#D1D5DB' };
+  return TEACHER_COLORS[idx % TEACHER_COLORS.length];
+}
 function timeToMin(t) { const [h, m] = t.split(':').map(Number); return h * 60 + m; }
 function minToTime(m) { return `${Math.floor(m / 60).toString().padStart(2, '0')}:${(m % 60).toString().padStart(2, '0')}`; }
 function formatTime(t) { const [h, m] = t.split(':').map(Number); return `${h === 0 ? 12 : h > 12 ? h - 12 : h}:${m.toString().padStart(2, '0')} ${h >= 12 ? 'PM' : 'AM'}`; }
@@ -1066,6 +1091,19 @@ function GridPanel({ config, update, periods, conflicts }) {
         </div>
       )}
 
+      {(config.teachers || []).length > 0 && (
+        <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+          <span style={{ fontSize: 11, color: '#6B7280', fontWeight: 600 }}>Teachers:</span>
+          {(config.teachers || []).map(t => {
+            const tc = getTeacherColor(t.id, config.teachers);
+            return (
+              <span key={t.id} style={{ fontSize: 11, fontWeight: 500, padding: '2px 8px', borderRadius: 4,
+                background: tc.bg, color: tc.text, border: `1px solid ${tc.border}` }}>{t.name}</span>
+            );
+          })}
+        </div>
+      )}
+
       <div className="sched-grid-wrapper">
         <table className="sched-grid-table">
           <thead>
@@ -1094,12 +1132,15 @@ function GridPanel({ config, update, periods, conflicts }) {
 
                       return (
                         <td key={day} className={`sched-grid-cell ${cellConflicts.length > 0 ? 'has-conflict' : ''}`}>
-                          {blocked ? (
-                            <div className="sched-grid-double-cont">
-                              <span style={{ fontSize: 11, color: '#6B7280', fontStyle: 'italic' }}>
+                          {blocked ? (() => {
+                            const btc = getTeacherColor(blocked.cls.teacherId, config.teachers || []);
+                            return (
+                            <div className="sched-grid-double-cont" style={{ background: btc.bg, borderLeft: `3px solid ${btc.border}` }}>
+                              <span style={{ fontSize: 11, color: btc.text, fontStyle: 'italic' }}>
                                 ← {blocked.cls.name} (cont.)
                               </span>
-                            </div>
+                            </div>);
+                          })()
                           ) : (
                             <>
                               {assignments.map(a => {
@@ -1107,13 +1148,15 @@ function GridPanel({ config, update, periods, conflicts }) {
                                 const room = (config.rooms || []).find(r => r.id === a.roomId);
                                 const teacher = cls ? (config.teachers || []).find(t => t.id === cls.teacherId) : null;
                                 if (!cls) return null;
+                                const tc = getTeacherColor(cls.teacherId, config.teachers || []);
                                 return (
-                                  <div key={a.classId} className={`sched-grid-class-chip ${(cls.duration || 1) === 2 ? 'double' : ''}`}>
+                                  <div key={a.classId} className={`sched-grid-class-chip ${(cls.duration || 1) === 2 ? 'double' : ''}`}
+                                    style={{ background: tc.bg, borderLeft: `3px solid ${tc.border}` }}>
                                     <div>
-                                      <div style={{ fontWeight: 600, fontSize: 12 }}>{cls.name}</div>
-                                      <div style={{ fontSize: 10, color: '#6B7280' }}>{teacher?.name} · {room?.name || '?'}</div>
+                                      <div style={{ fontWeight: 600, fontSize: 12, color: tc.text }}>{cls.name}</div>
+                                      <div style={{ fontSize: 10, color: tc.text, opacity: 0.7 }}>{teacher?.name} · {room?.name || '?'}</div>
                                     </div>
-                                    <button className="remove-btn" style={{ fontSize: 12 }} onClick={() => removeFromCell(day, period.index, a.classId)}>×</button>
+                                    <button className="remove-btn" style={{ fontSize: 12, color: tc.text }} onClick={() => removeFromCell(day, period.index, a.classId)}>×</button>
                                   </div>
                                 );
                               })}
