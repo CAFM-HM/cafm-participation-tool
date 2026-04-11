@@ -104,7 +104,7 @@ function getOccupiedIndices(pIdx, duration, periods) {
 // AUTO-SCHEDULE GENERATOR — Smart solver with backtracking,
 // randomized restarts, and quality scoring
 // ============================================================
-function autoGenerate(config, periods) {
+async function autoGenerate(config, periods) {
   const classes = config.classes || [];
   const teachers = config.teachers || [];
   const rooms = config.rooms || [];
@@ -113,9 +113,10 @@ function autoGenerate(config, periods) {
   if (classes.length === 0 || classPeriods.length === 0) return null;
 
   const getKey = (day, pIdx) => `${day}-${pIdx}`;
-  const NUM_ATTEMPTS = 20;
+  const NUM_ATTEMPTS = 8;
   const startTime = Date.now();
-  const TIME_LIMIT = 3000; // 3 second max
+  const TIME_LIMIT = 2000; // 2 second max
+  const yieldToUI = () => new Promise(resolve => setTimeout(resolve, 0));
 
   // Pre-compute teacher lookup for speed
   const teacherMap = {};
@@ -286,39 +287,6 @@ function autoGenerate(config, periods) {
     }
   };
 
-  // Unplace a task (for backtracking)
-  const unplace = (task, day, pIdx, roomId, state) => {
-    const occupied = getOccupied(pIdx, task.duration);
-    const key = getKey(day, pIdx);
-    if (state.grid[key]) {
-      state.grid[key] = state.grid[key].filter(a => a.classId !== task.classId);
-      if (state.grid[key].length === 0) delete state.grid[key];
-    }
-    state.classDays[task.classId].delete(day);
-    const pidxArr = state.classPeriodMap[task.classId];
-    const rmIdx = pidxArr.indexOf(pIdx);
-    if (rmIdx !== -1) pidxArr.splice(rmIdx, 1);
-    for (const oi of occupied) {
-      if (task.teacherId && state.teacherSlots[task.teacherId]) state.teacherSlots[task.teacherId][day].delete(oi);
-      if (roomId && state.roomSlots[roomId]) state.roomSlots[roomId][day].delete(oi);
-      for (const gId of task.groupIds) {
-        if (state.groupSlots[gId]) state.groupSlots[gId][day].delete(oi);
-      }
-    }
-  };
-
-  // Count valid options for a task (for MRV heuristic)
-  const countOptions = (task, state) => {
-    let count = 0;
-    for (const day of DAYS) {
-      if (state.classDays[task.classId].has(day)) continue;
-      for (const cp of classPeriods) {
-        if (canPlace(task, day, cp.index, state)) count++;
-      }
-    }
-    return count;
-  };
-
   // Shuffle array in place (Fisher-Yates)
   const shuffle = (arr) => {
     for (let i = arr.length - 1; i > 0; i--) {
@@ -388,81 +356,58 @@ function autoGenerate(config, periods) {
     return score;
   };
 
-  // ── SOLVE with backtracking + MRV ──
-  // `placed` tracks actual successful placements (not depth)
-  const solve = (tasks, state, depth, maxBacktracks, placedSoFar) => {
-    if (depth >= tasks.length) return { placed: placedSoFar || 0, state };
+  // ── GREEDY SOLVER with randomized restarts ──
+  // No recursion, no backtracking — fast linear pass
+  const solve = (tasks, state) => {
+    let placed = 0;
 
-    // MRV: pick the unplaced task with fewest valid options
-    // Only scan a limited window to avoid O(n²) per depth
-    let bestIdx = depth, bestOptions = Infinity;
-    const scanLimit = Math.min(depth + 8, tasks.length);
-    for (let i = depth; i < scanLimit; i++) {
-      const opts = countOptions(tasks[i], state);
-      if (opts < bestOptions) { bestOptions = opts; bestIdx = i; }
-      if (opts === 0) break;
-    }
-
-    if (bestIdx !== depth) [tasks[depth], tasks[bestIdx]] = [tasks[bestIdx], tasks[depth]];
-
-    const task = tasks[depth];
-
-    // Build list of valid (day, pIdx) placements
-    const options = [];
-    for (const day of DAYS) {
-      if (state.classDays[task.classId].has(day)) continue;
-      for (const cp of classPeriods) {
-        if (canPlace(task, day, cp.index, state)) {
-          options.push({ day, pIdx: cp.index });
+    for (const task of tasks) {
+      // Build list of valid placements
+      const options = [];
+      for (const day of DAYS) {
+        if (state.classDays[task.classId].has(day)) continue;
+        for (const cp of classPeriods) {
+          if (canPlace(task, day, cp.index, state)) {
+            options.push({ day, pIdx: cp.index });
+          }
         }
       }
-    }
 
-    // Sort by preference
-    const existingPeriods = state.classPeriodMap[task.classId];
-    options.sort((a, b) => {
-      const loadA = task.teacherId ? (state.teacherSlots[task.teacherId]?.[a.day]?.size || 0) : 0;
-      const loadB = task.teacherId ? (state.teacherSlots[task.teacherId]?.[b.day]?.size || 0) : 0;
-      if (loadA !== loadB) return loadA - loadB;
-      const matchA = existingPeriods.includes(a.pIdx) ? 0 : 1;
-      const matchB = existingPeriods.includes(b.pIdx) ? 0 : 1;
-      if (matchA !== matchB) return matchA - matchB;
-      return 0;
-    });
+      if (options.length === 0) continue; // skip — can't place
 
-    // Light shuffle for randomization
-    for (let i = 0; i < options.length - 1; i++) {
-      if (Math.random() < 0.3) [options[i], options[i + 1]] = [options[i + 1], options[i]];
-    }
+      // Sort by preference
+      const existingPeriods = state.classPeriodMap[task.classId];
+      options.sort((a, b) => {
+        const loadA = task.teacherId ? (state.teacherSlots[task.teacherId]?.[a.day]?.size || 0) : 0;
+        const loadB = task.teacherId ? (state.teacherSlots[task.teacherId]?.[b.day]?.size || 0) : 0;
+        if (loadA !== loadB) return loadA - loadB;
+        const matchA = existingPeriods.includes(a.pIdx) ? 0 : 1;
+        const matchB = existingPeriods.includes(b.pIdx) ? 0 : 1;
+        if (matchA !== matchB) return matchA - matchB;
+        return 0;
+      });
 
-    let backtracks = 0;
-    for (const opt of options) {
+      // Light shuffle for randomization across attempts
+      for (let i = 0; i < options.length - 1; i++) {
+        if (Math.random() < 0.3) [options[i], options[i + 1]] = [options[i + 1], options[i]];
+      }
+
+      const opt = options[0];
       const roomId = findRoom(task, opt.day, opt.pIdx, state);
       place(task, opt.day, opt.pIdx, roomId, state);
+      placed++;
 
       // Also place concurrent partners
-      const partnerPlacements = [];
       for (const partnerId of (task.concurrentPartners || [])) {
         const partner = classes.find(c => c.id === partnerId);
         if (!partner) continue;
         const pTask = { classId: partnerId, teacherId: partner.teacherId, groupIds: partner.groupIds || [], duration: partner.duration || 1 };
         const pRoom = findRoom(pTask, opt.day, opt.pIdx, state);
         place(pTask, opt.day, opt.pIdx, pRoom, state);
-        partnerPlacements.push({ task: pTask, roomId: pRoom });
       }
-
-      const result = solve(tasks, state, depth + 1, maxBacktracks - backtracks, (placedSoFar || 0) + 1);
-      if (result.placed === tasks.length) return result; // perfect
-
-      // Backtrack
-      for (const pp of partnerPlacements) unplace(pp.task, opt.day, opt.pIdx, pp.roomId, state);
-      unplace(task, opt.day, opt.pIdx, roomId, state);
-      backtracks++;
-      if (backtracks >= maxBacktracks) break;
     }
 
-    // Couldn't place this task — skip it (don't increment placedSoFar)
-    return solve(tasks, state, depth + 1, maxBacktracks, placedSoFar || 0);
+    return { placed, state };
   };
 
   // ── RUN MULTIPLE ATTEMPTS ──
@@ -544,22 +489,25 @@ function autoGenerate(config, periods) {
       classOrder.forEach(cId => byClass[cId].forEach(t => remainingTasks.push(t)));
     }
 
-    // Allow more backtracking in early attempts, less later (annealing)
-    const maxBT = attempt < 5 ? 3 : 1;
-    const result = solve(remainingTasks, state, 0, maxBT, 0);
+    const result = solve(remainingTasks, state);
     const totalPlaced = result.placed + pinnedPlacements.length;
     const totalTasks = remainingTasks.length + pinnedPlacements.length;
     const score = scoreSchedule(result.state, totalPlaced, totalTasks);
 
     if (score > bestScore) {
       bestScore = score;
-      bestResult = { state: JSON.parse(JSON.stringify(result.state, (k, v) => v instanceof Set ? [...v] : v)), placed: totalPlaced, totalTasks };
+      // Snapshot the grid directly (avoid heavy JSON round-trip for Sets)
+      const gridCopy = {};
+      Object.entries(result.state.grid).forEach(([k, v]) => { gridCopy[k] = v.map(a => ({ ...a })); });
+      bestResult = { state: { ...result.state, grid: gridCopy, classPeriodMap: JSON.parse(JSON.stringify(result.state.classPeriodMap)) }, placed: totalPlaced, totalTasks };
     }
 
     // Perfect solution found — stop early
-    if (result.placed === remainingTasks.length && attempt >= 3) break;
+    if (result.placed === remainingTasks.length && attempt >= 2) break;
     // Time limit
     if (Date.now() - startTime > TIME_LIMIT) break;
+    // Yield to browser event loop so UI stays responsive
+    await yieldToUI();
   }
 
   // Reconstruct sets from arrays (JSON serialization converted Sets to arrays)
@@ -1341,11 +1289,18 @@ function GridPanel({ config, update, periods, conflicts }) {
   const grid = config.grid || {};
   const classPeriods = periods.filter(p => p.type === 'class');
 
-  const handleGenerate = () => {
+  const [generating, setGenerating] = useState(false);
+  const handleGenerate = async () => {
     const hasExisting = Object.keys(config.grid || {}).length > 0;
     if (hasExisting && !window.confirm('This will clear the current schedule and generate a new one. Continue?')) return;
 
-    const result = autoGenerate(config, periods);
+    setGenerating(true);
+    setGenResult(null);
+    // Yield one frame so the UI updates with "Generating..." before we start
+    await new Promise(r => setTimeout(r, 50));
+
+    const result = await autoGenerate(config, periods);
+    setGenerating(false);
     if (!result) { setGenResult({ error: 'Add classes and set up school day settings first.' }); setTimeout(() => setGenResult(null), 3000); return; }
 
     update(c => { c.grid = result.grid; });
@@ -1446,7 +1401,7 @@ function GridPanel({ config, update, periods, conflicts }) {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
         <h3 className="section-title" style={{ marginBottom: 0 }}>Schedule Grid</h3>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <button className="btn btn-gold btn-sm" onClick={handleGenerate}>⚡ Auto-Generate</button>
+          <button className="btn btn-gold btn-sm" onClick={handleGenerate} disabled={generating}>{generating ? '⏳ Generating...' : '⚡ Auto-Generate'}</button>
         </div>
       </div>
 
