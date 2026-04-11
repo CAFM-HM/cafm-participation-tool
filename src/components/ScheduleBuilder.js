@@ -149,10 +149,15 @@ async function autoGenerate(config, periods) {
 
       const need = cls.daysPerWeek || (cls.days ? cls.days.length : 5);
       const partners = cls.concurrentGroup ? (concurrentMap[cls.concurrentGroup] || []) : [cls.id];
+      const labDays = cls.labDaysPerWeek || 0;
+      const baseDuration = cls.duration || 1;
       for (let i = 0; i < need; i++) {
+        // If class has lab days, the first labDays tasks are double-period, rest are single
+        const taskDuration = labDays > 0 ? (i < labDays ? 2 : 1) : baseDuration;
         tasks.push({
           classId: cls.id, teacherId: cls.teacherId, groupIds: cls.groupIds || [],
-          duration: cls.duration || 1, concurrentPartners: partners.filter(id => id !== cls.id)
+          duration: taskDuration, isLab: labDays > 0 && i < labDays,
+          concurrentPartners: partners.filter(id => id !== cls.id)
         });
       }
     });
@@ -197,7 +202,7 @@ async function autoGenerate(config, periods) {
     const prevAssignments = state.grid[prevKey] || [];
     return prevAssignments.some(a => {
       const cls = classes.find(c => c.id === a.classId);
-      return cls && (cls.duration || 1) >= 2;
+      return cls && (a.duration || cls.duration || 1) >= 2;
     });
   };
 
@@ -273,7 +278,7 @@ async function autoGenerate(config, periods) {
     const occupied = getOccupied(pIdx, task.duration);
     const key = getKey(day, pIdx);
     if (!state.grid[key]) state.grid[key] = [];
-    state.grid[key].push({ classId: task.classId, roomId });
+    state.grid[key].push({ classId: task.classId, roomId, duration: task.duration });
     state.classDays[task.classId].add(day);
     state.classPeriodMap[task.classId].push(pIdx);
     for (const oi of occupied) {
@@ -546,7 +551,7 @@ async function autoGenerate(config, periods) {
           const prevArr = finalGrid[prevKey] || [];
           const isDoubleExt = prevArr.some(a => {
             const cls = classes.find(c => c.id === a.classId);
-            return cls && (cls.duration || 1) >= 2;
+            return cls && (a.duration || cls.duration || 1) >= 2;
           });
           if (isDoubleExt) return;
         }
@@ -711,7 +716,7 @@ async function autoGenerate(config, periods) {
             const prevAssignments = finalGrid[prevKey] || [];
             const coveredByDouble = prevAssignments.some(a => {
               const cls = classes.find(c => c.id === a.classId);
-              return cls && (cls.duration || 1) >= 2 && (cls.groupIds || []).includes(group.id);
+              return cls && (a.duration || cls.duration || 1) >= 2 && (cls.groupIds || []).includes(group.id);
             });
             if (coveredByDouble) return;
           }
@@ -771,7 +776,7 @@ export default function ScheduleBuilder({ isAdmin }) {
         arr.forEach(a => {
           if (!a?.classId) return;
           const cls = (local.classes || []).find(c => c.id === a.classId);
-          const occupied = getOccupiedIndices(pIdx, cls?.duration || 1, periods);
+          const occupied = getOccupiedIndices(pIdx, a.duration || cls?.duration || 1, periods);
           occupied.forEach(oi => {
             if (periodMap[oi]) periodMap[oi].push({ ...a, sourceIdx: pIdx });
           });
@@ -1136,13 +1141,13 @@ function PinAdder({ onAdd }) {
 // CLASSES PANEL — with days/week and inline editing
 // ============================================================
 function ClassesPanel({ config, update }) {
-  const [nc, setNc] = useState({ name: '', teacherId: '', groupIds: [], daysPerWeek: 5, duration: 1, concurrentGroup: '' });
+  const [nc, setNc] = useState({ name: '', teacherId: '', groupIds: [], daysPerWeek: 5, duration: 1, labDaysPerWeek: 0, concurrentGroup: '' });
   const [editingId, setEditingId] = useState(null);
 
   const addClass = () => {
     if (!nc.name.trim()) return;
-    update(c => { c.classes.push({ id: genId(), name: nc.name.trim(), teacherId: nc.teacherId, groupIds: nc.groupIds, daysPerWeek: nc.daysPerWeek, duration: nc.duration, concurrentGroup: nc.concurrentGroup || '' }); });
-    setNc({ name: '', teacherId: '', groupIds: [], daysPerWeek: 5, duration: 1, concurrentGroup: '' });
+    update(c => { c.classes.push({ id: genId(), name: nc.name.trim(), teacherId: nc.teacherId, groupIds: nc.groupIds, daysPerWeek: nc.daysPerWeek, duration: nc.duration, labDaysPerWeek: nc.labDaysPerWeek || 0, concurrentGroup: nc.concurrentGroup || '' }); });
+    setNc({ name: '', teacherId: '', groupIds: [], daysPerWeek: 5, duration: 1, labDaysPerWeek: 0, concurrentGroup: '' });
   };
 
   // Get existing concurrent group labels for the dropdown
@@ -1205,11 +1210,24 @@ function ClassesPanel({ config, update }) {
           </div>
           <div className="sched-field" style={{ flex: 0 }}>
             <label style={{ fontSize: 11 }}>Duration</label>
-            <select value={nc.duration} onChange={e => setNc({ ...nc, duration: parseInt(e.target.value) })} style={{ width: 100 }}>
+            <select value={nc.labDaysPerWeek > 0 ? 'lab' : nc.duration}
+              onChange={e => {
+                if (e.target.value === 'lab') setNc({ ...nc, duration: 1, labDaysPerWeek: 1 });
+                else setNc({ ...nc, duration: parseInt(e.target.value), labDaysPerWeek: 0 });
+              }} style={{ width: 120 }}>
               <option value={1}>Single</option>
-              <option value={2}>Double</option>
+              <option value={2}>Double (all)</option>
+              <option value="lab">+ Lab day</option>
             </select>
           </div>
+          {nc.labDaysPerWeek > 0 && (
+            <div className="sched-field" style={{ flex: 0 }}>
+              <label style={{ fontSize: 11 }}>Lab days</label>
+              <input type="number" value={nc.labDaysPerWeek} min={1} max={Math.max(1, nc.daysPerWeek - 1)}
+                onChange={e => setNc({ ...nc, labDaysPerWeek: Math.min(nc.daysPerWeek - 1, Math.max(1, parseInt(e.target.value) || 1)) })}
+                style={{ width: 50 }} />
+            </div>
+          )}
           <div className="sched-field" style={{ flex: 0 }}>
             <label style={{ fontSize: 11 }}>Concurrent</label>
             <div style={{ display: 'flex', gap: 4 }}>
@@ -1305,13 +1323,28 @@ function ClassesPanel({ config, update }) {
                     </td>
                     <td>
                       {isEditing ? (
-                        <select value={cls.duration || 1} onChange={e => updateClass(cIdx, 'duration', parseInt(e.target.value))}
-                          style={{ fontSize: 13, padding: '3px 4px', border: '1px solid #D1D5DB', borderRadius: 4 }}>
-                          <option value={1}>Single</option>
-                          <option value={2}>Double</option>
-                        </select>
+                        <>
+                          <select value={(cls.labDaysPerWeek || 0) > 0 ? 'lab' : (cls.duration || 1)}
+                            onChange={e => {
+                              if (e.target.value === 'lab') { updateClass(cIdx, 'duration', 1); updateClass(cIdx, 'labDaysPerWeek', 1); }
+                              else { updateClass(cIdx, 'duration', parseInt(e.target.value)); updateClass(cIdx, 'labDaysPerWeek', 0); }
+                            }}
+                            style={{ fontSize: 12, padding: '2px 4px', border: '1px solid #D1D5DB', borderRadius: 4 }}>
+                            <option value={1}>Single</option>
+                            <option value={2}>Double</option>
+                            <option value="lab">+ Lab</option>
+                          </select>
+                          {(cls.labDaysPerWeek || 0) > 0 && (
+                            <input type="number" value={cls.labDaysPerWeek} min={1} max={Math.max(1, daysPerWeek - 1)}
+                              onChange={e => updateClass(cIdx, 'labDaysPerWeek', Math.min(daysPerWeek - 1, Math.max(1, parseInt(e.target.value) || 1)))}
+                              title="Lab days per week"
+                              style={{ width: 36, fontSize: 12, padding: '2px 4px', border: '1px solid #D1D5DB', borderRadius: 4, marginLeft: 4 }} />
+                          )}
+                        </>
                       ) : (
-                        (cls.duration || 1) === 2 ? 'Double' : 'Single'
+                        (cls.labDaysPerWeek || 0) > 0
+                          ? <span style={{ fontSize: 12 }}>{daysPerWeek - cls.labDaysPerWeek}× single + {cls.labDaysPerWeek}× lab</span>
+                          : (cls.duration || 1) === 2 ? 'Double' : 'Single'
                       )}
                     </td>
                     <td>
@@ -1402,7 +1435,7 @@ function ClassesPanel({ config, update }) {
                             {cls.name}
                             {cls.concurrentGroup && <span className="badge badge-gray" style={{ fontSize: 9, marginLeft: 4, padding: '1px 4px' }}>{cls.concurrentGroup}</span>}
                           </span>
-                          <span style={{ color: '#6B7280', fontSize: 11 }}>{t?.name || '—'} · {dpw}×{(cls.duration || 1) === 2 ? ' (dbl)' : ''}</span>
+                          <span style={{ color: '#6B7280', fontSize: 11 }}>{t?.name || '—'} · {dpw}×{(cls.labDaysPerWeek || 0) > 0 ? ` (${cls.labDaysPerWeek} lab)` : (cls.duration || 1) === 2 ? ' (dbl)' : ''}</span>
                         </div>
                       );
                     })}
@@ -1564,7 +1597,7 @@ function GridPanel({ config, update, periods, conflicts }) {
               const prevArr = grid[prevKey] ? (Array.isArray(grid[prevKey]) ? grid[prevKey] : [grid[prevKey]]) : [];
               hasClass = prevArr.some(a => {
                 const cls = classes_.find(c => c.id === a.classId);
-                return cls && (cls.duration || 1) >= 2 && (cls.groupIds || []).includes(group.id);
+                return cls && (a.duration || cls.duration || 1) >= 2 && (cls.groupIds || []).includes(group.id);
               });
             }
           }
@@ -1582,7 +1615,7 @@ function GridPanel({ config, update, periods, conflicts }) {
     const prevAssignments = getAssignments(day, prevClassPeriod.index);
     for (const a of prevAssignments) {
       const cls = (config.classes || []).find(c => c.id === a.classId);
-      if (cls && (cls.duration || 1) >= 2) return { cls, assignment: a };
+      if (cls && (a.duration || cls.duration || 1) >= 2) return { cls, assignment: a };
     }
     return null;
   };
@@ -1805,7 +1838,7 @@ function GridPanel({ config, update, periods, conflicts }) {
                               const tc = getTeacherColor(cls.teacherId, config.teachers || []);
                               const isDragging = dragData?.classId === a.classId && dragData?.fromDay === day && dragData?.fromPIdx === period.index;
                               return (
-                                <div key={a.classId} className={`sched-grid-class-chip ${(cls.duration || 1) === 2 ? 'double' : ''}`}
+                                <div key={a.classId} className={`sched-grid-class-chip ${(a.duration || cls.duration || 1) === 2 ? 'double' : ''}`}
                                   draggable
                                   onDragStart={(e) => handleDragStart(e, a.classId, day, period.index, a.roomId)}
                                   onDragEnd={handleDragEnd}
@@ -1865,7 +1898,7 @@ function GridPanel({ config, update, periods, conflicts }) {
                   background: isFull ? tc.bg : isEmpty ? '#FEF2F2' : '#FFFBEB' }}>
                   <span style={{ fontWeight: 600, color: isFull ? tc.text : '#92400E' }}>{cls.name}</span>
                   <span style={{ color: isFull ? tc.text : '#92400E', opacity: 0.8 }}>
-                    {scheduled}/{needed}d
+                    {scheduled}/{needed}d{(cls.labDaysPerWeek || 0) > 0 ? ` (${cls.labDaysPerWeek} lab)` : (cls.duration || 1) === 2 ? ' (dbl)' : ''}
                   </span>
                   {teacher && <span style={{ color: '#9CA3AF', fontSize: 10 }}>({teacher.name})</span>}
                   {isFull && <span style={{ fontSize: 10 }}>✓</span>}
