@@ -113,7 +113,9 @@ function autoGenerate(config, periods) {
   if (classes.length === 0 || classPeriods.length === 0) return null;
 
   const getKey = (day, pIdx) => `${day}-${pIdx}`;
-  const NUM_ATTEMPTS = 60;
+  const NUM_ATTEMPTS = 20;
+  const startTime = Date.now();
+  const TIME_LIMIT = 3000; // 3 second max
 
   // Pre-compute teacher lookup for speed
   const teacherMap = {};
@@ -392,8 +394,10 @@ function autoGenerate(config, periods) {
     if (depth >= tasks.length) return { placed: placedSoFar || 0, state };
 
     // MRV: pick the unplaced task with fewest valid options
-    let bestIdx = -1, bestOptions = Infinity;
-    for (let i = depth; i < tasks.length; i++) {
+    // Only scan a limited window to avoid O(n²) per depth
+    let bestIdx = depth, bestOptions = Infinity;
+    const scanLimit = Math.min(depth + 8, tasks.length);
+    for (let i = depth; i < scanLimit; i++) {
       const opts = countOptions(tasks[i], state);
       if (opts < bestOptions) { bestOptions = opts; bestIdx = i; }
       if (opts === 0) break;
@@ -541,7 +545,7 @@ function autoGenerate(config, periods) {
     }
 
     // Allow more backtracking in early attempts, less later (annealing)
-    const maxBT = attempt < 10 ? 8 : attempt < 30 ? 4 : 2;
+    const maxBT = attempt < 5 ? 3 : 1;
     const result = solve(remainingTasks, state, 0, maxBT, 0);
     const totalPlaced = result.placed + pinnedPlacements.length;
     const totalTasks = remainingTasks.length + pinnedPlacements.length;
@@ -553,7 +557,9 @@ function autoGenerate(config, periods) {
     }
 
     // Perfect solution found — stop early
-    if (result.placed === remainingTasks.length && attempt >= 5) break;
+    if (result.placed === remainingTasks.length && attempt >= 3) break;
+    // Time limit
+    if (Date.now() - startTime > TIME_LIMIT) break;
   }
 
   // Reconstruct sets from arrays (JSON serialization converted Sets to arrays)
