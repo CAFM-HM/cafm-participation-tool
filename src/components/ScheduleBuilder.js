@@ -473,32 +473,95 @@ function autoGenerate(config, periods) {
   let bestResult = null;
   let bestScore = -Infinity;
 
+  // Pre-compute pinned placements (these are fixed before solving)
+  const pinnedPlacements = [];
+  classes.forEach(cls => {
+    if (!cls.pinned || cls.pinned.length === 0) return;
+    cls.pinned.forEach(pin => {
+      // Find the period index that matches this period number
+      const cp = classPeriods.find(p => p.num === pin.period);
+      if (!cp) return;
+      pinnedPlacements.push({
+        classId: cls.id, teacherId: cls.teacherId, groupIds: cls.groupIds || [],
+        duration: cls.duration || 1, day: pin.day, pIdx: cp.index,
+        concurrentPartners: cls.concurrentGroup ? (concurrentMap[cls.concurrentGroup] || []).filter(id => id !== cls.id) : []
+      });
+    });
+  });
+
   for (let attempt = 0; attempt < NUM_ATTEMPTS; attempt++) {
     const tasks = buildTasks();
     const state = freshState();
+
+    // Pre-place pinned classes — these are locked in and won't be moved
+    let pinnedOk = true;
+    for (const pin of pinnedPlacements) {
+      // Skip if already placed (e.g., concurrent partner was pinned too)
+      if (state.classDays[pin.classId]?.has(pin.day)) continue;
+
+      const roomId = findRoom(pin, pin.day, pin.pIdx, state);
+      place(pin, pin.day, pin.pIdx, roomId, state);
+
+      // Also place concurrent partners
+      for (const partnerId of pin.concurrentPartners) {
+        if (state.classDays[partnerId]?.has(pin.day)) continue;
+        const partner = classes.find(c => c.id === partnerId);
+        if (!partner) continue;
+        const pTask = { classId: partnerId, teacherId: partner.teacherId, groupIds: partner.groupIds || [], duration: partner.duration || 1 };
+        const pRoom = findRoom(pTask, pin.day, pin.pIdx, state);
+        place(pTask, pin.day, pin.pIdx, pRoom, state);
+      }
+    }
+
+    // Remove tasks that were already placed by pins
+    const pinnedKeys = new Set();
+    pinnedPlacements.forEach(p => pinnedKeys.add(`${p.classId}-${p.day}`));
+    // Also mark concurrent partners
+    pinnedPlacements.forEach(p => {
+      p.concurrentPartners.forEach(pid => pinnedKeys.add(`${pid}-${p.day}`));
+    });
+
+    // Filter out tasks that correspond to pinned placements
+    const remainingTasks = [];
+    const taskDayCounts = {}; // track how many tasks per class we've kept vs pinned
+    for (const task of tasks) {
+      const key = task.classId;
+      if (!taskDayCounts[key]) taskDayCounts[key] = { pinned: 0, kept: 0 };
+
+      // Count how many pins this class has
+      const classPins = pinnedPlacements.filter(p => p.classId === task.classId).length;
+      if (taskDayCounts[key].pinned < classPins) {
+        taskDayCounts[key].pinned++;
+        continue; // skip this task — it's covered by a pin
+      }
+      remainingTasks.push(task);
+      taskDayCounts[key].kept++;
+    }
 
     // First attempt: use pure MRV ordering. Rest: shuffle with bias.
     if (attempt > 0) {
       // Group tasks by class, shuffle class order, keep same-class tasks together
       const byClass = {};
-      tasks.forEach(t => { if (!byClass[t.classId]) byClass[t.classId] = []; byClass[t.classId].push(t); });
+      remainingTasks.forEach(t => { if (!byClass[t.classId]) byClass[t.classId] = []; byClass[t.classId].push(t); });
       const classOrder = shuffle(Object.keys(byClass));
-      tasks.length = 0;
-      classOrder.forEach(cId => byClass[cId].forEach(t => tasks.push(t)));
+      remainingTasks.length = 0;
+      classOrder.forEach(cId => byClass[cId].forEach(t => remainingTasks.push(t)));
     }
 
     // Allow more backtracking in early attempts, less later (annealing)
     const maxBT = attempt < 10 ? 8 : attempt < 30 ? 4 : 2;
-    const result = solve(tasks, state, 0, maxBT);
-    const score = scoreSchedule(result.state, result.placed, tasks.length);
+    const result = solve(remainingTasks, state, 0, maxBT);
+    const totalPlaced = result.placed + pinnedPlacements.length;
+    const totalTasks = remainingTasks.length + pinnedPlacements.length;
+    const score = scoreSchedule(result.state, totalPlaced, totalTasks);
 
     if (score > bestScore) {
       bestScore = score;
-      bestResult = { state: JSON.parse(JSON.stringify(result.state, (k, v) => v instanceof Set ? [...v] : v)), placed: result.placed, totalTasks: tasks.length };
+      bestResult = { state: JSON.parse(JSON.stringify(result.state, (k, v) => v instanceof Set ? [...v] : v)), placed: totalPlaced, totalTasks };
     }
 
     // Perfect solution found — stop early
-    if (result.placed === tasks.length && attempt >= 5) break;
+    if (result.placed === remainingTasks.length && attempt >= 5) break;
   }
 
   // Reconstruct sets from arrays (JSON serialization converted Sets to arrays)
@@ -968,6 +1031,24 @@ function AddUnavailability({ periods, onAdd }) {
   );
 }
 
+// Small inline component for adding a pin
+function PinAdder({ onAdd }) {
+  const [day, setDay] = useState('mon');
+  const [period, setPeriod] = useState(1);
+  return (
+    <div style={{ display: 'inline-flex', gap: 4, alignItems: 'center' }}>
+      <select value={day} onChange={e => setDay(e.target.value)} style={{ fontSize: 11, padding: '2px 4px', border: '1px solid #D1D5DB', borderRadius: 4 }}>
+        {DAYS.map(d => <option key={d} value={d}>{DAY_SHORT[d]}</option>)}
+      </select>
+      <span style={{ fontSize: 11, color: '#6B7280' }}>P</span>
+      <input type="number" value={period} min={1} max={12} onChange={e => setPeriod(parseInt(e.target.value) || 1)}
+        style={{ width: 40, fontSize: 11, padding: '2px 4px', border: '1px solid #D1D5DB', borderRadius: 4 }} />
+      <button className="btn btn-sm btn-primary" onClick={() => onAdd(day, period)}
+        style={{ fontSize: 10, padding: '2px 6px' }}>+ Pin</button>
+    </div>
+  );
+}
+
 // ============================================================
 // CLASSES PANEL — with days/week and inline editing
 // ============================================================
@@ -1085,8 +1166,10 @@ function ClassesPanel({ config, update }) {
                 const teacher = (config.teachers || []).find(t => t.id === cls.teacherId);
                 const isEditing = editingId === cls.id;
                 const daysPerWeek = cls.daysPerWeek || (cls.days ? cls.days.length : 5);
+                const pins = cls.pinned || [];
                 return (
-                  <tr key={cls.id}>
+                  <React.Fragment key={cls.id}>
+                  <tr>
                     <td style={{ color: '#9CA3AF', fontSize: 12, fontWeight: 600, textAlign: 'center' }}>{cIdx + 1}</td>
                     <td>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
@@ -1175,6 +1258,36 @@ function ClassesPanel({ config, update }) {
                       </div>
                     </td>
                   </tr>
+                  {/* Pinned slots row — shows when editing or when pins exist */}
+                  {(isEditing || pins.length > 0) && (
+                    <tr>
+                      <td colSpan={9} style={{ paddingTop: 0, paddingBottom: 8, borderTop: 'none' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', paddingLeft: 70 }}>
+                          <span style={{ fontSize: 11, color: '#6B7280', fontWeight: 600 }}>📌 Pinned:</span>
+                          {pins.map((pin, pnIdx) => (
+                            <span key={pnIdx} className="badge" style={{ background: '#DBEAFE', color: '#1E40AF', fontSize: 11, display: 'flex', alignItems: 'center', gap: 4 }}>
+                              {DAY_SHORT[pin.day]} P{pin.period}
+                              {isEditing && (
+                                <button onClick={() => update(c => { c.classes[cIdx].pinned.splice(pnIdx, 1); })}
+                                  style={{ background: 'none', border: 'none', color: '#1E40AF', cursor: 'pointer', fontSize: 12, padding: 0, lineHeight: 1 }}>×</button>
+                              )}
+                            </span>
+                          ))}
+                          {isEditing && (
+                            <PinAdder onAdd={(day, period) => update(c => {
+                              if (!c.classes[cIdx].pinned) c.classes[cIdx].pinned = [];
+                              // Don't add duplicate
+                              if (!c.classes[cIdx].pinned.some(p => p.day === day && p.period === period)) {
+                                c.classes[cIdx].pinned.push({ day, period });
+                              }
+                            })} />
+                          )}
+                          {pins.length === 0 && !isEditing && <span style={{ fontSize: 11, color: '#D1D5DB' }}>None</span>}
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                  </React.Fragment>
                 );
               })}
             </tbody>
