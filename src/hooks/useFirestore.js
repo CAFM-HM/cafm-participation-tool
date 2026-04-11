@@ -270,6 +270,35 @@ export function useTeacherData(uid, masterStudents) {
     }));
   }, [uid, classes]);
 
+  // Manual "Save All" — writes every score for a class+date in one Firestore write.
+  // Acts as a safety net: even if individual auto-saves failed, this captures everything.
+  const saveAllScoresForDay = useCallback(async (classId, date) => {
+    if (!uid) return;
+    const cls = classes.find(c => c.id === classId);
+    if (!cls) return;
+
+    const fieldUpdates = {};
+    cls.students.forEach(student => {
+      const dayScores = student.scores?.[date];
+      if (!dayScores) return;
+      Object.entries(dayScores).forEach(([key, value]) => {
+        if (value === undefined || value === null || value === '') return;
+        if (key === 'absent') {
+          fieldUpdates[`scores.${date}.${student.name}.E`] = value;
+        } else {
+          const shortKey = VIRTUE_SHORT[key];
+          if (shortKey) fieldUpdates[`scores.${date}.${student.name}.${shortKey}`] = value;
+        }
+      });
+    });
+
+    if (Object.keys(fieldUpdates).length > 0) {
+      const ref = doc(db, 'teachers', uid, 'classes', classId);
+      await updateDoc(ref, fieldUpdates);
+    }
+    return Object.keys(fieldUpdates).length;
+  }, [uid, classes]);
+
   const deleteClass = useCallback(async (classId) => {
     if (!uid) return;
     await deleteDoc(doc(db, 'teachers', uid, 'classes', classId));
@@ -278,7 +307,7 @@ export function useTeacherData(uid, masterStudents) {
 
   return {
     classes, loading, loadClasses: () => setRefreshKey(k => k + 1),
-    addClass, addStudentToClass, removeStudentFromClass, saveDailyScore, saveBulkScores, deleteClass,
+    addClass, addStudentToClass, removeStudentFromClass, saveDailyScore, saveBulkScores, saveAllScoresForDay, deleteClass,
   };
 }
 

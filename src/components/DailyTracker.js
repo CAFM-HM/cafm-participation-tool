@@ -47,7 +47,7 @@ export default function DailyTracker({ uid, masterStudents, adminViewMode, admin
   const effectiveUid = adminViewMode ? adminUid : uid;
 
   const {
-    classes, loading, addClass, addStudentToClass, removeStudentFromClass, saveDailyScore, saveBulkScores, deleteClass,
+    classes, loading, addClass, addStudentToClass, removeStudentFromClass, saveDailyScore, saveBulkScores, saveAllScoresForDay, deleteClass,
   } = useTeacherData(effectiveUid, masterStudents);
 
   const [selectedClass, setSelectedClass] = useState(null);
@@ -65,6 +65,10 @@ export default function DailyTracker({ uid, masterStudents, adminViewMode, admin
   const undoSnapshot = useRef(null);
   const [canUndo, setCanUndo] = useState(false);
   const [undoLabel, setUndoLabel] = useState('');
+
+  // Manual save state
+  const [saveStatus, setSaveStatus] = useState(null); // null | 'saving' | 'saved' | 'error'
+  const saveTimerRef = useRef(null);
 
   const currentClass = classes.find(c => c.id === selectedClass);
   const students = currentClass?.students || [];
@@ -150,6 +154,23 @@ export default function DailyTracker({ uid, masterStudents, adminViewMode, admin
     if (!selectedClass) return;
     const updates = VIRTUES.map(v => ({ studentId, virtueKey: v.key, score }));
     saveBulkScores(selectedClass, date, updates);
+  };
+
+  // Manual save — writes ALL current scores for this class+date in one Firestore write
+  const handleManualSave = async () => {
+    if (!selectedClass) return;
+    setSaveStatus('saving');
+    try {
+      const count = await saveAllScoresForDay(selectedClass, date);
+      setSaveStatus('saved');
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = setTimeout(() => setSaveStatus(null), 3000);
+    } catch (e) {
+      console.error('Manual save failed:', e);
+      setSaveStatus('error');
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = setTimeout(() => setSaveStatus(null), 5000);
+    }
   };
 
   // Class-wide default
@@ -460,8 +481,18 @@ export default function DailyTracker({ uid, masterStudents, adminViewMode, admin
                 </select>
               </div>
             )}
-            <div style={{ marginLeft: 'auto', fontSize: 12, color: '#9CA3AF' }}>
+            {!adminViewMode && students.length > 0 && (
+              <button className="btn btn-sm" onClick={handleManualSave}
+                disabled={saveStatus === 'saving'}
+                style={{ marginLeft: 'auto', background: saveStatus === 'saved' ? '#059669' : saveStatus === 'error' ? '#DC2626' : '#1B3A5C',
+                  color: '#fff', fontWeight: 600, padding: '6px 16px', borderRadius: 6, fontSize: 12,
+                  transition: 'background 0.2s' }}>
+                {saveStatus === 'saving' ? '💾 Saving...' : saveStatus === 'saved' ? '✓ Saved!' : saveStatus === 'error' ? '✕ Error — retry' : '💾 Save Grades'}
+              </button>
+            )}
+            <div style={{ fontSize: 12, color: '#9CA3AF' }}>
               {students.length} student{students.length !== 1 ? 's' : ''}
+              <span style={{ marginLeft: 8, fontSize: 10, color: '#D1D5DB' }}>auto-saves on each click</span>
             </div>
           </div>
 
@@ -549,6 +580,23 @@ export default function DailyTracker({ uid, masterStudents, adminViewMode, admin
                 </div>
               );
             })}
+
+          {/* Bottom save button */}
+          {!adminViewMode && students.length > 0 && (
+            <div style={{ marginTop: 16, padding: 12, background: '#F9FAFB', border: '1px solid #E5E7EB', borderRadius: 8,
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span style={{ fontSize: 12, color: '#6B7280' }}>
+                Grades auto-save on each click. Use the Save button to confirm all grades are saved.
+              </span>
+              <button className="btn" onClick={handleManualSave}
+                disabled={saveStatus === 'saving'}
+                style={{ background: saveStatus === 'saved' ? '#059669' : saveStatus === 'error' ? '#DC2626' : '#1B3A5C',
+                  color: '#fff', fontWeight: 600, padding: '8px 24px', borderRadius: 6, fontSize: 13,
+                  transition: 'background 0.2s' }}>
+                {saveStatus === 'saving' ? '💾 Saving...' : saveStatus === 'saved' ? '✓ All Grades Saved!' : saveStatus === 'error' ? '✕ Error — click to retry' : '💾 Save All Grades'}
+              </button>
+            </div>
+          )}
         </>
       )}
 
