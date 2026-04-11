@@ -1407,6 +1407,8 @@ function ClassesPanel({ config, update }) {
 function GridPanel({ config, update, periods, conflicts }) {
   const [pickerCell, setPickerCell] = useState(null); // "day-pIdx"
   const [genResult, setGenResult] = useState(null); // { unplaced, emptySlots }
+  const [dragData, setDragData] = useState(null); // { classId, fromDay, fromPIdx, roomId }
+  const [dropTarget, setDropTarget] = useState(null); // "day-pIdx"
   const grid = config.grid || {};
   const classPeriods = periods.filter(p => p.type === 'class');
 
@@ -1453,6 +1455,58 @@ function GridPanel({ config, update, periods, conflicts }) {
       c.grid[key] = arr.filter(a => a.classId !== classId);
       if (c.grid[key].length === 0) delete c.grid[key];
     });
+  };
+
+  // ── Drag-and-drop handlers ──
+  const handleDragStart = (e, classId, day, pIdx, roomId) => {
+    setDragData({ classId, fromDay: day, fromPIdx: pIdx, roomId });
+    e.dataTransfer.effectAllowed = 'move';
+    // Make the drag image semi-transparent
+    if (e.target) e.dataTransfer.setDragImage(e.target, 0, 0);
+  };
+
+  const handleDragOver = (e, day, pIdx) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    const key = gk(day, pIdx);
+    if (dropTarget !== key) setDropTarget(key);
+  };
+
+  const handleDragLeave = () => {
+    setDropTarget(null);
+  };
+
+  const handleDrop = (e, day, pIdx) => {
+    e.preventDefault();
+    setDropTarget(null);
+    if (!dragData) return;
+    const { classId, fromDay, fromPIdx, roomId } = dragData;
+    setDragData(null);
+
+    // Don't drop on same cell
+    if (fromDay === day && fromPIdx === pIdx) return;
+
+    // Move: remove from old cell, add to new cell
+    update(c => {
+      if (!c.grid) c.grid = {};
+      // Remove from source
+      const srcKey = gk(fromDay, fromPIdx);
+      if (c.grid[srcKey]) {
+        const srcArr = Array.isArray(c.grid[srcKey]) ? c.grid[srcKey] : [c.grid[srcKey]];
+        c.grid[srcKey] = srcArr.filter(a => a.classId !== classId);
+        if (c.grid[srcKey].length === 0) delete c.grid[srcKey];
+      }
+      // Add to destination
+      const destKey = gk(day, pIdx);
+      const destArr = c.grid[destKey] ? (Array.isArray(c.grid[destKey]) ? c.grid[destKey] : [c.grid[destKey]]) : [];
+      destArr.push({ classId, roomId });
+      c.grid[destKey] = destArr;
+    });
+  };
+
+  const handleDragEnd = () => {
+    setDragData(null);
+    setDropTarget(null);
   };
 
   // Track scheduling counts
@@ -1704,8 +1758,13 @@ function GridPanel({ config, update, periods, conflicts }) {
                         );
                       }
 
+                      const isDropHover = dropTarget === key && dragData && !(dragData.fromDay === day && dragData.fromPIdx === period.index);
                       return (
-                        <td key={day} className={`sched-grid-cell ${cellConflicts.length > 0 ? 'has-conflict' : ''}`}>
+                        <td key={day} className={`sched-grid-cell ${cellConflicts.length > 0 ? 'has-conflict' : ''}`}
+                          onDragOver={(e) => handleDragOver(e, day, period.index)}
+                          onDragLeave={handleDragLeave}
+                          onDrop={(e) => handleDrop(e, day, period.index)}
+                          style={isDropHover ? { background: '#DBEAFE', outline: '2px dashed #3B82F6', outlineOffset: '-2px' } : undefined}>
                           {blocked ? (
                             (() => {
                               const btc = getTeacherColor(blocked.cls.teacherId, config.teachers || []);
@@ -1725,9 +1784,14 @@ function GridPanel({ config, update, periods, conflicts }) {
                                 const teacher = cls ? (config.teachers || []).find(t => t.id === cls.teacherId) : null;
                                 if (!cls) return null;
                                 const tc = getTeacherColor(cls.teacherId, config.teachers || []);
+                                const isDragging = dragData?.classId === a.classId && dragData?.fromDay === day && dragData?.fromPIdx === period.index;
                                 return (
                                   <div key={a.classId} className={`sched-grid-class-chip ${(cls.duration || 1) === 2 ? 'double' : ''}`}
-                                    style={{ background: tc.bg, borderLeft: `3px solid ${tc.border}` }}>
+                                    draggable
+                                    onDragStart={(e) => handleDragStart(e, a.classId, day, period.index, a.roomId)}
+                                    onDragEnd={handleDragEnd}
+                                    style={{ background: tc.bg, borderLeft: `3px solid ${tc.border}`, cursor: 'grab',
+                                      opacity: isDragging ? 0.4 : 1 }}>
                                     <div>
                                       <div style={{ fontWeight: 600, fontSize: 12, color: tc.text }}>{cls.name}</div>
                                       <div style={{ fontSize: 10, color: tc.text, opacity: 0.7 }}>{teacher?.name} · {room?.name || '?'}</div>
@@ -1762,6 +1826,35 @@ function GridPanel({ config, update, periods, conflicts }) {
           </tbody>
         </table>
       </div>
+
+      {/* Class count summary panel */}
+      {Object.keys(grid).length > 0 && (config.classes || []).length > 0 && (
+        <div style={{ marginTop: 16, padding: 12, background: '#F9FAFB', border: '1px solid #E5E7EB', borderRadius: 8 }}>
+          <div style={{ fontWeight: 600, fontSize: 13, color: '#1B3A5C', marginBottom: 8 }}>Schedule Summary</div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+            {(config.classes || []).map(cls => {
+              const scheduled = classDayCounts[cls.id]?.size || 0;
+              const needed = cls.daysPerWeek || (cls.days ? cls.days.length : 5);
+              const teacher = cls.teacherId ? (config.teachers || []).find(t => t.id === cls.teacherId) : null;
+              const tc = getTeacherColor(cls.teacherId, config.teachers || []);
+              const isFull = scheduled >= needed;
+              const isEmpty = scheduled === 0;
+              return (
+                <div key={cls.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 8px',
+                  borderRadius: 6, fontSize: 12, border: `1px solid ${isFull ? tc.border : '#FDE68A'}`,
+                  background: isFull ? tc.bg : isEmpty ? '#FEF2F2' : '#FFFBEB' }}>
+                  <span style={{ fontWeight: 600, color: isFull ? tc.text : '#92400E' }}>{cls.name}</span>
+                  <span style={{ color: isFull ? tc.text : '#92400E', opacity: 0.8 }}>
+                    {scheduled}/{needed}d
+                  </span>
+                  {teacher && <span style={{ color: '#9CA3AF', fontSize: 10 }}>({teacher.name})</span>}
+                  {isFull && <span style={{ fontSize: 10 }}>✓</span>}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
