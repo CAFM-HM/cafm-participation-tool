@@ -115,7 +115,6 @@ export function useTeacherData(uid, masterStudents) {
   const [classes, setClasses] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshKey, setRefreshKey] = useState(0);
-  const debouncedSave = useDebouncedSave();
 
   const loadClasses = useCallback(async () => {
     if (!uid) return;
@@ -195,17 +194,19 @@ export function useTeacherData(uid, masterStudents) {
     const student = cls.students.find(s => s.id === studentId);
     if (!student) return;
 
-    debouncedSave(async () => {
-      const ref = doc(db, 'teachers', uid, 'classes', classId);
-      if (virtueKey === 'absent') {
-        await updateDoc(ref, { [`scores.${date}.${student.name}.E`]: score });
-      } else {
-        const shortKey = VIRTUE_SHORT[virtueKey];
-        if (shortKey) {
-          await updateDoc(ref, { [`scores.${date}.${student.name}.${shortKey}`]: score });
-        }
+    // Write immediately — NO debounce. Each score writes to a unique dot-path field
+    // (e.g., scores.2026-04-11.StudentName.D) so concurrent writes never conflict.
+    // The old debounce was cancelling previous saves, causing ~75% data loss when
+    // a teacher clicks through scores quickly.
+    const ref = doc(db, 'teachers', uid, 'classes', classId);
+    if (virtueKey === 'absent') {
+      updateDoc(ref, { [`scores.${date}.${student.name}.E`]: score }).catch(e => console.error('Score save failed:', e));
+    } else {
+      const shortKey = VIRTUE_SHORT[virtueKey];
+      if (shortKey) {
+        updateDoc(ref, { [`scores.${date}.${student.name}.${shortKey}`]: score }).catch(e => console.error('Score save failed:', e));
       }
-    });
+    }
 
     setClasses(prev => prev.map(c => {
       if (c.id !== classId) return c;
@@ -221,7 +222,7 @@ export function useTeacherData(uid, masterStudents) {
         })
       };
     }));
-  }, [uid, classes, debouncedSave]);
+  }, [uid, classes]);
 
   // Bulk save — single Firestore write for all changes (used by "All 4", "Copy Prev Day", etc.)
   // updates = [{ studentId, virtueKey, score }, ...]
