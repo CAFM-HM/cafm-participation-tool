@@ -1146,6 +1146,7 @@ function SettingsPanel({ config, update, periods }) {
 function TeachersPanel({ config, update, periods }) {
   const [expandedId, setExpandedId] = useState(null);
   const [newName, setNewName] = useState('');
+  const classPeriods = useMemo(() => periods.filter(p => p.type === 'class'), [periods]);
 
   const addTeacher = () => {
     if (!newName.trim()) return;
@@ -1212,6 +1213,92 @@ function TeachersPanel({ config, update, periods }) {
           )}
         </div>
       ))}
+
+      {/* Teacher Availability Synopsis */}
+      {(config.teachers || []).length > 0 && classPeriods.length > 0 && (
+        <div style={{ marginTop: 24 }}>
+          <h3 className="section-title" style={{ marginBottom: 12 }}>Teacher Availability Synopsis</h3>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ borderCollapse: 'collapse', fontSize: 11, width: '100%' }}>
+              <thead>
+                <tr>
+                  <th style={{ padding: '6px 10px', textAlign: 'left', borderBottom: '2px solid #E5E7EB', background: '#F9FAFB', position: 'sticky', left: 0, zIndex: 1, minWidth: 120 }}>Teacher</th>
+                  {DAYS.map(day => {
+                    const sd = config.schoolDay;
+                    const dayValid = !sd.earlyReleaseDay || sd.earlyReleaseDay !== day;
+                    const dayPeriodCount = dayValid ? classPeriods.length : classPeriods.filter(cp => isPeriodValidForDay(day, cp.index, sd, periods)).length;
+                    return (
+                      <th key={day} colSpan={dayPeriodCount} style={{ padding: '6px 4px', textAlign: 'center', borderBottom: '2px solid #E5E7EB', borderLeft: '2px solid #E5E7EB', background: '#F9FAFB', fontSize: 11 }}>
+                        {DAY_SHORT[day]}
+                      </th>
+                    );
+                  })}
+                  <th style={{ padding: '6px 8px', textAlign: 'center', borderBottom: '2px solid #E5E7EB', borderLeft: '2px solid #E5E7EB', background: '#F9FAFB', fontSize: 10, color: '#6B7280' }}>Avail</th>
+                </tr>
+                <tr>
+                  <th style={{ padding: '2px 10px', borderBottom: '1px solid #E5E7EB', background: '#F9FAFB', position: 'sticky', left: 0, zIndex: 1 }}></th>
+                  {DAYS.map(day => {
+                    const sd = config.schoolDay;
+                    return classPeriods.filter(cp => isPeriodValidForDay(day, cp.index, sd, periods)).map((cp, i) => (
+                      <th key={`${day}-${cp.index}`} style={{ padding: '2px 4px', textAlign: 'center', borderBottom: '1px solid #E5E7EB', fontSize: 10, color: '#9CA3AF', fontWeight: 500, borderLeft: i === 0 ? '2px solid #E5E7EB' : '1px solid #F3F4F6', background: '#F9FAFB' }}>
+                        P{cp.num}
+                      </th>
+                    ));
+                  })}
+                  <th style={{ padding: '2px 8px', borderBottom: '1px solid #E5E7EB', borderLeft: '2px solid #E5E7EB', background: '#F9FAFB' }}></th>
+                </tr>
+              </thead>
+              <tbody>
+                {(config.teachers || []).map((teacher, tIdx) => {
+                  const color = TEACHER_COLORS[tIdx % TEACHER_COLORS.length];
+                  let availCount = 0, totalCount = 0;
+                  const cells = DAYS.flatMap(day => {
+                    const sd = config.schoolDay;
+                    return classPeriods.filter(cp => isPeriodValidForDay(day, cp.index, sd, periods)).map((cp, i) => {
+                      totalCount++;
+                      const avail = isTeacherAvailable(teacher, cp.index, day, periods);
+                      if (avail) availCount++;
+                      return (
+                        <td key={`${day}-${cp.index}`} style={{
+                          padding: '4px 6px', textAlign: 'center',
+                          background: avail ? '#D1FAE5' : '#FEE2E2',
+                          color: avail ? '#065F46' : '#991B1B',
+                          fontWeight: 600, fontSize: 11,
+                          borderLeft: i === 0 ? '2px solid #E5E7EB' : '1px solid #F3F4F6',
+                          borderBottom: '1px solid #F3F4F6',
+                        }}>
+                          {avail ? '✓' : '✕'}
+                        </td>
+                      );
+                    });
+                  });
+                  const pct = totalCount > 0 ? Math.round((availCount / totalCount) * 100) : 0;
+                  return (
+                    <tr key={teacher.id}>
+                      <td style={{ padding: '4px 10px', fontWeight: 600, fontSize: 12, color: color.text, background: color.bg + '44', borderBottom: '1px solid #F3F4F6', position: 'sticky', left: 0, zIndex: 1, whiteSpace: 'nowrap' }}>
+                        {teacher.name}
+                        <span className={`badge ${teacher.type === 'ft' ? 'badge-green' : 'badge-gray'}`} style={{ fontSize: 9, marginLeft: 6, padding: '1px 4px' }}>
+                          {teacher.type === 'ft' ? 'FT' : 'PT'}
+                        </span>
+                      </td>
+                      {cells}
+                      <td style={{ padding: '4px 8px', textAlign: 'center', fontSize: 11, fontWeight: 600, borderLeft: '2px solid #E5E7EB', borderBottom: '1px solid #F3F4F6',
+                        color: pct === 100 ? '#065F46' : pct >= 70 ? '#92400E' : '#991B1B',
+                        background: pct === 100 ? '#D1FAE5' : pct >= 70 ? '#FEF3C7' : '#FEE2E2' }}>
+                        {availCount}/{totalCount} ({pct}%)
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          <div style={{ marginTop: 8, display: 'flex', gap: 16, fontSize: 11, color: '#6B7280' }}>
+            <span><span style={{ display: 'inline-block', width: 14, height: 14, background: '#D1FAE5', borderRadius: 3, verticalAlign: 'middle', marginRight: 4 }}></span> Available</span>
+            <span><span style={{ display: 'inline-block', width: 14, height: 14, background: '#FEE2E2', borderRadius: 3, verticalAlign: 'middle', marginRight: 4 }}></span> Unavailable</span>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
