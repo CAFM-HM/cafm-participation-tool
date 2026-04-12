@@ -1998,16 +1998,25 @@ function GridPanel({ config, update, periods }) {
   };
 
   // ── Drag-and-drop handlers ──
+  // Supports dragging FROM the grid (move) and FROM the class palette (add new)
   const handleDragStart = (e, classId, day, pIdx, roomId) => {
-    setDragData({ classId, fromDay: day, fromPIdx: pIdx, roomId });
+    setDragData({ classId, fromDay: day, fromPIdx: pIdx, roomId, isNew: false });
     e.dataTransfer.effectAllowed = 'move';
-    // Make the drag image semi-transparent
+    if (e.target) e.dataTransfer.setDragImage(e.target, 0, 0);
+  };
+
+  const handlePaletteDragStart = (e, classId) => {
+    const cls = (config.classes || []).find(c => c.id === classId);
+    const teacher = cls ? (config.teachers || []).find(t => t.id === cls.teacherId) : null;
+    const roomId = teacher?.defaultRoom || '';
+    setDragData({ classId, fromDay: null, fromPIdx: null, roomId, isNew: true });
+    e.dataTransfer.effectAllowed = 'copy';
     if (e.target) e.dataTransfer.setDragImage(e.target, 0, 0);
   };
 
   const handleDragOver = (e, day, pIdx) => {
     e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
+    e.dataTransfer.dropEffect = dragData?.isNew ? 'copy' : 'move';
     const key = gk(day, pIdx);
     if (dropTarget !== key) setDropTarget(key);
   };
@@ -2020,22 +2029,22 @@ function GridPanel({ config, update, periods }) {
     e.preventDefault();
     setDropTarget(null);
     if (!dragData) return;
-    const { classId, fromDay, fromPIdx, roomId } = dragData;
+    const { classId, fromDay, fromPIdx, roomId, isNew } = dragData;
     setDragData(null);
 
-    // Don't drop on same cell
-    if (fromDay === day && fromPIdx === pIdx) return;
+    if (!isNew && fromDay === day && fromPIdx === pIdx) return;
 
-    // Move: remove from old cell, add to new cell
     update(c => {
       if (!c[gridKey]) c[gridKey] = {};
       const g = c[gridKey];
-      // Remove from source
-      const srcKey = gk(fromDay, fromPIdx);
-      if (g[srcKey]) {
-        const srcArr = Array.isArray(g[srcKey]) ? g[srcKey] : [g[srcKey]];
-        g[srcKey] = srcArr.filter(a => a.classId !== classId);
-        if (g[srcKey].length === 0) delete g[srcKey];
+      // Remove from source (only if moving, not if adding new from palette)
+      if (!isNew && fromDay && fromPIdx !== null) {
+        const srcKey = gk(fromDay, fromPIdx);
+        if (g[srcKey]) {
+          const srcArr = Array.isArray(g[srcKey]) ? g[srcKey] : [g[srcKey]];
+          g[srcKey] = srcArr.filter(a => a.classId !== classId);
+          if (g[srcKey].length === 0) delete g[srcKey];
+        }
       }
       // Add to destination
       const destKey = gk(day, pIdx);
@@ -2048,6 +2057,14 @@ function GridPanel({ config, update, periods }) {
   const handleDragEnd = () => {
     setDragData(null);
     setDropTarget(null);
+  };
+
+  // Clear all classes from current semester grid
+  const handleClearAll = () => {
+    if (!window.confirm(`Clear ALL classes from the ${semester === 's1' ? 'Semester 1' : 'Semester 2'} grid? This cannot be undone.`)) return;
+    update(c => { c[gridKey] = {}; });
+    setGenResult(null);
+    window.dispatchEvent(new CustomEvent('toast', { detail: `${semester === 's1' ? 'Semester 1' : 'Semester 2'} grid cleared` }));
   };
 
   // Track scheduling counts
@@ -2126,8 +2143,53 @@ function GridPanel({ config, update, periods }) {
                 background: semester === 's2' ? '#1B3A5C' : '#F3F4F6', color: semester === 's2' ? '#fff' : '#6B7280' }}>Sem 2</button>
           </div>
           <button className="btn btn-gold btn-sm" onClick={handleGenerate} disabled={generating}>{generating ? '⏳ Generating...' : '⚡ Auto-Generate'}</button>
+          {Object.keys(grid).length > 0 && (
+            <button className="btn btn-sm" onClick={handleClearAll}
+              style={{ color: '#DC2626', border: '1px solid #FECACA', background: '#FEF2F2', fontSize: 11 }}>
+              🗑 Clear All
+            </button>
+          )}
         </div>
       </div>
+
+      {/* Draggable Class Palette */}
+      {(config.classes || []).length > 0 && (
+        <div style={{ marginBottom: 12, padding: 10, background: '#F0F9FF', border: '1px solid #BAE6FD', borderRadius: 8 }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: '#0369A1', marginBottom: 6 }}>
+            Drag classes onto the grid below — conflicts shown in red
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+            {(config.classes || []).filter(cls => {
+              const s = cls.semester || 'full';
+              return s === 'full' || s === semester;
+            }).map(cls => {
+              const tc = getTeacherColor(cls.teacherId, config.teachers || []);
+              const teacher = (config.teachers || []).find(t => t.id === cls.teacherId);
+              const scheduled = classDayCounts[cls.id]?.size || 0;
+              const needed = cls.daysPerWeek || (cls.days ? cls.days.length : 5);
+              const isFull = scheduled >= needed;
+              return (
+                <div key={cls.id} draggable
+                  onDragStart={(e) => handlePaletteDragStart(e, cls.id)}
+                  onDragEnd={handleDragEnd}
+                  style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 8px',
+                    borderRadius: 6, fontSize: 11, cursor: 'grab', userSelect: 'none',
+                    background: isFull ? '#E5E7EB' : tc.bg,
+                    border: `1px solid ${isFull ? '#D1D5DB' : tc.border}`,
+                    color: isFull ? '#9CA3AF' : tc.text,
+                    opacity: isFull ? 0.6 : 1,
+                  }}>
+                  <span style={{ fontWeight: 600 }}>{cls.name}</span>
+                  <span style={{ opacity: 0.7, fontSize: 10 }}>{scheduled}/{needed}</span>
+                  {teacher && <span style={{ fontSize: 9, opacity: 0.6 }}>({teacher.name})</span>}
+                  {isFull && <span style={{ fontSize: 10 }}>✓</span>}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {genResult && !genResult.error && (
         <div style={{ marginBottom: 16, padding: 12, borderRadius: 8, border: '1px solid', fontSize: 13,
