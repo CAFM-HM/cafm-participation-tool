@@ -118,9 +118,9 @@ async function autoGenerate(config, periods, semester) {
   if (classes.length === 0 || classPeriods.length === 0) return null;
 
   const getKey = (day, pIdx) => `${day}-${pIdx}`;
-  const NUM_ATTEMPTS = 30;
+  const NUM_ATTEMPTS = 60;
   const startTime = Date.now();
-  const TIME_LIMIT = 5000; // 5 second max
+  const TIME_LIMIT = 10000; // 10 second max
   const yieldToUI = () => new Promise(resolve => setTimeout(resolve, 0));
 
   // Pre-compute teacher lookup for speed
@@ -394,6 +394,37 @@ async function autoGenerate(config, periods, semester) {
       });
     });
 
+    // HEAVILY penalize group free periods (student groups with gaps in their day)
+    studentGroups.forEach(g => {
+      DAYS.forEach(day => {
+        classPeriods.forEach(cp => {
+          if (!isPeriodValidForDay(day, cp.index, sd, periods)) return;
+          // Check if this group has a class in this slot
+          let hasClass = false;
+          const key = getKey(day, cp.index);
+          const assignments = state.grid[key] || [];
+          for (const a of assignments) {
+            const cls = classes.find(c => c.id === a.classId);
+            if (cls && (cls.groupIds || []).includes(g.id)) { hasClass = true; break; }
+          }
+          // Check double period continuation
+          if (!hasClass) {
+            const cpOrderIdx = classPeriods.findIndex(p => p.index === cp.index);
+            if (cpOrderIdx > 0) {
+              const prevPIdx = classPeriods[cpOrderIdx - 1].index;
+              const prevKey = getKey(day, prevPIdx);
+              const prevArr = state.grid[prevKey] || [];
+              for (const a of prevArr) {
+                const cls = classes.find(c => c.id === a.classId);
+                if (cls && (a.duration || cls.duration || 1) >= 2 && (cls.groupIds || []).includes(g.id)) { hasClass = true; break; }
+              }
+            }
+          }
+          if (!hasClass) score -= 200; // heavy penalty per free period per group
+        });
+      });
+    });
+
     return score;
   };
 
@@ -407,7 +438,7 @@ async function autoGenerate(config, periods, semester) {
   };
 
   // ── Place a single task, returning true if successful ──
-  const tryPlace = (task, state) => {
+  const tryPlace = (task, state, randomize) => {
     const options = [];
     for (const day of DAYS) {
       if (state.classDays[task.classId].has(day)) continue;
@@ -419,29 +450,58 @@ async function autoGenerate(config, periods, semester) {
     }
     if (options.length === 0) return false;
 
-    // Sort by preference: prefer days with more teacher free periods, lighter load, consistent period
+    // Sort by preference: PACK tightly — prefer slots that fill group gaps and balance load
     const existingPeriods = state.classPeriodMap[task.classId];
     options.sort((a, b) => {
-      // Prefer days where FT teacher keeps more free periods (soft preference)
-      if (task.teacherId) {
-        const freeA = ftTeacherFreeAfter(task.teacherId, a.day, task.duration, state);
-        const freeB = ftTeacherFreeAfter(task.teacherId, b.day, task.duration, state);
-        if (freeA !== freeB) return freeB - freeA; // more free = better
+      // 1. STRONGLY prefer slots that fill a group gap (period where this group has nothing)
+      const groupGapA = task.groupIds.some(gId => !state.groupSlots[gId]?.[a.day]?.has(a.pIdx)) ? 0 : 1;
+      const groupGapB = task.groupIds.some(gId => !state.groupSlots[gId]?.[b.day]?.has(b.pIdx)) ? 0 : 1;
+      // Both fill gaps — prefer the day where the group has the MOST empty periods (tightest fit)
+      if (groupGapA === 0 && groupGapB === 0) {
+        const emptyA = task.groupIds.reduce((sum, gId) => {
+          const dayPeriodCount = classPeriods.filter(cp => isPeriodValidForDay(a.day, cp.index, sd, periods)).length;
+          return sum + dayPeriodCount - (state.groupSlots[gId]?.[a.day]?.size || 0);
+        }, 0);
+        const emptyB = task.groupIds.reduce((sum, gId) => {
+          const dayPeriodCount = classPeriods.filter(cp => isPeriodValidForDay(b.day, cp.index, sd, periods)).length;
+          return sum + dayPeriodCount - (state.groupSlots[gId]?.[b.day]?.size || 0);
+        }, 0);
+        if (emptyA !== emptyB) return emptyB - emptyA; // more empty = place here first to fill it
       }
-      // Lighter teacher load
+      if (groupGapA !== groupGapB) return groupGapA - groupGapB;
+
+      // 2. Balance teacher load across days — prefer days where teacher has fewer classes
       const loadA = task.teacherId ? (state.teacherSlots[task.teacherId]?.[a.day]?.size || 0) : 0;
       const loadB = task.teacherId ? (state.teacherSlots[task.teacherId]?.[b.day]?.size || 0) : 0;
       if (loadA !== loadB) return loadA - loadB;
-      // Prefer consistent period across days
+
+      // 3. Prefer consistent period across days (same class same period = nice schedule)
       const matchA = existingPeriods.includes(a.pIdx) ? 0 : 1;
       const matchB = existingPeriods.includes(b.pIdx) ? 0 : 1;
       if (matchA !== matchB) return matchA - matchB;
+
+      // 4. Minimize teacher gaps — prefer period adjacent to teacher's existing slots
+      if (task.teacherId) {
+        const tSlots = state.teacherSlots[task.teacherId]?.[a.day];
+        const tSlotsB = state.teacherSlots[task.teacherId]?.[b.day];
+        const adjA = tSlots?.size > 0 ? Math.min(...[...tSlots].map(s => Math.abs(s - a.pIdx))) : 99;
+        const adjB = tSlotsB?.size > 0 ? Math.min(...[...tSlotsB].map(s => Math.abs(s - b.pIdx))) : 99;
+        if (adjA !== adjB) return adjA - adjB;
+      }
+
       return 0;
     });
 
-    // Light shuffle for randomization across attempts
-    for (let i = 0; i < options.length - 1; i++) {
-      if (Math.random() < 0.3) [options[i], options[i + 1]] = [options[i + 1], options[i]];
+    // Randomize: on later attempts, add variety to escape local minima
+    if (randomize) {
+      // Stronger shuffle — swap within top candidates
+      const topN = Math.min(options.length, Math.max(3, Math.floor(options.length * 0.5)));
+      for (let i = 0; i < topN - 1; i++) {
+        if (Math.random() < 0.5) {
+          const j = i + 1 + Math.floor(Math.random() * (topN - i - 1));
+          if (j < topN) [options[i], options[j]] = [options[j], options[i]];
+        }
+      }
     }
 
     const opt = options[0];
@@ -506,73 +566,148 @@ async function autoGenerate(config, periods, semester) {
     return blockers;
   };
 
-  // ── SOLVER with greedy pass + repair phase ──
-  const solve = (tasks, state, useRepair) => {
+  // ── SOLVER with greedy pass + deep repair phase ──
+  const solve = (tasks, state, useRepair, randomize) => {
     let placed = 0;
     const unplacedTasks = [];
 
     // Greedy pass
     for (const task of tasks) {
-      if (tryPlace(task, state)) {
+      if (tryPlace(task, state, randomize)) {
         placed++;
       } else {
         unplacedTasks.push(task);
       }
     }
 
-    // Repair phase: for each unplaced task, try evicting a blocker and re-placing both
+    // Repair phase: for each unplaced task, try evicting blockers and re-placing
     if (useRepair && unplacedTasks.length > 0) {
-      const maxRepairs = 20; // limit repair attempts
+      const maxRepairs = 50; // increased from 20
       let repairs = 0;
-      for (let i = unplacedTasks.length - 1; i >= 0 && repairs < maxRepairs; i--) {
-        const task = unplacedTasks[i];
-        const blockers = findBlockers(task, state);
-        if (blockers.length === 0) continue;
 
-        // Try evicting each unique blocker and see if both can be placed
-        const tried = new Set();
-        for (const blocker of blockers) {
-          const bKey = `${blocker.classId}-${blocker.day}-${blocker.pIdx}`;
-          if (tried.has(bKey)) continue;
-          tried.add(bKey);
-          repairs++;
+      // Multiple repair passes — each pass may free up slots for the next
+      for (let pass = 0; pass < 3 && unplacedTasks.length > 0; pass++) {
+        for (let i = unplacedTasks.length - 1; i >= 0 && repairs < maxRepairs; i--) {
+          const task = unplacedTasks[i];
+          const blockers = findBlockers(task, state);
+          if (blockers.length === 0) continue;
 
-          const blockerCls = classes.find(c => c.id === blocker.classId);
-          if (!blockerCls) continue;
-          const blockerTask = { classId: blocker.classId, teacherId: blockerCls.teacherId, groupIds: blockerCls.groupIds || [], duration: blocker.duration };
-
-          // Temporarily remove the blocker
-          unplace(blockerTask, blocker.day, blocker.pIdx, blocker.roomId, state);
-
-          // Try placing the unplaced task
-          if (tryPlace(task, state)) {
-            // Now try re-placing the evicted blocker somewhere else
-            if (tryPlace(blockerTask, state)) {
-              // Success! Both placed
-              placed += 2; // task + blocker re-placed (blocker was already counted, so +1 net for task, but blocker was removed then re-added)
-              placed--; // blocker was already counted in original placed, we removed and re-placed it
-              unplacedTasks.splice(i, 1);
-              break;
-            } else {
-              // Can't re-place blocker — undo everything
-              // Remove the task we just placed
-              // Find where task was placed
-              const taskDay = [...state.classDays[task.classId]].pop();
-              const taskPIdx = state.classPeriodMap[task.classId][state.classPeriodMap[task.classId].length - 1];
-              if (taskDay !== undefined && taskPIdx !== undefined) {
-                const tKey = getKey(taskDay, taskPIdx);
-                const tAssignment = (state.grid[tKey] || []).find(a => a.classId === task.classId);
-                unplace(task, taskDay, taskPIdx, tAssignment?.roomId || '', state);
-              }
-              // Put blocker back
-              place(blockerTask, blocker.day, blocker.pIdx, blocker.roomId, state);
-            }
-          } else {
-            // Can't place task even after removing blocker — put blocker back
-            place(blockerTask, blocker.day, blocker.pIdx, blocker.roomId, state);
+          // Deduplicate blockers
+          const uniqueBlockers = [];
+          const tried = new Set();
+          for (const blocker of blockers) {
+            const bKey = `${blocker.classId}-${blocker.day}-${blocker.pIdx}`;
+            if (tried.has(bKey)) continue;
+            tried.add(bKey);
+            uniqueBlockers.push(blocker);
           }
 
-          if (repairs >= maxRepairs) break;
+          // Shuffle blockers on later passes for variety
+          if (pass > 0) shuffle(uniqueBlockers);
+
+          let repaired = false;
+          for (const blocker of uniqueBlockers) {
+            repairs++;
+            if (repairs > maxRepairs) break;
+
+            const blockerCls = classes.find(c => c.id === blocker.classId);
+            if (!blockerCls) continue;
+            const blockerTask = { classId: blocker.classId, teacherId: blockerCls.teacherId, groupIds: blockerCls.groupIds || [], duration: blocker.duration };
+
+            // Save state snapshot for rollback
+            const savedGrid = JSON.parse(JSON.stringify(state.grid));
+            const savedClassDays = {};
+            Object.entries(state.classDays).forEach(([k, v]) => { savedClassDays[k] = new Set(v); });
+            const savedClassPeriodMap = JSON.parse(JSON.stringify(state.classPeriodMap));
+            const savedTeacherSlots = {};
+            Object.entries(state.teacherSlots).forEach(([k, v]) => {
+              savedTeacherSlots[k] = {};
+              Object.entries(v).forEach(([d, s]) => { savedTeacherSlots[k][d] = new Set(s); });
+            });
+            const savedRoomSlots = {};
+            Object.entries(state.roomSlots).forEach(([k, v]) => {
+              savedRoomSlots[k] = {};
+              Object.entries(v).forEach(([d, s]) => { savedRoomSlots[k][d] = new Set(s); });
+            });
+            const savedGroupSlots = {};
+            Object.entries(state.groupSlots).forEach(([k, v]) => {
+              savedGroupSlots[k] = {};
+              Object.entries(v).forEach(([d, s]) => { savedGroupSlots[k][d] = new Set(s); });
+            });
+
+            // Remove the blocker
+            unplace(blockerTask, blocker.day, blocker.pIdx, blocker.roomId, state);
+
+            // Try placing the stuck task
+            if (tryPlace(task, state, randomize)) {
+              // Try re-placing the evicted blocker somewhere else
+              if (tryPlace(blockerTask, state, randomize)) {
+                // Success! Both placed
+                placed++;
+                unplacedTasks.splice(i, 1);
+                repaired = true;
+                break;
+              } else {
+                // Try chain eviction: evict a SECOND blocker to make room for the first evicted one
+                const blockers2 = findBlockers(blockerTask, state);
+                let chainSuccess = false;
+                for (const b2 of blockers2.slice(0, 5)) {
+                  const b2Cls = classes.find(c => c.id === b2.classId);
+                  if (!b2Cls || b2.classId === task.classId) continue;
+                  const b2Task = { classId: b2.classId, teacherId: b2Cls.teacherId, groupIds: b2Cls.groupIds || [], duration: b2.duration };
+                  repairs++;
+                  unplace(b2Task, b2.day, b2.pIdx, b2.roomId, state);
+                  if (tryPlace(blockerTask, state, randomize) && tryPlace(b2Task, state, randomize)) {
+                    placed++;
+                    unplacedTasks.splice(i, 1);
+                    repaired = true;
+                    chainSuccess = true;
+                    break;
+                  }
+                  // Rollback chain attempt
+                  state.grid = JSON.parse(JSON.stringify(savedGrid));
+                  Object.entries(savedClassDays).forEach(([k, v]) => { state.classDays[k] = new Set(v); });
+                  state.classPeriodMap = JSON.parse(JSON.stringify(savedClassPeriodMap));
+                  Object.entries(savedTeacherSlots).forEach(([k, v]) => {
+                    state.teacherSlots[k] = {};
+                    Object.entries(v).forEach(([d, s]) => { state.teacherSlots[k][d] = new Set(s); });
+                  });
+                  Object.entries(savedRoomSlots).forEach(([k, v]) => {
+                    state.roomSlots[k] = {};
+                    Object.entries(v).forEach(([d, s]) => { state.roomSlots[k][d] = new Set(s); });
+                  });
+                  Object.entries(savedGroupSlots).forEach(([k, v]) => {
+                    state.groupSlots[k] = {};
+                    Object.entries(v).forEach(([d, s]) => { state.groupSlots[k][d] = new Set(s); });
+                  });
+                  // Re-remove first blocker for next chain attempt
+                  unplace(blockerTask, blocker.day, blocker.pIdx, blocker.roomId, state);
+                  // Re-place the stuck task
+                  tryPlace(task, state, randomize);
+                }
+                if (chainSuccess) break;
+              }
+            }
+
+            // Full rollback if not repaired
+            if (!repaired) {
+              state.grid = JSON.parse(JSON.stringify(savedGrid));
+              Object.entries(savedClassDays).forEach(([k, v]) => { state.classDays[k] = new Set(v); });
+              state.classPeriodMap = JSON.parse(JSON.stringify(savedClassPeriodMap));
+              Object.entries(savedTeacherSlots).forEach(([k, v]) => {
+                state.teacherSlots[k] = {};
+                Object.entries(v).forEach(([d, s]) => { state.teacherSlots[k][d] = new Set(s); });
+              });
+              Object.entries(savedRoomSlots).forEach(([k, v]) => {
+                state.roomSlots[k] = {};
+                Object.entries(v).forEach(([d, s]) => { state.roomSlots[k][d] = new Set(s); });
+              });
+              Object.entries(savedGroupSlots).forEach(([k, v]) => {
+                state.groupSlots[k] = {};
+                Object.entries(v).forEach(([d, s]) => { state.groupSlots[k][d] = new Set(s); });
+              });
+            }
+          }
         }
       }
     }
@@ -654,29 +789,39 @@ async function autoGenerate(config, periods, semester) {
     const byClass = {};
     remainingTasks.forEach(t => { if (!byClass[t.classId]) byClass[t.classId] = []; byClass[t.classId].push(t); });
 
-    if (attempt === 0) {
+    // Always compute MRV, but vary the ordering strategy
+    const classIds = Object.keys(byClass);
+    const mrvScores = {};
+    classIds.forEach(cId => {
+      mrvScores[cId] = byClass[cId].reduce((sum, t) => sum + countOptions(t, state), 0);
+    });
+
+    if (attempt < 3) {
       // Pure MRV: most constrained classes first
-      const classIds = Object.keys(byClass);
-      classIds.sort((a, b) => {
-        const optsA = byClass[a].reduce((sum, t) => sum + countOptions(t, state), 0);
-        const optsB = byClass[b].reduce((sum, t) => sum + countOptions(t, state), 0);
-        return optsA - optsB; // fewer options = more constrained = first
-      });
-      remainingTasks.length = 0;
-      classIds.forEach(cId => byClass[cId].forEach(t => remainingTasks.push(t)));
+      classIds.sort((a, b) => mrvScores[a] - mrvScores[b]);
+    } else if (attempt < 20) {
+      // MRV with partial shuffle: sort by MRV, then swap some neighbors
+      classIds.sort((a, b) => mrvScores[a] - mrvScores[b]);
+      for (let k = 0; k < classIds.length - 1; k++) {
+        if (Math.random() < 0.4) {
+          [classIds[k], classIds[k + 1]] = [classIds[k + 1], classIds[k]];
+        }
+      }
     } else {
-      // Shuffled with MRV bias: shuffle class order but put lab/double tasks first within each class
-      const classOrder = shuffle(Object.keys(byClass));
-      remainingTasks.length = 0;
-      classOrder.forEach(cId => {
-        // Sort within class: lab/double period tasks first (harder to place)
-        byClass[cId].sort((a, b) => b.duration - a.duration);
-        byClass[cId].forEach(t => remainingTasks.push(t));
-      });
+      // Full random shuffle for maximum diversity
+      shuffle(classIds);
     }
 
-    const useRepair = attempt < 10; // use repair on first 10 attempts
-    const result = solve(remainingTasks, state, useRepair);
+    remainingTasks.length = 0;
+    classIds.forEach(cId => {
+      // Within each class: lab/double period tasks first (harder to place)
+      byClass[cId].sort((a, b) => b.duration - a.duration);
+      byClass[cId].forEach(t => remainingTasks.push(t));
+    });
+
+    const useRepair = attempt < 40; // use repair on first 40 attempts
+    const randomize = attempt > 0;
+    const result = solve(remainingTasks, state, useRepair, randomize);
     const totalPlaced = result.placed + pinnedPlacements.length;
     const totalTasks = remainingTasks.length + pinnedPlacements.length;
     const score = scoreSchedule(result.state, totalPlaced, totalTasks);
@@ -689,8 +834,8 @@ async function autoGenerate(config, periods, semester) {
       bestResult = { state: { ...result.state, grid: gridCopy, classPeriodMap: JSON.parse(JSON.stringify(result.state.classPeriodMap)) }, placed: totalPlaced, totalTasks };
     }
 
-    // Perfect solution found — stop early
-    if (result.placed === remainingTasks.length && attempt >= 2) break;
+    // Perfect solution found — stop early only if ALL placed and score is very high
+    if (result.placed === remainingTasks.length && score > bestScore - 100 && attempt >= 5) break;
     // Time limit
     if (Date.now() - startTime > TIME_LIMIT) break;
     // Yield to browser event loop so UI stays responsive
