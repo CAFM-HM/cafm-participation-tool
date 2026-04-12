@@ -281,6 +281,102 @@ export default function DocumentRepository({ masterStudents, uid }) {
     return { uploaded, total: checklist.length, pct: Math.round((uploaded / checklist.length) * 100) };
   };
 
+  // Get missing documents for a record
+  const getMissingDocs = (rec) => {
+    const checklist = rec.type === 'students' ? STUDENT_DOCS : PERSONNEL_DOCS;
+    return checklist.filter(d => !rec.documents?.[d.key]);
+  };
+
+  // Generate missing docs report text for a single student
+  const generateStudentReport = (rec) => {
+    const missing = getMissingDocs(rec);
+    if (missing.length === 0) return null;
+    const comp = getCompletion(rec);
+    const isStudent = rec.type === 'students';
+    let text = `MISSING DOCUMENTS REPORT\n`;
+    text += `Chesterton Academy of the Florida Martyrs\n`;
+    text += `Generated: ${new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}\n`;
+    text += `${'─'.repeat(50)}\n\n`;
+    text += `Name: ${rec.name}\n`;
+    if (isStudent) {
+      if (rec.grade) text += `Grade: ${rec.grade}\n`;
+      if (rec.house) text += `House: ${rec.house}\n`;
+    } else {
+      if (rec.role) text += `Role: ${rec.role}\n`;
+    }
+    text += `Status: ${comp.uploaded}/${comp.total} documents on file (${comp.pct}% complete)\n\n`;
+    text += `The following ${missing.length} document${missing.length > 1 ? 's are' : ' is'} still needed:\n\n`;
+    missing.forEach((d, i) => {
+      text += `  ${i + 1}. ${d.label}\n`;
+    });
+    text += `\nPlease submit these documents at your earliest convenience.\n`;
+    text += `If you have any questions, please contact the school office.\n`;
+    return text;
+  };
+
+  // Generate bulk missing docs report for all incomplete records
+  const generateBulkReport = () => {
+    const incomplete = filteredRecords.filter(r => getCompletion(r).pct < 100);
+    if (incomplete.length === 0) { alert('All records are complete — no missing documents!'); return; }
+
+    const isStudents = section === 'students';
+    let text = `MISSING DOCUMENTS REPORT — ALL ${isStudents ? 'STUDENTS' : 'PERSONNEL'}\n`;
+    text += `Chesterton Academy of the Florida Martyrs\n`;
+    text += `Generated: ${new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}\n`;
+    text += `${'─'.repeat(60)}\n\n`;
+    text += `${incomplete.length} of ${filteredRecords.length} ${isStudents ? 'students' : 'personnel'} have missing documents.\n\n`;
+
+    // Summary table
+    text += `SUMMARY\n`;
+    text += `${'─'.repeat(60)}\n`;
+    incomplete.forEach(r => {
+      const missing = getMissingDocs(r);
+      const comp = getCompletion(r);
+      const label = isStudents ? `${r.name}${r.grade ? ` (${r.grade})` : ''}` : `${r.name}${r.role ? ` — ${r.role}` : ''}`;
+      text += `  ${label} — ${missing.length} missing (${comp.pct}% complete)\n`;
+    });
+
+    text += `\n\nDETAILS\n`;
+    text += `${'═'.repeat(60)}\n\n`;
+    incomplete.forEach(r => {
+      const missing = getMissingDocs(r);
+      const comp = getCompletion(r);
+      text += `${r.name}`;
+      if (isStudents) {
+        if (r.grade) text += ` | ${r.grade}`;
+        if (r.house) text += ` | ${r.house}`;
+      } else if (r.role) {
+        text += ` | ${r.role}`;
+      }
+      text += ` | ${comp.uploaded}/${comp.total} on file\n`;
+      text += `${'─'.repeat(40)}\n`;
+      missing.forEach((d, i) => { text += `  ${i + 1}. ${d.label}\n`; });
+      text += `\n`;
+    });
+
+    return text;
+  };
+
+  // Copy report to clipboard
+  const copyReport = (text) => {
+    navigator.clipboard.writeText(text).then(() => {
+      window.dispatchEvent(new CustomEvent('toast', { detail: 'Report copied to clipboard' }));
+    }).catch(() => {
+      // Fallback: open in new window
+      const w = window.open('', '_blank');
+      if (w) { w.document.write('<pre>' + text.replace(/</g, '&lt;') + '</pre>'); w.document.title = 'Missing Documents Report'; }
+    });
+  };
+
+  // Download report as text file
+  const downloadReport = (text, fileName) => {
+    const blob = new Blob([text], { type: 'text/plain' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = fileName;
+    a.click();
+  };
+
   // ---- DETAIL VIEW ----
   if (active) {
     const comp = getCompletion(active);
@@ -303,6 +399,24 @@ export default function DocumentRepository({ masterStudents, uid }) {
               </div>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              {comp.pct < 100 && (() => {
+                const missing = getMissingDocs(active);
+                return (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'flex-end' }}>
+                    <button className="btn btn-sm btn-secondary" onClick={() => { const text = generateStudentReport(active); if (text) copyReport(text); }}
+                      style={{ fontSize: 11, padding: '4px 10px', whiteSpace: 'nowrap' }}>
+                      {'\u{1F4CB}'} Copy Missing Docs
+                    </button>
+                    <button className="btn btn-sm btn-secondary" onClick={() => {
+                      const text = generateStudentReport(active);
+                      if (text) downloadReport(text, `missing-docs-${active.name.replace(/\s+/g, '-').toLowerCase()}.txt`);
+                    }} style={{ fontSize: 11, padding: '4px 10px', whiteSpace: 'nowrap' }}>
+                      {'\u{1F4E5}'} Download Report
+                    </button>
+                    <span style={{ fontSize: 10, color: '#DC2626', fontWeight: 600 }}>{missing.length} missing</span>
+                  </div>
+                );
+              })()}
               <div style={{ textAlign: 'center' }}>
                 <div style={{ fontSize: 20, fontWeight: 700, color: comp.pct === 100 ? '#16A34A' : '#CA8A04' }}>{comp.pct}%</div>
                 <div style={{ fontSize: 10, color: '#6B7280' }}>{comp.uploaded}/{comp.total} docs</div>
@@ -433,6 +547,18 @@ export default function DocumentRepository({ masterStudents, uid }) {
         <input type="text" value={searchTerm} onChange={e => setSearchTerm(e.target.value)}
           placeholder={`Search ${section}...`}
           style={{ flex: 1, minWidth: 200, fontSize: 13, padding: '8px 12px', border: '1px solid #E5E7EB', borderRadius: 6 }} />
+        <button className="btn btn-sm btn-secondary" onClick={() => {
+          const text = generateBulkReport();
+          if (text) copyReport(text);
+        }} title="Copy a report of all missing documents to clipboard">
+          {'\u{1F4CB}'} Missing Docs Report
+        </button>
+        <button className="btn btn-sm btn-secondary" onClick={() => {
+          const text = generateBulkReport();
+          if (text) downloadReport(text, `missing-docs-all-${section}-${new Date().toISOString().split('T')[0]}.txt`);
+        }} title="Download a report of all missing documents">
+          {'\u{1F4E5}'}
+        </button>
         <button className="btn btn-sm btn-gold" onClick={() => setShowAddForm(!showAddForm)}>
           {showAddForm ? 'Cancel' : `+ Add ${section === 'students' ? 'Student' : 'Personnel'}`}
         </button>
