@@ -1289,6 +1289,27 @@ function PinAdder({ onAdd }) {
 function ClassesPanel({ config, update }) {
   const [nc, setNc] = useState({ name: '', teacherId: '', groupIds: [], daysPerWeek: 5, duration: 1, labDaysPerWeek: 0, semester: 'full', concurrentGroup: '' });
   const [editingId, setEditingId] = useState(null);
+  const [sortBy, setSortBy] = useState(null); // null | 'class' | 'class-desc' | 'teacher' | 'teacher-desc'
+
+  const sortedClasses = useMemo(() => {
+    const classes = (config.classes || []).map((cls, idx) => ({ ...cls, _origIdx: idx }));
+    if (!sortBy) return classes;
+    const teachers = config.teachers || [];
+    const getTeacherName = (tid) => { const t = teachers.find(t => t.id === tid); return t?.name?.toLowerCase() || 'zzz'; };
+    if (sortBy === 'class') classes.sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
+    else if (sortBy === 'class-desc') classes.sort((a, b) => b.name.toLowerCase().localeCompare(a.name.toLowerCase()));
+    else if (sortBy === 'teacher') classes.sort((a, b) => getTeacherName(a.teacherId).localeCompare(getTeacherName(b.teacherId)));
+    else if (sortBy === 'teacher-desc') classes.sort((a, b) => getTeacherName(b.teacherId).localeCompare(getTeacherName(a.teacherId)));
+    return classes;
+  }, [config.classes, config.teachers, sortBy]);
+
+  const toggleSort = (col) => {
+    setSortBy(prev => {
+      if (prev === col) return col + '-desc';
+      if (prev === col + '-desc') return null;
+      return col;
+    });
+  };
 
   const addClass = () => {
     if (!nc.name.trim()) return;
@@ -1415,9 +1436,13 @@ function ClassesPanel({ config, update }) {
       ) : (
         <div style={{ overflowX: 'auto' }}>
           <table className="data-table">
-            <thead><tr><th style={{ width: 30 }}>#</th><th style={{ width: 40 }}></th><th>Class</th><th>Teacher</th><th>Students</th><th>Days/Wk</th><th>Duration</th><th>Sem</th><th>Concurrent</th><th></th></tr></thead>
+            <thead><tr><th style={{ width: 30 }}>#</th><th style={{ width: 40 }}></th>
+                <th style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => toggleSort('class')}>Class {sortBy === 'class' ? '▲' : sortBy === 'class-desc' ? '▼' : ''}</th>
+                <th style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => toggleSort('teacher')}>Teacher {sortBy === 'teacher' ? '▲' : sortBy === 'teacher-desc' ? '▼' : ''}</th>
+                <th>Students</th><th>Days/Wk</th><th>Duration</th><th>Sem</th><th>Concurrent</th><th></th></tr></thead>
             <tbody>
-              {(config.classes || []).map((cls, cIdx) => {
+              {sortedClasses.map((cls, displayIdx) => {
+                const cIdx = cls._origIdx;
                 const teacher = (config.teachers || []).find(t => t.id === cls.teacherId);
                 const isEditing = editingId === cls.id;
                 const daysPerWeek = cls.daysPerWeek || (cls.days ? cls.days.length : 5);
@@ -1425,14 +1450,16 @@ function ClassesPanel({ config, update }) {
                 return (
                   <React.Fragment key={cls.id}>
                   <tr>
-                    <td style={{ color: '#9CA3AF', fontSize: 12, fontWeight: 600, textAlign: 'center' }}>{cIdx + 1}</td>
+                    <td style={{ color: '#9CA3AF', fontSize: 12, fontWeight: 600, textAlign: 'center' }}>{displayIdx + 1}</td>
                     <td>
+                      {sortBy ? <span style={{ color: '#D1D5DB', fontSize: 10 }}>—</span> : (
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
                         <button onClick={() => moveClass(cIdx, cIdx - 1)} disabled={cIdx === 0}
                           style={{ background: 'none', border: 'none', cursor: cIdx === 0 ? 'default' : 'pointer', fontSize: 10, color: cIdx === 0 ? '#D1D5DB' : '#6B7280', padding: 0, lineHeight: 1 }}>▲</button>
                         <button onClick={() => moveClass(cIdx, cIdx + 1)} disabled={cIdx === (config.classes || []).length - 1}
                           style={{ background: 'none', border: 'none', cursor: cIdx === (config.classes || []).length - 1 ? 'default' : 'pointer', fontSize: 10, color: cIdx === (config.classes || []).length - 1 ? '#D1D5DB' : '#6B7280', padding: 0, lineHeight: 1 }}>▼</button>
                       </div>
+                      )}
                     </td>
                     <td>
                       {isEditing ? (
