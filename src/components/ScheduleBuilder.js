@@ -2303,6 +2303,215 @@ function GridPanel({ config, update, periods }) {
         </div>
       </div>
 
+      {/* Schedule Feasibility Diagnostic */}
+      {(config.classes || []).length > 0 && (config.studentGroups || []).length > 0 && (() => {
+        const groups = config.studentGroups || [];
+        const classes = (config.classes || []).filter(cls => {
+          const s = cls.semester || 'full';
+          return s === 'full' || s === semester;
+        });
+        const teachers = config.teachers || [];
+        const sd = config.schoolDay;
+
+        // Per-day analysis
+        const dayStats = DAYS.map(day => {
+          const validPeriods = classPeriods.filter(p => isPeriodValidForDay(day, p.index, sd, periods));
+          const numPeriods = validPeriods.length;
+          const slotsNeeded = groups.length * numPeriods;
+
+          // Count teacher-periods available this day
+          let teacherPeriodsAvail = 0;
+          const teacherDetail = [];
+          teachers.forEach(t => {
+            let avail = 0;
+            validPeriods.forEach(p => {
+              if (isTeacherAvailable(t, p.index, day, periods)) avail++;
+            });
+            teacherPeriodsAvail += avail;
+            teacherDetail.push({ name: t.name, avail, total: numPeriods });
+          });
+
+          // Count class-slots that need to be filled (accounting for concurrent = 1 slot, double = 2 slots)
+          const concurrentHandled = new Set();
+          let classSlotsNeeded = 0;
+          classes.forEach(cls => {
+            if (!cls.groupIds?.length) return;
+            // Concurrent classes share a slot, only count once
+            if (cls.concurrentGroup) {
+              if (concurrentHandled.has(cls.concurrentGroup)) return;
+              concurrentHandled.add(cls.concurrentGroup);
+            }
+            const dpw = cls.daysPerWeek || 5;
+            const labDays = cls.labDaysPerWeek || 0;
+            const baseDur = cls.duration || 1;
+            // This class needs dpw placements across 5 days. Per day it occupies ~dpw/5 of a slot on average
+            // But actually each placement takes 1 slot (or 2 for double). We need total slots / 5 days.
+            const singleDays = dpw - labDays;
+            const totalSlots = singleDays * 1 + labDays * 2; // total period-slots per week
+            classSlotsNeeded += totalSlots;
+          });
+          const avgClassSlotsPerDay = Math.ceil(classSlotsNeeded / 5);
+
+          return { day, numPeriods, slotsNeeded, teacherPeriodsAvail, teacherDetail, avgClassSlotsPerDay };
+        });
+
+        // Overall stats
+        const totalSlotsNeeded = dayStats.reduce((s, d) => s + d.slotsNeeded, 0);
+        const totalTeacherPeriods = dayStats.reduce((s, d) => s + d.teacherPeriodsAvail, 0);
+        const deficit = totalSlotsNeeded - totalTeacherPeriods;
+        const tightestDay = dayStats.reduce((a, b) => (b.slotsNeeded - b.teacherPeriodsAvail) > (a.slotsNeeded - a.teacherPeriodsAvail) ? b : a);
+
+        // Per-group analysis: which grade has the most shared teachers?
+        const groupSharing = groups.map(g => {
+          const groupClasses = classes.filter(cls => (cls.groupIds || []).includes(g.id));
+          const teacherIds = new Set(groupClasses.map(c => c.teacherId).filter(Boolean));
+          const sharedTeachers = [...teacherIds].filter(tid => {
+            return classes.some(cls => cls.teacherId === tid && !(cls.groupIds || []).includes(g.id));
+          });
+          return { name: g.name, totalClasses: groupClasses.length, sharedTeachers: sharedTeachers.length, totalTeachers: teacherIds.size };
+        });
+
+        // Unique teachers teaching this semester
+        const activeTeacherIds = new Set(classes.map(c => c.teacherId).filter(Boolean));
+        const activeTeachers = teachers.filter(t => activeTeacherIds.has(t.id));
+
+        // Teacher load: how many classes each teaches
+        const teacherLoad = activeTeachers.map(t => {
+          const tClasses = classes.filter(c => c.teacherId === t.id);
+          const totalPeriodsPerWeek = tClasses.reduce((s, c) => {
+            const dpw = c.daysPerWeek || 5;
+            const lab = c.labDaysPerWeek || 0;
+            return s + (dpw - lab) + lab * 2;
+          }, 0);
+          return { name: t.name, numClasses: tClasses.length, periodsPerWeek: totalPeriodsPerWeek };
+        }).sort((a, b) => b.periodsPerWeek - a.periodsPerWeek);
+
+        const isOk = deficit <= 0;
+        const minFreePerDay = Math.max(0, Math.ceil(deficit / 5));
+
+        return (
+          <div style={{ marginBottom: 12, padding: 12, borderRadius: 8, fontSize: 12,
+            background: isOk ? '#F0FDF4' : '#FFFBEB',
+            border: `1px solid ${isOk ? '#BBF7D0' : '#FDE68A'}` }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, cursor: 'pointer' }}
+              onClick={(e) => {
+                const detail = e.currentTarget.nextElementSibling;
+                detail.style.display = detail.style.display === 'none' ? 'block' : 'none';
+              }}>
+              <div style={{ fontWeight: 700, fontSize: 13, color: isOk ? '#065F46' : '#92400E' }}>
+                {isOk ? '✓ Schedule is feasible' : '⚠ Schedule may have unavoidable free periods'}
+              </div>
+              <span style={{ fontSize: 11, color: '#9CA3AF' }}>click to expand</span>
+            </div>
+            <div style={{ display: 'none' }}>
+              {/* Summary */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 8, marginBottom: 10 }}>
+                <div style={{ background: '#fff', padding: 8, borderRadius: 6, border: '1px solid #E5E7EB' }}>
+                  <div style={{ fontSize: 10, color: '#6B7280', textTransform: 'uppercase', fontWeight: 600 }}>Weekly Slots Needed</div>
+                  <div style={{ fontSize: 18, fontWeight: 700, color: '#1B3A5C' }}>{totalSlotsNeeded}</div>
+                  <div style={{ fontSize: 10, color: '#9CA3AF' }}>{groups.length} grades × {classPeriods.length} periods × 5 days</div>
+                </div>
+                <div style={{ background: '#fff', padding: 8, borderRadius: 6, border: '1px solid #E5E7EB' }}>
+                  <div style={{ fontSize: 10, color: '#6B7280', textTransform: 'uppercase', fontWeight: 600 }}>Teacher Capacity</div>
+                  <div style={{ fontSize: 18, fontWeight: 700, color: totalTeacherPeriods >= totalSlotsNeeded ? '#065F46' : '#DC2626' }}>{totalTeacherPeriods}</div>
+                  <div style={{ fontSize: 10, color: '#9CA3AF' }}>{activeTeachers.length} active teachers this semester</div>
+                </div>
+                <div style={{ background: '#fff', padding: 8, borderRadius: 6, border: '1px solid #E5E7EB' }}>
+                  <div style={{ fontSize: 10, color: '#6B7280', textTransform: 'uppercase', fontWeight: 600 }}>{isOk ? 'Surplus' : 'Deficit'}</div>
+                  <div style={{ fontSize: 18, fontWeight: 700, color: isOk ? '#065F46' : '#DC2626' }}>
+                    {isOk ? `+${Math.abs(deficit)}` : `-${deficit}`}
+                  </div>
+                  <div style={{ fontSize: 10, color: '#9CA3AF' }}>
+                    {isOk ? 'periods of buffer' : `~${minFreePerDay} free period${minFreePerDay !== 1 ? 's' : ''}/day minimum`}
+                  </div>
+                </div>
+              </div>
+
+              {/* Per-day breakdown */}
+              <div style={{ marginBottom: 10 }}>
+                <div style={{ fontWeight: 600, fontSize: 11, color: '#374151', marginBottom: 4 }}>Per-Day Breakdown</div>
+                <table style={{ width: '100%', fontSize: 11, borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr style={{ borderBottom: '1px solid #E5E7EB' }}>
+                      <th style={{ textAlign: 'left', padding: '3px 6px', fontWeight: 600 }}>Day</th>
+                      <th style={{ textAlign: 'center', padding: '3px 6px', fontWeight: 600 }}>Periods</th>
+                      <th style={{ textAlign: 'center', padding: '3px 6px', fontWeight: 600 }}>Slots Needed</th>
+                      <th style={{ textAlign: 'center', padding: '3px 6px', fontWeight: 600 }}>Teacher Capacity</th>
+                      <th style={{ textAlign: 'center', padding: '3px 6px', fontWeight: 600 }}>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {dayStats.map(d => {
+                      const dayDeficit = d.slotsNeeded - d.teacherPeriodsAvail;
+                      return (
+                        <tr key={d.day} style={{ borderBottom: '1px solid #F3F4F6', background: dayDeficit > 0 ? '#FEF2F2' : undefined }}>
+                          <td style={{ padding: '3px 6px', fontWeight: 500 }}>{DAY_LABELS[d.day]}</td>
+                          <td style={{ textAlign: 'center', padding: '3px 6px' }}>{d.numPeriods}</td>
+                          <td style={{ textAlign: 'center', padding: '3px 6px' }}>{d.slotsNeeded}</td>
+                          <td style={{ textAlign: 'center', padding: '3px 6px' }}>{d.teacherPeriodsAvail}</td>
+                          <td style={{ textAlign: 'center', padding: '3px 6px', fontWeight: 600, color: dayDeficit > 0 ? '#DC2626' : '#065F46' }}>
+                            {dayDeficit > 0 ? `−${dayDeficit} short` : `+${Math.abs(dayDeficit)} ok`}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Teacher load */}
+              <div style={{ marginBottom: 10 }}>
+                <div style={{ fontWeight: 600, fontSize: 11, color: '#374151', marginBottom: 4 }}>Teacher Load (this semester)</div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                  {teacherLoad.map(t => (
+                    <div key={t.name} style={{ background: '#fff', border: '1px solid #E5E7EB', borderRadius: 6, padding: '4px 8px', fontSize: 11 }}>
+                      <span style={{ fontWeight: 600 }}>{t.name}</span>
+                      <span style={{ color: '#6B7280', marginLeft: 4 }}>{t.numClasses} classes · {t.periodsPerWeek} periods/wk</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Grade analysis */}
+              <div style={{ marginBottom: 6 }}>
+                <div style={{ fontWeight: 600, fontSize: 11, color: '#374151', marginBottom: 4 }}>Grade Complexity</div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                  {groupSharing.map(g => (
+                    <div key={g.name} style={{ background: '#fff', border: '1px solid #E5E7EB', borderRadius: 6, padding: '4px 8px', fontSize: 11 }}>
+                      <span style={{ fontWeight: 600 }}>{g.name}</span>
+                      <span style={{ color: '#6B7280', marginLeft: 4 }}>{g.totalClasses} classes · </span>
+                      <span style={{ color: g.sharedTeachers > g.totalTeachers / 2 ? '#DC2626' : '#065F46', fontWeight: 500 }}>
+                        {g.sharedTeachers}/{g.totalTeachers} shared teachers
+                      </span>
+                    </div>
+                  ))}
+                </div>
+                <div style={{ fontSize: 10, color: '#9CA3AF', marginTop: 4 }}>
+                  "Shared teachers" teach multiple grades — the more shared, the harder to schedule without gaps.
+                </div>
+              </div>
+
+              {/* Tips if there's a deficit */}
+              {!isOk && (
+                <div style={{ marginTop: 8, padding: 8, background: '#FFF7ED', border: '1px solid #FED7AA', borderRadius: 6 }}>
+                  <div style={{ fontWeight: 600, fontSize: 11, color: '#9A3412', marginBottom: 4 }}>Tips to eliminate free periods:</div>
+                  <ul style={{ margin: 0, paddingLeft: 18, fontSize: 11, color: '#78350F', lineHeight: 1.6 }}>
+                    <li>Combine grades for shared classes (e.g., Juniors & Seniors for Theology)</li>
+                    <li>Add a teacher or give part-time teachers additional availability</li>
+                    <li>Convert lab/double periods to single periods</li>
+                    <li>Use concurrent classes strategically — they share a time slot but need separate teachers</li>
+                    <li>Designate free periods as study halls with a teacher assigned</li>
+                    {tightestDay && (tightestDay.slotsNeeded - tightestDay.teacherPeriodsAvail) > 0 && (
+                      <li style={{ fontWeight: 600 }}>{DAY_LABELS[tightestDay.day]} is your tightest day — check teacher availability</li>
+                    )}
+                  </ul>
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
+
       {/* Draggable Class Palette */}
       {(config.classes || []).length > 0 && (
         <div style={{ marginBottom: 12, padding: 10, background: '#F0F9FF', border: '1px solid #BAE6FD', borderRadius: 8, position: 'sticky', top: 0, zIndex: 20, boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
