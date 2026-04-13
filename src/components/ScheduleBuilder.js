@@ -2025,6 +2025,43 @@ function GridPanel({ config, update, periods }) {
     });
   };
 
+  // ── Auto-scroll during drag ──
+  useEffect(() => {
+    let scrollInterval = null;
+    const EDGE_ZONE = 60; // px from viewport edge to trigger scroll
+    const SCROLL_SPEED = 12; // px per frame
+
+    const onDrag = (e) => {
+      if (!e.clientY) return; // drag events sometimes have 0,0
+      const { clientY } = e;
+      const vh = window.innerHeight;
+
+      if (clientY < EDGE_ZONE) {
+        // Near top — scroll up
+        if (!scrollInterval) scrollInterval = setInterval(() => window.scrollBy(0, -SCROLL_SPEED), 16);
+      } else if (clientY > vh - EDGE_ZONE) {
+        // Near bottom — scroll down
+        if (!scrollInterval) scrollInterval = setInterval(() => window.scrollBy(0, SCROLL_SPEED), 16);
+      } else {
+        if (scrollInterval) { clearInterval(scrollInterval); scrollInterval = null; }
+      }
+    };
+
+    const onDragEnd = () => {
+      if (scrollInterval) { clearInterval(scrollInterval); scrollInterval = null; }
+    };
+
+    document.addEventListener('drag', onDrag);
+    document.addEventListener('dragend', onDragEnd);
+    document.addEventListener('drop', onDragEnd);
+    return () => {
+      document.removeEventListener('drag', onDrag);
+      document.removeEventListener('dragend', onDragEnd);
+      document.removeEventListener('drop', onDragEnd);
+      if (scrollInterval) clearInterval(scrollInterval);
+    };
+  }, []);
+
   // ── Drag-and-drop handlers ──
   // Supports dragging FROM the grid (move) and FROM the class palette (add new)
   const handleDragStart = (e, classId, day, pIdx, roomId) => {
