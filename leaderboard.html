@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>House Points — Chesterton Academy</title>
+  <link href="https://fonts.googleapis.com/css2?family=Libre+Baskerville:wght@400;700&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'DM Sans', sans-serif;
+      background: linear-gradient(135deg, #0F2440 0%, #1B3A5C 50%, #0F2440 100%);
+      color: #fff;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 40px 24px;
+    }
+    .header { text-align: center; margin-bottom: 40px; }
+    .header .crest { font-size: 48px; margin-bottom: 8px; }
+    .header h1 { font-family: 'Libre Baskerville', serif; font-size: 32px; color: #C9A227; margin-bottom: 4px; }
+    .header .subtitle { font-family: 'Libre Baskerville', serif; font-size: 14px; opacity: 0.7; }
+    .leaderboard { width: 100%; max-width: 700px; display: flex; flex-direction: column; gap: 16px; }
+    .house-bar {
+      position: relative; border-radius: 16px; padding: 24px 28px;
+      overflow: hidden; transition: transform 0.3s;
+    }
+    .house-bar:hover { transform: scale(1.02); }
+    .house-bar .fill {
+      position: absolute; left: 0; top: 0; bottom: 0;
+      border-radius: 16px; opacity: 0.2; transition: width 1.5s ease;
+    }
+    .house-bar .content { position: relative; display: flex; align-items: center; justify-content: space-between; }
+    .house-bar .left { display: flex; align-items: center; gap: 16px; }
+    .house-bar .rank {
+      width: 44px; height: 44px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+      font-family: 'Libre Baskerville', serif; font-size: 20px; font-weight: 700; border: 2px solid rgba(255,255,255,0.3);
+    }
+    .house-bar .name { font-family: 'Libre Baskerville', serif; font-size: 24px; font-weight: 700; }
+    .house-bar .points { font-family: 'Libre Baskerville', serif; font-size: 48px; font-weight: 700; }
+    .house-bar .pts-label { font-size: 12px; opacity: 0.7; text-transform: uppercase; letter-spacing: 1px; }
+    .updated { text-align: center; margin-top: 24px; font-size: 12px; opacity: 0.4; }
+
+    .house-augustine { background: rgba(185, 28, 28, 0.6); }
+    .house-augustine .fill { background: #B91C1C; }
+    .house-athanasius { background: rgba(21, 128, 61, 0.6); }
+    .house-athanasius .fill { background: #15803D; }
+    .house-chrysostom { background: rgba(2, 132, 199, 0.6); }
+    .house-chrysostom .fill { background: #0284C7; }
+    .house-ambrose { background: rgba(202, 138, 4, 0.6); }
+    .house-ambrose .fill { background: #CA8A04; }
+
+    .house-bar.first {
+      box-shadow: 0 0 30px rgba(201, 162, 39, 0.3);
+      border: 1px solid rgba(201, 162, 39, 0.4);
+    }
+
+    @media (max-width: 500px) {
+      .house-bar { padding: 16px 20px; }
+      .house-bar .name { font-size: 18px; }
+      .house-bar .points { font-size: 36px; }
+      .house-bar .rank { width: 36px; height: 36px; font-size: 16px; }
+      .header h1 { font-size: 24px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="crest">⚜️</div>
+    <h1>House Points</h1>
+    <div class="subtitle">Chesterton Academy of the Florida Martyrs</div>
+  </div>
+  <div class="leaderboard" id="leaderboard">
+    <div style="text-align:center;opacity:0.5">Loading...</div>
+  </div>
+  <div class="updated" id="updated"></div>
+
+  <script type="module">
+    import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
+    import { getFirestore, collection, getDocs, doc, getDoc } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
+
+    const app = initializeApp({
+      apiKey: "AIzaSyBhPThGT9VOLFPePOFs2Ky0SWkLgh3BOP0",
+      authDomain: "cafm-participation.firebaseapp.com",
+      projectId: "cafm-participation",
+      storageBucket: "cafm-participation.firebasestorage.app",
+      messagingSenderId: "849036044326",
+      appId: "1:849036044326:web:798a5535971cbb1d039ee7"
+    });
+    const db = getFirestore(app);
+
+    const HOUSES = ['Augustine', 'Athanasius', 'Chrysostom', 'Ambrose'];
+    const CLASSES = {
+      Augustine: 'house-augustine',
+      Athanasius: 'house-athanasius',
+      Chrysostom: 'house-chrysostom',
+      Ambrose: 'house-ambrose',
+    };
+
+    let frozenTotals = null;
+
+    async function checkFreeze() {
+      try {
+        const snap = await getDoc(doc(db, 'config', 'housePoints'));
+        if (snap.exists() && snap.data().frozen) {
+          // Use the frozen totals saved when admin clicked freeze
+          frozenTotals = snap.data().frozenTotals || null;
+          return true;
+        }
+      } catch (e) { /* not frozen */ }
+      return false;
+    }
+
+    async function loadAndRender() {
+      try {
+        const isFrozen = await checkFreeze();
+
+        if (isFrozen && frozenTotals) {
+          renderBoard(frozenTotals);
+          return;
+        }
+
+        const snap = await getDocs(collection(db, 'housePointEntries'));
+        const totals = {};
+        HOUSES.forEach(h => { totals[h] = 0; });
+        snap.docs.forEach(d => {
+          const e = d.data();
+          if (e.house && e.points) totals[e.house] += Number(e.points);
+        });
+
+        renderBoard(totals);
+      } catch (err) {
+        console.error(err);
+      }
+    }
+
+    function renderBoard(totals) {
+      const sorted = [...HOUSES].sort((a, b) => totals[b] - totals[a]);
+      const max = Math.max(...Object.values(totals), 1);
+
+      const el = document.getElementById('leaderboard');
+      el.innerHTML = sorted.map((house, idx) => {
+        const pts = totals[house];
+        const pct = (pts / max) * 100;
+        return `
+          <div class="house-bar ${CLASSES[house]} ${idx === 0 ? 'first' : ''}">
+            <div class="fill" style="width:${Math.max(pct, 5)}%"></div>
+            <div class="content">
+              <div class="left">
+                <div class="rank">${idx + 1}</div>
+                <div class="name">${house}</div>
+              </div>
+              <div style="text-align:right">
+                <div class="points">${pts}</div>
+                <div class="pts-label">points</div>
+              </div>
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      document.getElementById('updated').textContent =
+        'Last updated: ' + new Date().toLocaleTimeString();
+    }
+
+    loadAndRender();
+    setInterval(loadAndRender, 30000);
+  </script>
+</body>
+</html>
