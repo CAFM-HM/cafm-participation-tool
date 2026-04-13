@@ -2182,7 +2182,7 @@ function GridPanel({ config, update, periods }) {
 
       {/* Draggable Class Palette */}
       {(config.classes || []).length > 0 && (
-        <div style={{ marginBottom: 12, padding: 10, background: '#F0F9FF', border: '1px solid #BAE6FD', borderRadius: 8 }}>
+        <div style={{ marginBottom: 12, padding: 10, background: '#F0F9FF', border: '1px solid #BAE6FD', borderRadius: 8, position: 'sticky', top: 0, zIndex: 20, boxShadow: '0 2px 8px rgba(0,0,0,0.08)' }}>
           <div style={{ fontSize: 11, fontWeight: 600, color: '#0369A1', marginBottom: 6 }}>
             Drag classes onto the grid below — conflicts shown in red
           </div>
