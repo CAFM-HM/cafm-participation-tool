@@ -2079,73 +2079,6 @@ function GridPanel({ config, update, periods }) {
     if (e.target) e.dataTransfer.setDragImage(e.target, 0, 0);
   };
 
-  // ── Compute valid drop targets during drag ──
-  const validDropTargets = useMemo(() => {
-    if (!dragData) return {};
-    const { classId, fromDay, fromPIdx, duration: dur } = dragData;
-    const cls = (config.classes || []).find(c => c.id === classId);
-    if (!cls) return {};
-    const teacher = (config.teachers || []).find(t => t.id === cls.teacherId);
-    const groupIds = cls.groupIds || [];
-    const placeDur = dur || cls.duration || 1;
-    const cp = classPeriods;
-    const valid = {};
-
-    for (const day of DAYS) {
-      for (const period of cp) {
-        const pIdx = period.index;
-        // Skip the source cell
-        if (day === fromDay && pIdx === fromPIdx) continue;
-        // Skip invalid periods (early release)
-        if (!isPeriodValidForDay(day, pIdx, config.schoolDay, periods)) continue;
-        // Skip cells blocked by a double period from previous
-        if (isBlockedByDouble(day, pIdx)) continue;
-        // Check teacher availability
-        if (teacher && !isTeacherAvailable(teacher, pIdx, day, periods)) continue;
-        // Check teacher not already teaching here (another class)
-        const existing = getAssignments(day, pIdx);
-        const teacherBusy = existing.some(a => {
-          if (a.classId === classId) return false; // same class being moved
-          const aCls = (config.classes || []).find(c => c.id === a.classId);
-          return aCls && aCls.teacherId === cls.teacherId;
-        });
-        if (teacherBusy) continue;
-        // Check student groups not already occupied
-        const groupBusy = groupIds.some(gId => {
-          return existing.some(a => {
-            if (a.classId === classId) return false;
-            const aCls = (config.classes || []).find(c => c.id === a.classId);
-            return aCls && (aCls.groupIds || []).includes(gId);
-          });
-        });
-        if (groupBusy) continue;
-        // For double periods, check the next period too
-        if (placeDur >= 2) {
-          const cpOrder = cp.findIndex(p => p.index === pIdx);
-          if (cpOrder < 0 || cpOrder + 1 >= cp.length) continue; // no room for double
-          const nextP = cp[cpOrder + 1];
-          if (!isPeriodValidForDay(day, nextP.index, config.schoolDay, periods)) continue;
-          if (teacher && !isTeacherAvailable(teacher, nextP.index, day, periods)) continue;
-          const nextExisting = getAssignments(day, nextP.index);
-          const nextTeacherBusy = nextExisting.some(a => {
-            const aCls = (config.classes || []).find(c => c.id === a.classId);
-            return aCls && aCls.teacherId === cls.teacherId;
-          });
-          if (nextTeacherBusy) continue;
-          const nextGroupBusy = groupIds.some(gId => {
-            return nextExisting.some(a => {
-              const aCls = (config.classes || []).find(c => c.id === a.classId);
-              return aCls && (aCls.groupIds || []).includes(gId);
-            });
-          });
-          if (nextGroupBusy) continue;
-        }
-        valid[gk(day, pIdx)] = true;
-      }
-    }
-    return valid;
-  }, [dragData, config.classes, config.teachers, config.schoolDay, grid, classPeriods, periods]);
-
   const handleDragOver = (e, day, pIdx) => {
     e.preventDefault();
     e.dataTransfer.dropEffect = dragData?.isNew ? 'copy' : 'move';
@@ -2282,6 +2215,66 @@ function GridPanel({ config, update, periods }) {
     }
     return null;
   };
+
+  // ── Compute valid drop targets during drag ──
+  const validDropTargets = useMemo(() => {
+    if (!dragData) return {};
+    const { classId, fromDay, fromPIdx, duration: dur } = dragData;
+    const cls = (config.classes || []).find(c => c.id === classId);
+    if (!cls) return {};
+    const teacher = (config.teachers || []).find(t => t.id === cls.teacherId);
+    const groupIds = cls.groupIds || [];
+    const placeDur = dur || cls.duration || 1;
+    const cp = classPeriods;
+    const valid = {};
+
+    for (const day of DAYS) {
+      for (const period of cp) {
+        const pIdx = period.index;
+        if (day === fromDay && pIdx === fromPIdx) continue;
+        if (!isPeriodValidForDay(day, pIdx, config.schoolDay, periods)) continue;
+        if (isBlockedByDouble(day, pIdx)) continue;
+        if (teacher && !isTeacherAvailable(teacher, pIdx, day, periods)) continue;
+        const existing = getAssignments(day, pIdx);
+        const teacherBusy = existing.some(a => {
+          if (a.classId === classId) return false;
+          const aCls = (config.classes || []).find(c => c.id === a.classId);
+          return aCls && aCls.teacherId === cls.teacherId;
+        });
+        if (teacherBusy) continue;
+        const groupBusy = groupIds.some(gId => {
+          return existing.some(a => {
+            if (a.classId === classId) return false;
+            const aCls = (config.classes || []).find(c => c.id === a.classId);
+            return aCls && (aCls.groupIds || []).includes(gId);
+          });
+        });
+        if (groupBusy) continue;
+        if (placeDur >= 2) {
+          const cpOrder = cp.findIndex(p => p.index === pIdx);
+          if (cpOrder < 0 || cpOrder + 1 >= cp.length) continue;
+          const nextP = cp[cpOrder + 1];
+          if (!isPeriodValidForDay(day, nextP.index, config.schoolDay, periods)) continue;
+          if (teacher && !isTeacherAvailable(teacher, nextP.index, day, periods)) continue;
+          const nextExisting = getAssignments(day, nextP.index);
+          const nextTeacherBusy = nextExisting.some(a => {
+            const aCls = (config.classes || []).find(c => c.id === a.classId);
+            return aCls && aCls.teacherId === cls.teacherId;
+          });
+          if (nextTeacherBusy) continue;
+          const nextGroupBusy = groupIds.some(gId => {
+            return nextExisting.some(a => {
+              const aCls = (config.classes || []).find(c => c.id === a.classId);
+              return aCls && (aCls.groupIds || []).includes(gId);
+            });
+          });
+          if (nextGroupBusy) continue;
+        }
+        valid[gk(day, pIdx)] = true;
+      }
+    }
+    return valid;
+  }, [dragData, config.classes, config.teachers, config.schoolDay, grid, classPeriods, periods]); // eslint-disable-line
 
   return (
     <div>
