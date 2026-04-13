@@ -1552,14 +1552,15 @@ function ClassesPanel({ config, update }) {
 
   const addClass = () => {
     if (!nc.name.trim()) return;
-    update(c => { c.classes.push({ id: genId(), name: nc.name.trim(), teacherId: nc.teacherId, groupIds: nc.groupIds, daysPerWeek: nc.daysPerWeek, duration: nc.duration, labDaysPerWeek: nc.labDaysPerWeek || 0, semester: nc.semester || 'full', concurrentGroup: nc.concurrentGroup || '', category: nc.category || '' }); });
+    const cg = nc.concurrentGroup === '__custom__' ? '' : (nc.concurrentGroup || '');
+    update(c => { c.classes.push({ id: genId(), name: nc.name.trim(), teacherId: nc.teacherId, groupIds: nc.groupIds, daysPerWeek: nc.daysPerWeek, duration: nc.duration, labDaysPerWeek: nc.labDaysPerWeek || 0, semester: nc.semester || 'full', concurrentGroup: cg, category: nc.category || '' }); });
     setNc({ name: '', teacherId: '', groupIds: [], daysPerWeek: 5, duration: 1, labDaysPerWeek: 0, semester: 'full', concurrentGroup: '', category: '' });
   };
 
   // Get existing concurrent group labels for the dropdown
   const existingConcurrentGroups = useMemo(() => {
     const groups = new Set();
-    (config.classes || []).forEach(cls => { if (cls.concurrentGroup) groups.add(cls.concurrentGroup); });
+    (config.classes || []).forEach(cls => { if (cls.concurrentGroup && cls.concurrentGroup !== '__custom__') groups.add(cls.concurrentGroup); });
     return [...groups].sort();
   }, [config.classes]);
 
@@ -1637,16 +1638,17 @@ function ClassesPanel({ config, update }) {
           <div className="sched-field" style={{ flex: 0 }}>
             <label style={{ fontSize: 11 }}>Concurrent</label>
             <div style={{ display: 'flex', gap: 4 }}>
-              <select value={existingConcurrentGroups.includes(nc.concurrentGroup) ? nc.concurrentGroup : (nc.concurrentGroup ? '__custom__' : '')}
-                onChange={e => { if (e.target.value === '__custom__') return; setNc({ ...nc, concurrentGroup: e.target.value }); }}
+              <select value={existingConcurrentGroups.includes(nc.concurrentGroup) ? nc.concurrentGroup : (nc.concurrentGroup && nc.concurrentGroup !== '__custom__' ? '__custom__' : '')}
+                onChange={e => setNc({ ...nc, concurrentGroup: e.target.value === '__custom__' ? '__custom__' : e.target.value })}
                 style={{ width: 80 }}>
                 <option value="">None</option>
                 {existingConcurrentGroups.map(g => <option key={g} value={g}>{g}</option>)}
                 <option value="__custom__">New...</option>
               </select>
-              {(nc.concurrentGroup && !existingConcurrentGroups.includes(nc.concurrentGroup)) || nc.concurrentGroup === '__custom__' ? (
+              {nc.concurrentGroup === '__custom__' || (nc.concurrentGroup && !existingConcurrentGroups.includes(nc.concurrentGroup)) ? (
                 <input type="text" placeholder="e.g. A" value={nc.concurrentGroup === '__custom__' ? '' : nc.concurrentGroup}
-                  onChange={e => setNc({ ...nc, concurrentGroup: e.target.value.toUpperCase() })}
+                  onChange={e => setNc({ ...nc, concurrentGroup: e.target.value.toUpperCase() || '__custom__' })}
+                  autoFocus
                   style={{ width: 50, fontSize: 12, padding: '2px 4px', border: '1px solid #D1D5DB', borderRadius: 4 }} />
               ) : null}
             </div>
@@ -1807,15 +1809,17 @@ function ClassesPanel({ config, update }) {
                     <td>
                       {isEditing ? (
                         <div style={{ display: 'flex', gap: 4 }}>
-                          <select value={existingConcurrentGroups.includes(cls.concurrentGroup) ? cls.concurrentGroup : (cls.concurrentGroup ? '__custom__' : '')}
-                            onChange={e => { if (e.target.value !== '__custom__') updateClass(cIdx, 'concurrentGroup', e.target.value); }}
+                          <select value={existingConcurrentGroups.includes(cls.concurrentGroup) ? cls.concurrentGroup : (cls.concurrentGroup && cls.concurrentGroup !== '__custom__' ? '__custom__' : '')}
+                            onChange={e => updateClass(cIdx, 'concurrentGroup', e.target.value === '__custom__' ? '__custom__' : e.target.value)}
                             style={{ fontSize: 12, padding: '2px 4px', border: '1px solid #D1D5DB', borderRadius: 4, width: 60 }}>
                             <option value="">None</option>
                             {existingConcurrentGroups.map(g => <option key={g} value={g}>{g}</option>)}
                             <option value="__custom__">New...</option>
                           </select>
-                          {cls.concurrentGroup && !existingConcurrentGroups.includes(cls.concurrentGroup) ? (
-                            <input type="text" value={cls.concurrentGroup} onChange={e => updateClass(cIdx, 'concurrentGroup', e.target.value.toUpperCase())}
+                          {cls.concurrentGroup === '__custom__' || (cls.concurrentGroup && !existingConcurrentGroups.includes(cls.concurrentGroup)) ? (
+                            <input type="text" value={cls.concurrentGroup === '__custom__' ? '' : cls.concurrentGroup}
+                              onChange={e => updateClass(cIdx, 'concurrentGroup', e.target.value.toUpperCase() || '__custom__')}
+                              autoFocus placeholder="e.g. A"
                               style={{ width: 40, fontSize: 12, padding: '2px 4px', border: '1px solid #D1D5DB', borderRadius: 4 }} />
                           ) : null}
                         </div>
