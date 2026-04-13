@@ -10,6 +10,10 @@ const DAY_LABELS = { mon: 'Monday', tue: 'Tuesday', wed: 'Wednesday', thu: 'Thur
 
 function genId() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
 
+const SUBJECT_CATEGORIES = ['Math', 'Science', 'Humanities', 'Arts', 'Other'];
+const CATEGORY_COLORS = { Math: '#1E40AF', Science: '#065F46', Humanities: '#92400E', Arts: '#9D174D', Other: '#6B7280' };
+const CATEGORY_BG = { Math: '#DBEAFE', Science: '#D1FAE5', Humanities: '#FEF3C7', Arts: '#FCE7F3', Other: '#F3F4F6' };
+
 // Distinct, accessible teacher colors — bg (light) and text (dark) pairs
 const TEACHER_COLORS = [
   { bg: '#DBEAFE', text: '#1E40AF', border: '#93C5FD' }, // blue
@@ -1519,19 +1523,22 @@ function PinAdder({ onAdd }) {
 // CLASSES PANEL — with days/week and inline editing
 // ============================================================
 function ClassesPanel({ config, update }) {
-  const [nc, setNc] = useState({ name: '', teacherId: '', groupIds: [], daysPerWeek: 5, duration: 1, labDaysPerWeek: 0, semester: 'full', concurrentGroup: '' });
+  const [nc, setNc] = useState({ name: '', teacherId: '', groupIds: [], daysPerWeek: 5, duration: 1, labDaysPerWeek: 0, semester: 'full', concurrentGroup: '', category: '' });
   const [editingId, setEditingId] = useState(null);
-  const [sortBy, setSortBy] = useState(null); // null | 'class' | 'class-desc' | 'teacher' | 'teacher-desc'
+  const [sortBy, setSortBy] = useState(null); // null | 'class' | 'class-desc' | 'teacher' | 'teacher-desc' | 'category' | 'category-desc'
 
   const sortedClasses = useMemo(() => {
     const classes = (config.classes || []).map((cls, idx) => ({ ...cls, _origIdx: idx }));
     if (!sortBy) return classes;
     const teachers = config.teachers || [];
     const getTeacherName = (tid) => { const t = teachers.find(t => t.id === tid); return t?.name?.toLowerCase() || 'zzz'; };
+    const getCat = (cls) => (cls.category || 'zzz').toLowerCase();
     if (sortBy === 'class') classes.sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
     else if (sortBy === 'class-desc') classes.sort((a, b) => b.name.toLowerCase().localeCompare(a.name.toLowerCase()));
     else if (sortBy === 'teacher') classes.sort((a, b) => getTeacherName(a.teacherId).localeCompare(getTeacherName(b.teacherId)));
     else if (sortBy === 'teacher-desc') classes.sort((a, b) => getTeacherName(b.teacherId).localeCompare(getTeacherName(a.teacherId)));
+    else if (sortBy === 'category') classes.sort((a, b) => getCat(a).localeCompare(getCat(b)));
+    else if (sortBy === 'category-desc') classes.sort((a, b) => getCat(b).localeCompare(getCat(a)));
     return classes;
   }, [config.classes, config.teachers, sortBy]);
 
@@ -1545,8 +1552,8 @@ function ClassesPanel({ config, update }) {
 
   const addClass = () => {
     if (!nc.name.trim()) return;
-    update(c => { c.classes.push({ id: genId(), name: nc.name.trim(), teacherId: nc.teacherId, groupIds: nc.groupIds, daysPerWeek: nc.daysPerWeek, duration: nc.duration, labDaysPerWeek: nc.labDaysPerWeek || 0, semester: nc.semester || 'full', concurrentGroup: nc.concurrentGroup || '' }); });
-    setNc({ name: '', teacherId: '', groupIds: [], daysPerWeek: 5, duration: 1, labDaysPerWeek: 0, semester: 'full', concurrentGroup: '' });
+    update(c => { c.classes.push({ id: genId(), name: nc.name.trim(), teacherId: nc.teacherId, groupIds: nc.groupIds, daysPerWeek: nc.daysPerWeek, duration: nc.duration, labDaysPerWeek: nc.labDaysPerWeek || 0, semester: nc.semester || 'full', concurrentGroup: nc.concurrentGroup || '', category: nc.category || '' }); });
+    setNc({ name: '', teacherId: '', groupIds: [], daysPerWeek: 5, duration: 1, labDaysPerWeek: 0, semester: 'full', concurrentGroup: '', category: '' });
   };
 
   // Get existing concurrent group labels for the dropdown
@@ -1647,6 +1654,13 @@ function ClassesPanel({ config, update }) {
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
           <div className="sched-field" style={{ flex: 0 }}>
+            <label style={{ fontSize: 11 }}>Category</label>
+            <select value={nc.category} onChange={e => setNc({ ...nc, category: e.target.value })} style={{ width: 110 }}>
+              <option value="">— None —</option>
+              {SUBJECT_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </div>
+          <div className="sched-field" style={{ flex: 0 }}>
             <label style={{ fontSize: 11 }}>Semester</label>
             <select value={nc.semester} onChange={e => setNc({ ...nc, semester: e.target.value })} style={{ width: 90 }}>
               <option value="full">Full Year</option>
@@ -1671,6 +1685,7 @@ function ClassesPanel({ config, update }) {
             <thead><tr><th style={{ width: 30 }}>#</th><th style={{ width: 40 }}></th>
                 <th style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => toggleSort('class')}>Class {sortBy === 'class' ? '▲' : sortBy === 'class-desc' ? '▼' : ''}</th>
                 <th style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => toggleSort('teacher')}>Teacher {sortBy === 'teacher' ? '▲' : sortBy === 'teacher-desc' ? '▼' : ''}</th>
+                <th style={{ cursor: 'pointer', userSelect: 'none' }} onClick={() => toggleSort('category')}>Category {sortBy === 'category' ? '▲' : sortBy === 'category-desc' ? '▼' : ''}</th>
                 <th>Students</th><th>Days/Wk</th><th>Duration</th><th>Sem</th><th>Concurrent</th><th></th></tr></thead>
             <tbody>
               {sortedClasses.map((cls, displayIdx) => {
@@ -1710,6 +1725,19 @@ function ClassesPanel({ config, update }) {
                         </select>
                       ) : (
                         teacher?.name || <span style={{ color: '#DC2626' }}>Unassigned</span>
+                      )}
+                    </td>
+                    <td>
+                      {isEditing ? (
+                        <select value={cls.category || ''} onChange={e => updateClass(cIdx, 'category', e.target.value)}
+                          style={{ fontSize: 12, padding: '2px 4px', border: '1px solid #D1D5DB', borderRadius: 4 }}>
+                          <option value="">—</option>
+                          {SUBJECT_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                        </select>
+                      ) : (
+                        cls.category
+                          ? <span className="badge" style={{ fontSize: 10, background: CATEGORY_BG[cls.category] || '#F3F4F6', color: CATEGORY_COLORS[cls.category] || '#6B7280' }}>{cls.category}</span>
+                          : <span style={{ color: '#D1D5DB', fontSize: 11 }}>—</span>
                       )}
                     </td>
                     <td>
