@@ -2064,17 +2064,17 @@ function GridPanel({ config, update, periods }) {
 
   // ── Drag-and-drop handlers ──
   // Supports dragging FROM the grid (move) and FROM the class palette (add new)
-  const handleDragStart = (e, classId, day, pIdx, roomId) => {
-    setDragData({ classId, fromDay: day, fromPIdx: pIdx, roomId, isNew: false });
+  const handleDragStart = (e, classId, day, pIdx, roomId, duration) => {
+    setDragData({ classId, fromDay: day, fromPIdx: pIdx, roomId, isNew: false, duration: duration || 1 });
     e.dataTransfer.effectAllowed = 'move';
     if (e.target) e.dataTransfer.setDragImage(e.target, 0, 0);
   };
 
-  const handlePaletteDragStart = (e, classId) => {
+  const handlePaletteDragStart = (e, classId, duration = 1) => {
     const cls = (config.classes || []).find(c => c.id === classId);
     const teacher = cls ? (config.teachers || []).find(t => t.id === cls.teacherId) : null;
     const roomId = teacher?.defaultRoom || '';
-    setDragData({ classId, fromDay: null, fromPIdx: null, roomId, isNew: true });
+    setDragData({ classId, fromDay: null, fromPIdx: null, roomId, isNew: true, duration });
     e.dataTransfer.effectAllowed = 'copy';
     if (e.target) e.dataTransfer.setDragImage(e.target, 0, 0);
   };
@@ -2094,10 +2094,14 @@ function GridPanel({ config, update, periods }) {
     e.preventDefault();
     setDropTarget(null);
     if (!dragData) return;
-    const { classId, fromDay, fromPIdx, roomId, isNew } = dragData;
+    const { classId, fromDay, fromPIdx, roomId, isNew, duration: dragDuration } = dragData;
     setDragData(null);
 
     if (!isNew && fromDay === day && fromPIdx === pIdx) return;
+
+    // Determine duration: from drag data if set, otherwise from the class config
+    const cls = (config.classes || []).find(c => c.id === classId);
+    const placeDuration = dragDuration || cls?.duration || 1;
 
     update(c => {
       if (!c[gridKey]) c[gridKey] = {};
@@ -2114,7 +2118,9 @@ function GridPanel({ config, update, periods }) {
       // Add to destination
       const destKey = gk(day, pIdx);
       const destArr = g[destKey] ? (Array.isArray(g[destKey]) ? g[destKey] : [g[destKey]]) : [];
-      destArr.push({ classId, roomId });
+      const entry = { classId, roomId };
+      if (placeDuration >= 2) entry.duration = placeDuration;
+      destArr.push(entry);
       g[destKey] = destArr;
     });
   };
@@ -2132,13 +2138,29 @@ function GridPanel({ config, update, periods }) {
     window.dispatchEvent(new CustomEvent('toast', { detail: `${semester === 's1' ? 'Semester 1' : 'Semester 2'} grid cleared` }));
   };
 
-  // Track scheduling counts
+  // Track scheduling counts — separate single vs lab/double placements
   const classDayCounts = {};
-  (config.classes || []).forEach(cls => { classDayCounts[cls.id] = new Set(); });
+  const classLabDays = {};  // days where the class is placed as double-period
+  const classSingleDays = {};  // days where the class is placed as single-period
+  (config.classes || []).forEach(cls => {
+    classDayCounts[cls.id] = new Set();
+    classLabDays[cls.id] = new Set();
+    classSingleDays[cls.id] = new Set();
+  });
   Object.entries(grid).forEach(([key, val]) => {
     const [day] = key.split('-');
     const arr = Array.isArray(val) ? val : [val];
-    arr.forEach(a => { if (a?.classId && classDayCounts[a.classId]) classDayCounts[a.classId].add(day); });
+    arr.forEach(a => {
+      if (a?.classId && classDayCounts[a.classId]) {
+        classDayCounts[a.classId].add(day);
+        const cls = (config.classes || []).find(c => c.id === a.classId);
+        if ((a.duration || cls?.duration || 1) >= 2) {
+          classLabDays[a.classId].add(day);
+        } else {
+          classSingleDays[a.classId].add(day);
+        }
+      }
+    });
   });
 
   const unscheduled = (config.classes || []).filter(cls => {
@@ -2227,30 +2249,84 @@ function GridPanel({ config, update, periods }) {
             {(config.classes || []).filter(cls => {
               const s = cls.semester || 'full';
               return s === 'full' || s === semester;
-            }).map(cls => {
+            }).flatMap(cls => {
               const tc = getTeacherColor(cls.teacherId, config.teachers || []);
               const teacher = (config.teachers || []).find(t => t.id === cls.teacherId);
-              const scheduled = classDayCounts[cls.id]?.size || 0;
-              const needed = cls.daysPerWeek || (cls.days ? cls.days.length : 5);
-              const isFull = scheduled >= needed;
-              return (
-                <div key={cls.id} draggable
-                  onDragStart={(e) => handlePaletteDragStart(e, cls.id)}
-                  onDragEnd={handleDragEnd}
-                  style={{
-                    display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 8px',
-                    borderRadius: 6, fontSize: 11, cursor: 'grab', userSelect: 'none',
-                    background: isFull ? '#E5E7EB' : tc.bg,
-                    border: `1px solid ${isFull ? '#D1D5DB' : tc.border}`,
-                    color: isFull ? '#9CA3AF' : tc.text,
-                    opacity: isFull ? 0.6 : 1,
-                  }}>
-                  <span style={{ fontWeight: 600 }}>{cls.name}</span>
-                  <span style={{ opacity: 0.7, fontSize: 10 }}>{scheduled}/{needed}</span>
-                  {teacher && <span style={{ fontSize: 9, opacity: 0.6 }}>({teacher.name})</span>}
-                  {isFull && <span style={{ fontSize: 10 }}>✓</span>}
-                </div>
-              );
+              const labDays = cls.labDaysPerWeek || 0;
+              const totalDays = cls.daysPerWeek || (cls.days ? cls.days.length : 5);
+              const tiles = [];
+
+              if (labDays > 0) {
+                // Separate tiles for single periods and lab (double) periods
+                const singleNeeded = totalDays - labDays;
+                const singleScheduled = classSingleDays[cls.id]?.size || 0;
+                const singleFull = singleScheduled >= singleNeeded;
+                if (singleNeeded > 0) {
+                  tiles.push(
+                    <div key={`${cls.id}-single`} draggable
+                      onDragStart={(e) => handlePaletteDragStart(e, cls.id, 1)}
+                      onDragEnd={handleDragEnd}
+                      style={{
+                        display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 8px',
+                        borderRadius: 6, fontSize: 11, cursor: 'grab', userSelect: 'none',
+                        background: singleFull ? '#E5E7EB' : tc.bg,
+                        border: `1px solid ${singleFull ? '#D1D5DB' : tc.border}`,
+                        color: singleFull ? '#9CA3AF' : tc.text,
+                        opacity: singleFull ? 0.6 : 1,
+                      }}>
+                      <span style={{ fontWeight: 600 }}>{cls.name}</span>
+                      <span style={{ opacity: 0.7, fontSize: 10 }}>{singleScheduled}/{singleNeeded}</span>
+                      {teacher && <span style={{ fontSize: 9, opacity: 0.6 }}>({teacher.name})</span>}
+                      {singleFull && <span style={{ fontSize: 10 }}>✓</span>}
+                    </div>
+                  );
+                }
+                // Lab (double-period) tile
+                const labScheduled = classLabDays[cls.id]?.size || 0;
+                const labFull = labScheduled >= labDays;
+                tiles.push(
+                  <div key={`${cls.id}-lab`} draggable
+                    onDragStart={(e) => handlePaletteDragStart(e, cls.id, 2)}
+                    onDragEnd={handleDragEnd}
+                    style={{
+                      display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 8px',
+                      borderRadius: 6, fontSize: 11, cursor: 'grab', userSelect: 'none',
+                      background: labFull ? '#E5E7EB' : '#FEF3C7',
+                      border: `1px solid ${labFull ? '#D1D5DB' : '#F59E0B'}`,
+                      color: labFull ? '#9CA3AF' : '#92400E',
+                      opacity: labFull ? 0.6 : 1,
+                    }}>
+                    <span style={{ fontWeight: 600 }}>{cls.name}</span>
+                    <span style={{ background: labFull ? '#D1D5DB' : '#FDE68A', padding: '0 4px', borderRadius: 3, fontSize: 9, fontWeight: 700 }}>LAB</span>
+                    <span style={{ opacity: 0.7, fontSize: 10 }}>{labScheduled}/{labDays}</span>
+                    {teacher && <span style={{ fontSize: 9, opacity: 0.6 }}>({teacher.name})</span>}
+                    {labFull && <span style={{ fontSize: 10 }}>✓</span>}
+                  </div>
+                );
+              } else {
+                // Regular class — single tile
+                const scheduled = classDayCounts[cls.id]?.size || 0;
+                const isFull = scheduled >= totalDays;
+                tiles.push(
+                  <div key={cls.id} draggable
+                    onDragStart={(e) => handlePaletteDragStart(e, cls.id, cls.duration || 1)}
+                    onDragEnd={handleDragEnd}
+                    style={{
+                      display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 8px',
+                      borderRadius: 6, fontSize: 11, cursor: 'grab', userSelect: 'none',
+                      background: isFull ? '#E5E7EB' : tc.bg,
+                      border: `1px solid ${isFull ? '#D1D5DB' : tc.border}`,
+                      color: isFull ? '#9CA3AF' : tc.text,
+                      opacity: isFull ? 0.6 : 1,
+                    }}>
+                    <span style={{ fontWeight: 600 }}>{cls.name}</span>
+                    <span style={{ opacity: 0.7, fontSize: 10 }}>{scheduled}/{totalDays}</span>
+                    {teacher && <span style={{ fontSize: 9, opacity: 0.6 }}>({teacher.name})</span>}
+                    {isFull && <span style={{ fontSize: 10 }}>✓</span>}
+                  </div>
+                );
+              }
+              return tiles;
             })}
           </div>
         </div>
@@ -2475,7 +2551,7 @@ function GridPanel({ config, update, periods }) {
                               return (
                                 <div key={a.classId} className={`sched-grid-class-chip ${(a.duration || cls.duration || 1) === 2 ? 'double' : ''}`}
                                   draggable
-                                  onDragStart={(e) => handleDragStart(e, a.classId, day, period.index, a.roomId)}
+                                  onDragStart={(e) => handleDragStart(e, a.classId, day, period.index, a.roomId, a.duration || cls.duration || 1)}
                                   onDragEnd={handleDragEnd}
                                   style={{ background: tc.bg, borderLeft: `3px solid ${tc.border}`, cursor: 'grab',
                                     opacity: isDragging ? 0.4 : 1 }}>
