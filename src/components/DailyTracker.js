@@ -273,11 +273,11 @@ export default function DailyTracker({ uid, masterStudents, adminViewMode, admin
             const vals = virtueScores[v.key];
             virtueAvgs[v.key] = vals.length > 0 ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
           });
-          periodData[period] = { avg, pct: avg !== null ? Math.round((avg / 5) * 100) : null, daysScored: periodScores.length, virtueAvgs };
+          periodData[period] = { avg, pct: avg !== null ? Math.min(100, Math.max(0, Math.round(60 + (avg - 1) * 10))) : null, daysScored: periodScores.length, virtueAvgs };
         }
 
         const overallAvg = allScores.length > 0 ? allScores.reduce((a, b) => a + b, 0) / allScores.length : null;
-        return { ...student, periodData, overallAvg, overallPct: overallAvg !== null ? Math.round((overallAvg / 5) * 100) : null, totalDaysScored: allScores.length };
+        return { ...student, periodData, overallAvg, overallPct: overallAvg !== null ? Math.min(100, Math.max(0, Math.round(60 + (overallAvg - 1) * 10))) : null, totalDaysScored: allScores.length };
       });
 
     return { students: studentGradebook, periods };
@@ -318,7 +318,11 @@ export default function DailyTracker({ uid, masterStudents, adminViewMode, admin
             <thead>
               <tr>
                 <th>Student</th>
-                {VIRTUES.map(v => <th key={v.key} style={{ color: v.color }}>{v.label.substring(0, 4)}</th>)}
+                {VIRTUES.map(v => (
+                  <th key={v.key} style={{ color: v.color, cursor: 'pointer' }} onClick={() => setLegendVirtue(v.key)} title={`Click to see ${v.label} rubric`}>
+                    {v.label.substring(0, 4)} <span style={{ fontSize: 10, opacity: 0.5 }}>?</span>
+                  </th>
+                ))}
                 <th>Avg</th>
                 <th className="gradebook-grade-header">Grade %</th>
                 <th>Days</th>
@@ -563,7 +567,9 @@ export default function DailyTracker({ uid, masterStudents, adminViewMode, admin
                   <div className="student-virtues">
                     {VIRTUES.map(virtue => (
                       <div key={virtue.key} className="virtue-row">
-                        <span className="virtue-label" style={{ color: virtue.color }}>{virtue.label.substring(0, 4)}</span>
+                        <span className="virtue-label" style={{ color: virtue.color, cursor: 'pointer' }} onClick={() => setLegendVirtue(virtue.key)} title={`Click to see ${virtue.label} rubric`}>
+                          {virtue.label.substring(0, 4)} <span style={{ fontSize: 9, opacity: 0.5 }}>?</span>
+                        </span>
                         <div className="score-btns">
                           {[0, 1, 2, 3, 4, 5].map(score => (
                             <button key={score}
