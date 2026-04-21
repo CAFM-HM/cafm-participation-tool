@@ -6,6 +6,7 @@ import BoardAnalytics from './BoardAnalytics';
 import BoardMinutes from './BoardMinutes';
 import GrantsTracker from './GrantsTracker';
 import DataBackup from './DataBackup';
+import BoardComplianceSummary from './BoardComplianceSummary';
 
 // ============================================================
 // BOARD TIMELINE DATA
@@ -338,6 +339,8 @@ function BoardOverview({ data, update, budgetData, onNavigate }) {
               </div>
             )}
           </div>
+
+          <BoardComplianceSummary />
 
           <div className="home-card">
             <div className="home-card-header"><h3>Quick Navigation</h3></div>

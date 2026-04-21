@@ -11,6 +11,7 @@ import ScheduleBuilder from './components/ScheduleBuilder';
 import CommandCenter from './components/CommandCenter';
 import ServiceHours from './components/ServiceHours';
 import DocumentRepository from './components/DocumentRepository';
+import Compliance from './components/Compliance';
 import { useServiceHours } from './hooks/useFirestore';
 
 function App() {
@@ -76,6 +77,7 @@ function App() {
       { id: 'dashboard', label: 'Dashboard', icon: '\u{1F4CA}' },
       { id: 'roster', label: 'Roster', icon: '\u{1F4CB}' },
       { id: 'documents', label: 'Documents', icon: '\u{1F4C1}' },
+      { id: 'compliance', label: 'Compliance', icon: '\u{1F4D7}' },
     ] : []),
   ];
 
@@ -185,6 +187,7 @@ function App() {
           {activeTab === 'documents' && isAdmin && (
             <DocumentRepository masterStudents={masterStudents} uid={user.uid} />
           )}
+          {activeTab === 'compliance' && isAdmin && <Compliance uid={user.uid} />}
           </div>
         </main>
 
