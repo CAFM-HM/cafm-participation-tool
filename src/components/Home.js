@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { useAnnouncements, useQuickLinks, useDocuments, useTeacherData } from '../hooks/useFirestore';
 import { VIRTUES } from '../data/virtueData';
+import HomeComplianceBanner from './HomeComplianceBanner';
 
 const TODAY = new Date().toISOString().split('T')[0];
 const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -145,6 +146,9 @@ export default function Home({ uid, isAdmin, displayName, masterStudents, onNavi
           <div className="home-date">{todayName}, {todayFormatted}</div>
         </div>
       </div>
+
+      {/* Admin-only compliance alert banner — appears only when items are overdue or due within 30 days */}
+      {isAdmin && <HomeComplianceBanner onNavigate={onNavigate} />}
 
       <div className="home-grid">
         {/* ── Left Column ── */}
