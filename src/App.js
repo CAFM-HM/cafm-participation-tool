@@ -12,10 +12,11 @@ import CommandCenter from './components/CommandCenter';
 import ServiceHours from './components/ServiceHours';
 import DocumentRepository from './components/DocumentRepository';
 import Compliance from './components/Compliance';
+import AccessControl from './components/AccessControl';
 import { useServiceHours } from './hooks/useFirestore';
 
 function App() {
-  const { user, loading, login, logout, isAdmin, isBoardMember, displayName } = useAuth();
+  const { user, loading, login, logout, isAdmin, isBoardMember, displayName, email } = useAuth();
   const { students: masterStudents, loading: rosterLoading, addStudent, updateStudent, removeStudent, bulkImport, refresh: refreshRoster } = useMasterRoster();
   const { entries: serviceEntries, loading: serviceLoading, addEntry: addServiceEntry, updateEntry: updateServiceEntry, deleteEntry: deleteServiceEntry } = useServiceHours();
   const [activeTab, setActiveTab] = useState('home');
@@ -78,6 +79,7 @@ function App() {
       { id: 'roster', label: 'Roster', icon: '\u{1F4CB}' },
       { id: 'documents', label: 'Documents', icon: '\u{1F4C1}' },
       { id: 'compliance', label: 'Compliance', icon: '\u{1F4D7}' },
+      { id: 'access', label: 'Access Control', icon: '\u{1F511}' },
     ] : []),
   ];
 
@@ -188,6 +190,7 @@ function App() {
             <DocumentRepository masterStudents={masterStudents} uid={user.uid} />
           )}
           {activeTab === 'compliance' && isAdmin && <Compliance uid={user.uid} />}
+          {activeTab === 'access' && isAdmin && <AccessControl currentEmail={email} />}
           </div>
         </main>
 

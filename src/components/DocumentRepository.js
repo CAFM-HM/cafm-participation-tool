@@ -523,15 +523,13 @@ export default function DocumentRepository({ masterStudents, uid }) {
                         {uploaded && (
                           <>
                             <a href={uploaded.url} target="_blank" rel="noopener noreferrer" className="btn btn-sm btn-secondary" style={{ fontSize: 11, textDecoration: 'none' }}>View</a>
+                            {!uploaded.isLink && (
+                              <span title="This file was uploaded directly to Firebase Storage. Consider replacing with a Google Drive link for long-term durability." style={{ fontSize: 10, color: '#B45309', background: '#FEF3C7', padding: '1px 6px', borderRadius: 4, fontWeight: 600 }}>⚠ legacy upload</span>
+                            )}
                             <button className="remove-btn" style={{ fontSize: 10 }} onClick={() => deleteDocument(active.id, d.key)}>x</button>
                           </>
                         )}
-                        <button className="btn btn-sm btn-secondary" style={{ fontSize: 11 }} onClick={() => linkDocument(active.id, d.key)}>{'\u{1F517}'} Link</button>
-                        <label className="btn btn-sm btn-primary" style={{ cursor: 'pointer', margin: 0, fontSize: 11, opacity: uploading === d.key ? 0.5 : 1 }}>
-                          {uploading === d.key ? '...' : (uploaded ? 'Replace' : 'Upload')}
-                          <input type="file" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.gif" style={{ display: 'none' }} disabled={uploading === d.key}
-                            onChange={e => { if (e.target.files[0]) uploadDocument(active.id, d.key, e.target.files[0]); e.target.value = ''; }} />
-                        </label>
+                        <button className="btn btn-sm btn-primary" style={{ fontSize: 11 }} onClick={() => linkDocument(active.id, d.key)}>📁 {uploaded ? 'Replace with Drive link' : 'Link Drive document'}</button>
                         <button className={`btn btn-sm ${overridden ? 'btn-gold' : 'btn-secondary'}`}
                           style={{ fontSize: 10, padding: '2px 6px' }}
                           onClick={() => toggleOverride(active.id, d.key)}
@@ -858,15 +856,10 @@ function AdditionalDocs({ record, uploading, onUpload, onLink, onDelete }) {
           <input type="text" value={addLabel} onChange={e => setAddLabel(e.target.value)}
             placeholder="e.g. Medical Form, Transcript" style={{ width: '100%', fontSize: 12, padding: '4px 8px' }} />
         </div>
-        <label className="btn btn-sm btn-secondary" style={{ cursor: 'pointer', margin: 0, fontSize: 11 }}>
-          {addFile ? addFile.name : 'Choose File'}
-          <input type="file" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png,.gif,.xlsx,.csv" style={{ display: 'none' }}
-            onChange={e => { if (e.target.files[0]) setAddFile(e.target.files[0]); }} />
-        </label>
-        <button className="btn btn-sm btn-primary" onClick={handleUpload} disabled={!addFile || uploading === 'additional'} style={{ fontSize: 11 }}>
-          {uploading === 'additional' ? '...' : 'Upload'}
-        </button>
-        <button className="btn btn-sm btn-secondary" style={{ fontSize: 11 }} onClick={() => onLink(addLabel)}>{'\u{1F517}'} Link from Drive</button>
+        <button className="btn btn-sm btn-primary" style={{ fontSize: 11 }} onClick={() => onLink(addLabel)}>📁 Link from Google Drive</button>
+      </div>
+      <div style={{ marginTop: 8, fontSize: 11, color: '#6B7280', fontStyle: 'italic' }}>
+        Tip: upload your document to Google Drive first, then paste the share link here. This keeps files safe in your school's Drive even if this app is retired.
       </div>
     </div>
   );

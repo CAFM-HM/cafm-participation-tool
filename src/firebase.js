@@ -18,18 +18,36 @@ export const provider = new GoogleAuthProvider();
 export const db = getFirestore(app);
 export const storage = getStorage(app);
 
-export const ADMINS = [
+// ────────────────────────────────────────────────────────────────────
+// ROLE CONFIGURATION
+// ────────────────────────────────────────────────────────────────────
+// Roles are now stored in Firestore at config/roles and managed from the
+// in-app "Access Control" admin page. These hardcoded arrays are used to:
+//   (a) Seed Firestore on first run (see AccessControl.js)
+//   (b) Provide a "super admin" failsafe so you can never lock yourself out
+//       of the app even if the Firestore roles doc is corrupted or empty.
+// ────────────────────────────────────────────────────────────────────
+
+// SUPER ADMINS: Always have admin rights, regardless of Firestore config.
+// Keep this list short — these are the people who cannot ever be removed
+// from admin access by other admins using the UI. The headmaster should
+// always be here so they're never locked out.
+export const SUPER_ADMINS = [
+  'headmaster@chestertonpensacola.org',
+  'charlie@chestertonpensacola.org',
+];
+
+// Legacy: initial admin list — used only to seed Firestore on first run.
+export const DEFAULT_ADMINS = [
   'headmaster@chestertonpensacola.org',
   'charlie@chestertonpensacola.org',
   'hrenshaw@chestertonpensacola.org',
   'heather@chestertonpensacola.org',
-  'laura@chestertonpensacola.org'
+  'laura@chestertonpensacola.org',
 ];
 
-export const isAdmin = (email) => ADMINS.includes(email?.toLowerCase());
-
-// Board-level access — only headmaster and board members
-export const BOARD_MEMBERS = [
+// Legacy: initial board-member list — used only to seed Firestore on first run.
+export const DEFAULT_BOARD_MEMBERS = [
   'headmaster@chestertonpensacola.org',
   'charlie@chestertonpensacola.org',
   'jp@chestertonpensacola.org',
@@ -40,7 +58,13 @@ export const BOARD_MEMBERS = [
   'alicia@chestertonpensacola.org',
 ];
 
-export const isBoardMember = (email) => BOARD_MEMBERS.includes(email?.toLowerCase());
+export const isSuperAdmin = (email) => SUPER_ADMINS.includes((email || '').toLowerCase());
+
+// Back-compat stubs — prefer useAuth().isAdmin / useAuth().isBoardMember.
+// These only cover the super-admin case (the Firestore dynamic list is
+// not available synchronously from firebase.js).
+export const isAdmin = (email) => isSuperAdmin(email);
+export const isBoardMember = (email) => isSuperAdmin(email);
 
 // Known UID → email mapping
 export const UID_MAP = {
