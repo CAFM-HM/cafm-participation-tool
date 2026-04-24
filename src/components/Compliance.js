@@ -496,6 +496,22 @@ function ComplianceRow({ item, onUpdate, onDelete, onComplete, onSnooze }) {
   const [responsible, setResponsible] = useState(item.responsible || '');
   const [cost, setCost] = useState(item.cost ?? '');
   const [externalLink, setExternalLink] = useState(item.externalLink || '');
+  const [nextDue, setNextDue] = useState(item.nextDue || '');
+  const [lastCompleted, setLastCompleted] = useState(item.lastCompleted || '');
+
+  // Keep the date fields in sync when they change externally (Mark Complete,
+  // Snooze). Only replace the local value if the user hasn't typed a new one
+  // — so a user's in-progress edit isn't clobbered by a background sync.
+  const lastSyncedDates = useRef({ nextDue: item.nextDue || '', lastCompleted: item.lastCompleted || '' });
+  useEffect(() => {
+    const prev = lastSyncedDates.current;
+    const curNextDue = item.nextDue || '';
+    const curLastCompleted = item.lastCompleted || '';
+    setNextDue(v => v === prev.nextDue ? curNextDue : v);
+    setLastCompleted(v => v === prev.lastCompleted ? curLastCompleted : v);
+    lastSyncedDates.current = { nextDue: curNextDue, lastCompleted: curLastCompleted };
+  }, [item.nextDue, item.lastCompleted]);
+
   const cat = CATEGORIES.find(c => c.key === item.category) || CATEGORIES[0];
   const freq = FREQUENCIES.find(f => f.key === item.frequency) || FREQUENCIES[2];
   const status = complianceStatus(item.nextDue);
@@ -525,7 +541,9 @@ function ComplianceRow({ item, onUpdate, onDelete, onComplete, onSnooze }) {
   const responsibleDirty = responsible !== (item.responsible || '');
   const costDirty = String(cost) !== String(savedCost);
   const externalLinkDirty = externalLink !== (item.externalLink || '');
-  const hasUnsavedChanges = notesDirty || instructionsDirty || responsibleDirty || costDirty || externalLinkDirty;
+  const nextDueDirty = nextDue !== (item.nextDue || '');
+  const lastCompletedDirty = lastCompleted !== (item.lastCompleted || '');
+  const hasUnsavedChanges = notesDirty || instructionsDirty || responsibleDirty || costDirty || externalLinkDirty || nextDueDirty || lastCompletedDirty;
 
   const buildPatch = () => {
     const patch = {};
@@ -534,6 +552,8 @@ function ComplianceRow({ item, onUpdate, onDelete, onComplete, onSnooze }) {
     if (responsibleDirty) patch.responsible = responsible;
     if (costDirty) patch.cost = normCost(cost);
     if (externalLinkDirty) patch.externalLink = externalLink;
+    if (nextDueDirty) patch.nextDue = nextDue;
+    if (lastCompletedDirty) patch.lastCompleted = lastCompleted;
     return patch;
   };
 
@@ -581,6 +601,8 @@ function ComplianceRow({ item, onUpdate, onDelete, onComplete, onSnooze }) {
                 setResponsible(item.responsible || '');
                 setCost(item.cost ?? '');
                 setExternalLink(item.externalLink || '');
+                setNextDue(item.nextDue || '');
+                setLastCompleted(item.lastCompleted || '');
               }
               setExpanded(v => !v);
             }}
@@ -604,11 +626,11 @@ function ComplianceRow({ item, onUpdate, onDelete, onComplete, onSnooze }) {
         <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid #E5E7EB', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10 }}>
           <div>
             <label style={{ fontSize: 11, color: '#6B7280', fontWeight: 600 }}>Next due</label>
-            <input type="date" className="form-input" value={item.nextDue || ''} onChange={e => onUpdate({ nextDue: e.target.value })} />
+            <input type="date" className="form-input" value={nextDue} onChange={e => setNextDue(e.target.value)} />
           </div>
           <div>
             <label style={{ fontSize: 11, color: '#6B7280', fontWeight: 600 }}>Last completed</label>
-            <input type="date" className="form-input" value={item.lastCompleted || ''} onChange={e => onUpdate({ lastCompleted: e.target.value })} />
+            <input type="date" className="form-input" value={lastCompleted} onChange={e => setLastCompleted(e.target.value)} />
           </div>
           <div>
             <label style={{ fontSize: 11, color: '#6B7280', fontWeight: 600 }}>Responsible person</label>
