@@ -2966,10 +2966,16 @@ function SchedulePreview({ config }) {
 
   return (
     <div>
-      <h3 className="section-title" style={{ marginBottom: 4 }}>
-        Daily Schedule
-        {config.publishedAt && <span style={{ fontSize: 11, color: '#9CA3AF', fontWeight: 400, marginLeft: 8 }}>Published {new Date(config.publishedAt).toLocaleDateString()}</span>}
-      </h3>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4, flexWrap: 'wrap', gap: 8 }}>
+        <h3 className="section-title" style={{ margin: 0 }}>
+          Daily Schedule
+          {config.publishedAt && <span style={{ fontSize: 11, color: '#9CA3AF', fontWeight: 400, marginLeft: 8 }}>Published {new Date(config.publishedAt).toLocaleDateString()}</span>}
+        </h3>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button className="btn btn-sm btn-secondary" onClick={() => printSchedule(config, periods)}>🖨️ Print / PDF</button>
+          <button className="btn btn-sm btn-secondary" onClick={() => exportScheduleCsv(config, periods)}>📊 Export CSV</button>
+        </div>
+      </div>
 
       {DAYS.map(day => {
         // Check if this day has any classes
@@ -3034,4 +3040,147 @@ function SchedulePreview({ config }) {
       })}
     </div>
   );
+}
+
+// ============================================================
+// EXPORT / PRINT HELPERS
+// ============================================================
+function escapeHtml(s) {
+  return String(s || '').replace(/[&<>"']/g, ch => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[ch]));
+}
+
+function escapeCsv(s) {
+  const str = String(s ?? '');
+  if (/[",\n\r]/.test(str)) return '"' + str.replace(/"/g, '""') + '"';
+  return str;
+}
+
+function triggerDownload(filename, text, mime) {
+  const blob = new Blob([text], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function exportScheduleCsv(config, periods) {
+  const grid = config.grid || {};
+  const rooms = config.rooms || [];
+  const classes = config.classes || [];
+  const teachers = config.teachers || [];
+  const lines = [['Day', 'Period', 'Start', 'End', 'Room', 'Class', 'Teacher', 'Double Period'].map(escapeCsv).join(',')];
+
+  DAYS.forEach(day => {
+    periods.forEach(period => {
+      if (period.type === 'lunch') {
+        lines.push([DAY_LABELS[day], 'Lunch', formatTime(period.start), formatTime(period.end), '', 'Lunch', '', ''].map(escapeCsv).join(','));
+        return;
+      }
+      const key = gk(day, period.index);
+      const raw = grid[key];
+      const assignments = raw ? (Array.isArray(raw) ? raw : [raw]) : [];
+      if (assignments.length === 0) return;
+      rooms.forEach(room => {
+        const a = assignments.find(x => x.roomId === room.id);
+        if (!a) return;
+        const cls = classes.find(c => c.id === a.classId);
+        const teacher = cls ? teachers.find(t => t.id === cls.teacherId) : null;
+        lines.push([
+          DAY_LABELS[day],
+          'P' + period.num,
+          formatTime(period.start),
+          formatTime(period.end),
+          room.name,
+          cls?.name || '',
+          teacher?.name || '',
+          (cls?.duration || 1) === 2 ? 'Yes' : '',
+        ].map(escapeCsv).join(','));
+      });
+    });
+  });
+
+  const date = new Date().toISOString().slice(0, 10);
+  triggerDownload(`schedule-${date}.csv`, lines.join('\n'), 'text/csv;charset=utf-8');
+}
+
+function printSchedule(config, periods) {
+  const grid = config.grid || {};
+  const rooms = config.rooms || [];
+  const classes = config.classes || [];
+  const teachers = config.teachers || [];
+  const today = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+
+  const dayBlocks = DAYS.map(day => {
+    const dayKeys = Object.keys(grid).filter(k => k.startsWith(day + '-'));
+    const hasClasses = dayKeys.some(k => {
+      const val = grid[k];
+      const arr = Array.isArray(val) ? val : [val];
+      return arr.some(a => a?.classId);
+    });
+    if (!hasClasses) return '';
+
+    const rows = periods.map(period => {
+      const key = gk(day, period.index);
+      const raw = grid[key];
+      const assignments = raw ? (Array.isArray(raw) ? raw : [raw]) : [];
+      if (period.type === 'lunch') {
+        return `<tr style="background:#F9FAFB">
+          <td><strong>${escapeHtml(formatTime(period.start))}</strong><br><span style="color:#9CA3AF">${escapeHtml(formatTime(period.end))}</span></td>
+          <td colspan="${rooms.length}" style="text-align:center;font-style:italic;color:#6B7280">Lunch</td>
+        </tr>`;
+      }
+      const cells = rooms.map(room => {
+        const a = assignments.find(x => x.roomId === room.id);
+        if (!a) return '<td style="color:#D1D5DB;text-align:center">—</td>';
+        const cls = classes.find(c => c.id === a.classId);
+        const teacher = cls ? teachers.find(t => t.id === cls.teacherId) : null;
+        return `<td style="text-align:center;padding:6px 8px">
+          <div style="font-weight:600;color:#1B3A5C">${escapeHtml(cls?.name || '?')}</div>
+          <div style="font-size:11px;color:#6B7280">${escapeHtml(teacher?.name || '')}</div>
+          ${(cls?.duration || 1) === 2 ? '<div style="font-size:10px;color:#CA8A04">Double period</div>' : ''}
+        </td>`;
+      }).join('');
+      return `<tr>
+        <td><strong>${escapeHtml(formatTime(period.start))}</strong><br><span style="color:#9CA3AF">${escapeHtml(formatTime(period.end))}</span></td>
+        ${cells}
+      </tr>`;
+    }).join('');
+
+    return `<h2 style="font-size:14px;color:#1B3A5C;margin:16px 0 6px">${escapeHtml(DAY_LABELS[day])}</h2>
+    <table>
+      <thead><tr><th style="width:90px">Time</th>${rooms.map(r => `<th>${escapeHtml(r.name)}</th>`).join('')}</tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+  }).join('');
+
+  const html = `<!doctype html>
+<html><head><meta charset="utf-8"><title>Schedule \u2014 ${escapeHtml(today)}</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; padding: 20px; color: #111827; font-size: 12px; }
+  h1 { color: #1B3A5C; margin: 0 0 4px; font-size: 20px; }
+  .subtitle { color: #6B7280; margin-bottom: 12px; font-size: 12px; }
+  table { width: 100%; border-collapse: collapse; font-size: 11px; margin-bottom: 10px; }
+  th, td { text-align: left; padding: 5px 8px; border: 1px solid #E5E7EB; vertical-align: top; }
+  th { background: #F9FAFB; font-weight: 600; color: #374151; }
+  @media print {
+    body { padding: 10px; }
+    .no-print { display: none; }
+    h2 { page-break-after: avoid; }
+    table { page-break-inside: auto; }
+    tr { page-break-inside: avoid; }
+  }
+</style></head>
+<body>
+  <button class="no-print" onclick="window.print()" style="float:right;padding:6px 14px;background:#1B3A5C;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:600">🖨️ Print</button>
+  <h1>Daily Schedule</h1>
+  <div class="subtitle">${config.publishedAt ? `Published ${escapeHtml(new Date(config.publishedAt).toLocaleDateString())} \u2014 ` : ''}Printed ${escapeHtml(today)}</div>
+  ${dayBlocks || '<p style="color:#9CA3AF">No classes scheduled.</p>'}
+</body></html>`;
+
+  const w = window.open('', '_blank');
+  if (!w) { alert('Popup blocked — please allow popups to print the schedule.'); return; }
+  w.document.write(html);
+  w.document.close();
 }
