@@ -1324,6 +1324,10 @@ function TeachersPanel({ config, update, periods }) {
           {expandedId === teacher.id && (
             <div className="sched-teacher-body">
               <div className="sched-inline-row">
+                <div className="sched-field" style={{ flex: 1, minWidth: 160 }}>
+                  <label>Name</label>
+                  <input type="text" value={teacher.name || ''} onChange={e => update(c => { c.teachers[tIdx].name = e.target.value; })} />
+                </div>
                 <div className="sched-field" style={{ flex: 0 }}>
                   <label>Type</label>
                   <select value={teacher.type} onChange={e => update(c => { c.teachers[tIdx].type = e.target.value; })}>
