@@ -1197,7 +1197,7 @@ export default function ScheduleBuilder({ isAdmin }) {
       {tab === 'teachers' && <TeachersPanel config={local} update={update} periods={periods} />}
       {tab === 'classes' && <ClassesPanel config={local} update={update} />}
       {tab === 'grid' && <GridPanel config={local} update={update} periods={periods} />}
-      {tab === 'preview' && <SchedulePreview config={local} />}
+      {tab === 'preview' && <PreviewWithToggle draft={local} published={published} />}
     </div>
   );
 }
@@ -2959,6 +2959,39 @@ function CellPicker({ config, day, periodIndex, periods, onAdd, onCancel }) {
 // ============================================================
 // SCHEDULE PREVIEW — clean M-F room grid
 // ============================================================
+function PreviewWithToggle({ draft, published }) {
+  const [view, setView] = useState('draft');
+  const showing = view === 'published' && published ? published : draft;
+  const hasPublished = !!published;
+
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: 6, marginBottom: 12, alignItems: 'center' }}>
+        <span style={{ fontSize: 12, color: '#6B7280', fontWeight: 600 }}>Viewing:</span>
+        <button
+          className={`sub-nav-btn ${view === 'draft' ? 'active' : ''}`}
+          onClick={() => setView('draft')}
+          style={{ fontSize: 12 }}
+        >Draft (your edits)</button>
+        <button
+          className={`sub-nav-btn ${view === 'published' ? 'active' : ''}`}
+          onClick={() => hasPublished && setView('published')}
+          disabled={!hasPublished}
+          title={hasPublished ? 'Show the schedule teachers see' : 'Nothing has been published yet'}
+          style={{ fontSize: 12, opacity: hasPublished ? 1 : 0.5, cursor: hasPublished ? 'pointer' : 'not-allowed' }}
+        >Published (what teachers see)</button>
+      </div>
+      {view === 'published' && !hasPublished ? (
+        <div style={{ padding: 32, textAlign: 'center', color: '#9CA3AF', background: '#F9FAFB', borderRadius: 8 }}>
+          No schedule has been published yet. Click <strong>Publish</strong> at the top to release your draft to teachers.
+        </div>
+      ) : (
+        <SchedulePreview config={showing} />
+      )}
+    </div>
+  );
+}
+
 function SchedulePreview({ config }) {
   const periods = useMemo(() => computePeriods(config.schoolDay), [config.schoolDay]);
   const grid = config.grid || {};
