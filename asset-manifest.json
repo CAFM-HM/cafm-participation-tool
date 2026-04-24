@@ -1,13 +1,13 @@
 {
   "files": {
     "main.css": "/cafm-participation-tool/static/css/main.c4715c24.css",
-    "main.js": "/cafm-participation-tool/static/js/main.3a3cef68.js",
+    "main.js": "/cafm-participation-tool/static/js/main.8d36ab90.js",
     "index.html": "/cafm-participation-tool/index.html",
     "main.c4715c24.css.map": "/cafm-participation-tool/static/css/main.c4715c24.css.map",
-    "main.3a3cef68.js.map": "/cafm-participation-tool/static/js/main.3a3cef68.js.map"
+    "main.8d36ab90.js.map": "/cafm-participation-tool/static/js/main.8d36ab90.js.map"
   },
   "entrypoints": [
     "static/css/main.c4715c24.css",
-    "static/js/main.3a3cef68.js"
+    "static/js/main.8d36ab90.js"
   ]
 }
