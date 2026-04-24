@@ -1924,6 +1924,7 @@ function GridPanel({ config, update, periods }) {
   const [dragData, setDragData] = useState(null); // { classId, fromDay, fromPIdx, roomId }
   const [dropTarget, setDropTarget] = useState(null); // "day-pIdx"
   const [semester, setSemester] = useState('s1'); // which semester we're building
+  const [highlightTeacherId, setHighlightTeacherId] = useState(null);
   const gridKey = semester === 's1' ? 'gridS1' : 'gridS2';
   const grid = config[gridKey] || config.grid || {}; // fallback to legacy grid
   const classPeriods = periods.filter(p => p.type === 'class');
@@ -2742,18 +2743,58 @@ function GridPanel({ config, update, periods }) {
         </div>
       )}
 
-      {(config.teachers || []).length > 0 && (
-        <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
-          <span style={{ fontSize: 11, color: '#6B7280', fontWeight: 600 }}>Teachers:</span>
-          {(config.teachers || []).map(t => {
-            const tc = getTeacherColor(t.id, config.teachers);
-            return (
-              <span key={t.id} style={{ fontSize: 11, fontWeight: 500, padding: '2px 8px', borderRadius: 4,
-                background: tc.bg, color: tc.text, border: `1px solid ${tc.border}` }}>{t.name}</span>
-            );
-          })}
-        </div>
-      )}
+      {(config.teachers || []).length > 0 && (() => {
+        // Count placed class-period cells per teacher in the current semester grid.
+        // Each row of a double-period counts as 1 (a double counts as 2 periods of load).
+        const teacherCellCounts = {};
+        Object.entries(grid).forEach(([key, val]) => {
+          if (!key || key.endsWith('-')) return;
+          const arr = Array.isArray(val) ? val : [val];
+          arr.forEach(a => {
+            if (!a?.classId) return;
+            const cls = (config.classes || []).find(c => c.id === a.classId);
+            if (!cls?.teacherId) return;
+            const dur = a.duration || cls.duration || 1;
+            teacherCellCounts[cls.teacherId] = (teacherCellCounts[cls.teacherId] || 0) + dur;
+          });
+        });
+
+        return (
+          <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+            <span style={{ fontSize: 11, color: '#6B7280', fontWeight: 600 }}>Teachers:</span>
+            <span style={{ fontSize: 10, color: '#9CA3AF' }}>(click to highlight)</span>
+            {(config.teachers || []).map(t => {
+              const tc = getTeacherColor(t.id, config.teachers);
+              const isActive = highlightTeacherId === t.id;
+              const count = teacherCellCounts[t.id] || 0;
+              return (
+                <button
+                  key={t.id}
+                  onClick={() => setHighlightTeacherId(isActive ? null : t.id)}
+                  title={isActive ? 'Click to clear highlight' : `Highlight ${t.name}'s classes`}
+                  style={{
+                    fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 4,
+                    background: tc.bg, color: tc.text,
+                    border: `2px solid ${isActive ? tc.text : tc.border}`,
+                    cursor: 'pointer',
+                    boxShadow: isActive ? `0 0 0 2px ${tc.bg}` : 'none',
+                  }}
+                >
+                  {t.name} <span style={{ opacity: 0.7, fontWeight: 500 }}>({count})</span>
+                </button>
+              );
+            })}
+            {highlightTeacherId && (
+              <button
+                onClick={() => setHighlightTeacherId(null)}
+                style={{ fontSize: 11, padding: '3px 10px', borderRadius: 4, background: '#F3F4F6', color: '#4B5563', border: '1px solid #D1D5DB', cursor: 'pointer' }}
+              >
+                Clear highlight ×
+              </button>
+            )}
+          </div>
+        );
+      })()}
 
       <div className="sched-grid-wrapper">
         <table className="sched-grid-table">
@@ -2817,8 +2858,9 @@ function GridPanel({ config, update, periods }) {
                           style={cellStyle}>
                           {blocked && (() => {
                             const btc = getTeacherColor(blocked.cls.teacherId, config.teachers || []);
+                            const dim = highlightTeacherId && blocked.cls.teacherId !== highlightTeacherId;
                             return (
-                              <div className="sched-grid-double-cont" style={{ background: btc.bg, borderLeft: `3px solid ${btc.border}` }}>
+                              <div className="sched-grid-double-cont" style={{ background: btc.bg, borderLeft: `3px solid ${btc.border}`, opacity: dim ? 0.2 : 1 }}>
                                 <span style={{ fontSize: 11, color: btc.text, fontStyle: 'italic' }}>
                                   ← {blocked.cls.name} (cont.)
                                 </span>
@@ -2838,13 +2880,15 @@ function GridPanel({ config, update, periods }) {
                               if (!cls) return null;
                               const tc = getTeacherColor(cls.teacherId, config.teachers || []);
                               const isDragging = dragData?.classId === a.classId && dragData?.fromDay === day && dragData?.fromPIdx === period.index;
+                              const dim = highlightTeacherId && cls.teacherId !== highlightTeacherId;
+                              const chipOpacity = isDragging ? 0.4 : dim ? 0.18 : 1;
                               return (
                                 <div key={a.classId} className={`sched-grid-class-chip ${(a.duration || cls.duration || 1) === 2 ? 'double' : ''}`}
                                   draggable
                                   onDragStart={(e) => handleDragStart(e, a.classId, day, period.index, a.roomId, a.duration || cls.duration || 1)}
                                   onDragEnd={handleDragEnd}
                                   style={{ background: tc.bg, borderLeft: `3px solid ${tc.border}`, cursor: 'grab',
-                                    opacity: isDragging ? 0.4 : 1 }}>
+                                    opacity: chipOpacity }}>
                                   <div>
                                     <div style={{ fontWeight: 600, fontSize: 12, color: tc.text }}>{cls.name}</div>
                                     <div style={{ fontSize: 10, color: tc.text, opacity: 0.7 }}>{teacher?.name} · {room?.name || '?'}</div>
@@ -2993,84 +3037,181 @@ function PreviewWithToggle({ draft, published }) {
 }
 
 function SchedulePreview({ config }) {
+  const [viewMode, setViewMode] = useState('week');
   const periods = useMemo(() => computePeriods(config.schoolDay), [config.schoolDay]);
   const grid = config.grid || {};
   const rooms = config.rooms || [];
+  const classes = config.classes || [];
+  const teachers = config.teachers || [];
+  const classPeriods = periods.filter(p => p.type === 'class');
+
+  const isBlocked = (day, pIdx) => {
+    const prevCp = classPeriods[classPeriods.findIndex(p => p.index === pIdx) - 1];
+    if (!prevCp) return null;
+    const raw = grid[gk(day, prevCp.index)];
+    const arr = raw ? (Array.isArray(raw) ? raw : [raw]) : [];
+    for (const a of arr) {
+      const c = classes.find(x => x.id === a.classId);
+      if (c && (a.duration || c.duration || 1) >= 2) return { cls: c, assignment: a };
+    }
+    return null;
+  };
 
   return (
     <div>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4, flexWrap: 'wrap', gap: 8 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, flexWrap: 'wrap', gap: 8 }}>
         <h3 className="section-title" style={{ margin: 0 }}>
-          Daily Schedule
+          {viewMode === 'week' ? 'Weekly Schedule' : 'Daily Schedule'}
           {config.publishedAt && <span style={{ fontSize: 11, color: '#9CA3AF', fontWeight: 400, marginLeft: 8 }}>Published {new Date(config.publishedAt).toLocaleDateString()}</span>}
         </h3>
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <div style={{ display: 'flex', borderRadius: 6, overflow: 'hidden', border: '1px solid #D1D5DB' }}>
+            <button onClick={() => setViewMode('week')}
+              style={{ padding: '4px 12px', fontSize: 12, fontWeight: 600, border: 'none', cursor: 'pointer',
+                background: viewMode === 'week' ? '#1B3A5C' : '#F3F4F6', color: viewMode === 'week' ? '#fff' : '#6B7280' }}>Week view</button>
+            <button onClick={() => setViewMode('day')}
+              style={{ padding: '4px 12px', fontSize: 12, fontWeight: 600, border: 'none', cursor: 'pointer', borderLeft: '1px solid #D1D5DB',
+                background: viewMode === 'day' ? '#1B3A5C' : '#F3F4F6', color: viewMode === 'day' ? '#fff' : '#6B7280' }}>Day-by-day</button>
+          </div>
           <button className="btn btn-sm btn-secondary" onClick={() => printSchedule(config, periods)}>🖨️ Print / PDF</button>
           <button className="btn btn-sm btn-secondary" onClick={() => exportScheduleCsv(config, periods)}>📊 Export CSV</button>
         </div>
       </div>
 
-      {DAYS.map(day => {
-        // Check if this day has any classes
-        const dayKeys = Object.keys(grid).filter(k => k.startsWith(day + '-'));
-        const hasClasses = dayKeys.some(k => {
-          const val = grid[k];
-          const arr = Array.isArray(val) ? val : [val];
-          return arr.some(a => a?.classId);
-        });
-        if (!hasClasses) return null;
-
-        return (
-          <div key={day} style={{ marginBottom: 24 }}>
-            <h4 style={{ fontFamily: 'var(--font-display)', fontSize: 14, color: '#1B3A5C', marginBottom: 8 }}>{DAY_LABELS[day]}</h4>
-            <div style={{ overflowX: 'auto' }}>
-              <table className="data-table schedule-preview-table">
-                <thead>
-                  <tr>
-                    <th style={{ width: 100 }}>Time</th>
-                    {rooms.map(r => <th key={r.id}>{r.name}</th>)}
+      {viewMode === 'week' ? (
+        <div className="sched-grid-wrapper">
+          <table className="sched-grid-table">
+            <thead>
+              <tr>
+                <th className="sched-grid-time-col">Time</th>
+                {DAYS.map(d => <th key={d} className="sched-grid-day-col">
+                  {DAY_LABELS[d]}
+                  {config.schoolDay?.earlyReleaseDay === d && (
+                    <div style={{ fontSize: 10, fontWeight: 400, color: '#CA8A04' }}>Early Release</div>
+                  )}
+                </th>)}
+              </tr>
+            </thead>
+            <tbody>
+              {periods.map(period => {
+                const isLunch = period.type === 'lunch';
+                return (
+                  <tr key={period.index} className={isLunch ? 'sched-grid-lunch-row' : ''}>
+                    <td className="sched-grid-time-cell">
+                      <div style={{ fontWeight: 600, fontSize: 12, color: '#1B3A5C' }}>{period.label}</div>
+                      <div style={{ fontSize: 11, color: '#9CA3AF' }}>{formatTime(period.start)} – {formatTime(period.end)}</div>
+                    </td>
+                    {isLunch ? (
+                      <td colSpan={5} style={{ textAlign: 'center', fontWeight: 600, color: '#6B7280', fontStyle: 'italic', background: '#F9FAFB' }}>Lunch</td>
+                    ) : (
+                      DAYS.map(day => {
+                        const valid = isPeriodValidForDay(day, period.index, config.schoolDay, periods);
+                        if (!valid) return (
+                          <td key={day} style={{ background: '#F3F4F6', textAlign: 'center', verticalAlign: 'middle' }}>
+                            <span style={{ fontSize: 11, color: '#9CA3AF', fontStyle: 'italic' }}>Early Release</span>
+                          </td>
+                        );
+                        const key = gk(day, period.index);
+                        const raw = grid[key];
+                        const assignments = raw ? (Array.isArray(raw) ? raw : [raw]) : [];
+                        const blocked = isBlocked(day, period.index);
+                        const visible = blocked ? assignments.filter(a => a.classId !== blocked.assignment.classId) : assignments;
+                        return (
+                          <td key={day} className="sched-grid-cell">
+                            {blocked && (() => {
+                              const btc = getTeacherColor(blocked.cls.teacherId, teachers);
+                              return (
+                                <div className="sched-grid-double-cont" style={{ background: btc.bg, borderLeft: `3px solid ${btc.border}` }}>
+                                  <span style={{ fontSize: 11, color: btc.text, fontStyle: 'italic' }}>← {blocked.cls.name} (cont.)</span>
+                                </div>
+                              );
+                            })()}
+                            {visible.map(a => {
+                              const cls = classes.find(c => c.id === a.classId);
+                              if (!cls) return null;
+                              const teacher = teachers.find(t => t.id === cls.teacherId);
+                              const room = rooms.find(r => r.id === a.roomId);
+                              const tc = getTeacherColor(cls.teacherId, teachers);
+                              const dur = a.duration || cls.duration || 1;
+                              return (
+                                <div key={a.classId} className={`sched-grid-class-chip ${dur === 2 ? 'double' : ''}`}
+                                  style={{ background: tc.bg, borderLeft: `3px solid ${tc.border}` }}>
+                                  <div>
+                                    <div style={{ fontWeight: 600, fontSize: 12, color: tc.text }}>{cls.name}</div>
+                                    <div style={{ fontSize: 10, color: tc.text, opacity: 0.7 }}>{teacher?.name || ''}{room ? ` · ${room.name}` : ''}</div>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </td>
+                        );
+                      })
+                    )}
                   </tr>
-                </thead>
-                <tbody>
-                  {periods.map(period => {
-                    const pIdx = period.index;
-                    const key = gk(day, pIdx);
-                    const assignments = grid[key] ? (Array.isArray(grid[key]) ? grid[key] : [grid[key]]) : [];
-
-                    if (period.type === 'lunch') {
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        DAYS.map(day => {
+          const dayKeys = Object.keys(grid).filter(k => k.startsWith(day + '-'));
+          const hasClasses = dayKeys.some(k => {
+            const val = grid[k];
+            const arr = Array.isArray(val) ? val : [val];
+            return arr.some(a => a?.classId);
+          });
+          if (!hasClasses) return null;
+          return (
+            <div key={day} style={{ marginBottom: 24 }}>
+              <h4 style={{ fontFamily: 'var(--font-display)', fontSize: 14, color: '#1B3A5C', marginBottom: 8 }}>{DAY_LABELS[day]}</h4>
+              <div style={{ overflowX: 'auto' }}>
+                <table className="data-table schedule-preview-table">
+                  <thead>
+                    <tr>
+                      <th style={{ width: 100 }}>Time</th>
+                      {rooms.map(r => <th key={r.id}>{r.name}</th>)}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {periods.map(period => {
+                      const pIdx = period.index;
+                      const key = gk(day, pIdx);
+                      const assignments = grid[key] ? (Array.isArray(grid[key]) ? grid[key] : [grid[key]]) : [];
+                      if (period.type === 'lunch') {
+                        return (
+                          <tr key={pIdx} style={{ background: '#F9FAFB' }}>
+                            <td style={{ fontWeight: 600, fontSize: 12 }}><div>{formatTime(period.start)}</div><div style={{ color: '#9CA3AF' }}>{formatTime(period.end)}</div></td>
+                            <td colSpan={rooms.length} style={{ textAlign: 'center', fontWeight: 600, color: '#6B7280', fontStyle: 'italic' }}>Lunch</td>
+                          </tr>
+                        );
+                      }
                       return (
-                        <tr key={pIdx} style={{ background: '#F9FAFB' }}>
+                        <tr key={pIdx}>
                           <td style={{ fontWeight: 600, fontSize: 12 }}><div>{formatTime(period.start)}</div><div style={{ color: '#9CA3AF' }}>{formatTime(period.end)}</div></td>
-                          <td colSpan={rooms.length} style={{ textAlign: 'center', fontWeight: 600, color: '#6B7280', fontStyle: 'italic' }}>Lunch</td>
+                          {rooms.map(room => {
+                            const a = assignments.find(a => a.roomId === room.id);
+                            if (!a) return <td key={room.id} style={{ color: '#D1D5DB', textAlign: 'center' }}>—</td>;
+                            const cls = classes.find(c => c.id === a.classId);
+                            const teacher = cls ? teachers.find(t => t.id === cls.teacherId) : null;
+                            return (
+                              <td key={room.id} style={{ padding: '8px 10px', textAlign: 'center' }}>
+                                <div style={{ fontWeight: 600, fontSize: 13, color: '#1B3A5C' }}>{cls?.name || '?'}</div>
+                                <div style={{ fontSize: 11, color: '#6B7280' }}>{teacher?.name || ''}</div>
+                                {(cls?.duration || 1) === 2 && <div style={{ fontSize: 10, color: '#CA8A04' }}>Double period</div>}
+                              </td>
+                            );
+                          })}
                         </tr>
                       );
-                    }
-
-                    return (
-                      <tr key={pIdx}>
-                        <td style={{ fontWeight: 600, fontSize: 12 }}><div>{formatTime(period.start)}</div><div style={{ color: '#9CA3AF' }}>{formatTime(period.end)}</div></td>
-                        {rooms.map(room => {
-                          const a = assignments.find(a => a.roomId === room.id);
-                          if (!a) return <td key={room.id} style={{ color: '#D1D5DB', textAlign: 'center' }}>—</td>;
-                          const cls = (config.classes || []).find(c => c.id === a.classId);
-                          const teacher = cls ? (config.teachers || []).find(t => t.id === cls.teacherId) : null;
-                          return (
-                            <td key={room.id} style={{ padding: '8px 10px', textAlign: 'center' }}>
-                              <div style={{ fontWeight: 600, fontSize: 13, color: '#1B3A5C' }}>{cls?.name || '?'}</div>
-                              <div style={{ fontSize: 11, color: '#6B7280' }}>{teacher?.name || ''}</div>
-                              {(cls?.duration || 1) === 2 && <div style={{ fontSize: 10, color: '#CA8A04' }}>Double period</div>}
-                            </td>
-                          );
-                        })}
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+                    })}
+                  </tbody>
+                </table>
+              </div>
             </div>
-          </div>
-        );
-      })}
+          );
+        })
+      )}
     </div>
   );
 }
