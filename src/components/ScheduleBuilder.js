@@ -3217,3 +3217,130 @@ function printSchedule(config, periods) {
   w.document.write(html);
   w.document.close();
 }
+
+// ============================================================
+// TODAY'S SCHEDULE CARD (used on Home page)
+// ============================================================
+// Loose name-match: returns the teacher whose name best matches the user's
+// display name. Falls back to null if no reasonable match is found.
+function findMyTeacher(displayName, teachers) {
+  if (!displayName || !teachers?.length) return null;
+  const dn = displayName.toLowerCase().trim();
+  const dnWords = dn.split(/\s+/).filter(w => w.length >= 2);
+  // 1) Exact match
+  let match = teachers.find(t => (t.name || '').toLowerCase().trim() === dn);
+  if (match) return match;
+  // 2) Teacher name appears as a full word in display name, or vice versa
+  match = teachers.find(t => {
+    const tn = (t.name || '').toLowerCase().trim();
+    if (!tn) return false;
+    const tnWords = tn.split(/\s+/).filter(w => w.length >= 2);
+    return dnWords.some(dw => tnWords.includes(dw)) || tnWords.some(tw => dnWords.includes(tw));
+  });
+  return match || null;
+}
+
+// Returns the weekday key for today if Mon-Fri, else null (weekend).
+function todayDayKey() {
+  const day = new Date().getDay(); // 0 Sun .. 6 Sat
+  if (day === 0 || day === 6) return null;
+  return DAYS[day - 1];
+}
+
+export function TodaysScheduleCard({ published, displayName, onNavigate }) {
+  if (!published) return null;
+  const teachers = published.teachers || [];
+  const classes = published.classes || [];
+  const rooms = published.rooms || [];
+  const grid = published.grid || {};
+  const periods = computePeriods(published.schoolDay);
+
+  const dayKey = todayDayKey();
+  const myTeacher = findMyTeacher(displayName, teachers);
+
+  // Build today's rows: each {period, start, end, className, roomName, isDouble}.
+  // If we matched a teacher, filter to their classes only; otherwise show all.
+  const rows = [];
+  if (dayKey) {
+    periods.forEach(period => {
+      if (period.type === 'lunch') {
+        rows.push({ key: 'lunch-' + period.index, period, lunch: true });
+        return;
+      }
+      const raw = grid[gk(dayKey, period.index)];
+      const assignments = raw ? (Array.isArray(raw) ? raw : [raw]) : [];
+      assignments.forEach(a => {
+        if (!a?.classId) return;
+        const cls = classes.find(c => c.id === a.classId);
+        if (!cls) return;
+        if (myTeacher && cls.teacherId !== myTeacher.id) return;
+        const teacher = teachers.find(t => t.id === cls.teacherId);
+        const room = rooms.find(r => r.id === a.roomId);
+        rows.push({
+          key: `${period.index}-${a.classId}-${a.roomId}`,
+          period, lunch: false,
+          className: cls.name || '?',
+          roomName: room?.name || '',
+          teacherName: teacher?.name || '',
+          isDouble: (cls.duration || 1) === 2,
+        });
+      });
+    });
+  }
+
+  const hasRows = rows.some(r => !r.lunch);
+  const dayLabel = dayKey ? DAY_LABELS[dayKey] : ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][new Date().getDay()];
+
+  return (
+    <div className="home-card">
+      <div className="home-card-header">
+        <h3>Today's Schedule {myTeacher ? `— ${myTeacher.name}` : ''}</h3>
+        {onNavigate && (
+          <button className="btn btn-sm btn-secondary" onClick={() => onNavigate('schedule')}>Full Schedule →</button>
+        )}
+      </div>
+      {!dayKey ? (
+        <div className="empty-state">
+          <div className="empty-state-text">No classes on {dayLabel}. Enjoy the weekend.</div>
+        </div>
+      ) : !hasRows ? (
+        <div className="empty-state">
+          <div className="empty-state-text">
+            {myTeacher
+              ? `No classes scheduled for you on ${dayLabel}.`
+              : `No classes on ${dayLabel}.`}
+          </div>
+        </div>
+      ) : (
+        <>
+          {!myTeacher && (
+            <div style={{ fontSize: 11, color: '#92400E', background: '#FEF3C7', padding: '6px 10px', borderRadius: 6, marginBottom: 10 }}>
+              Couldn't match your Google name to a teacher — showing the full day. Ask admin to set your name in Schedule Builder → Teachers.
+            </div>
+          )}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {rows.map(r => r.lunch ? (
+              <div key={r.key} style={{ padding: '6px 10px', background: '#F9FAFB', borderRadius: 6, fontSize: 12, color: '#6B7280', fontStyle: 'italic', display: 'flex', justifyContent: 'space-between' }}>
+                <span>Lunch</span>
+                <span>{formatTime(r.period.start)} – {formatTime(r.period.end)}</span>
+              </div>
+            ) : (
+              <div key={r.key} style={{ padding: '8px 10px', background: '#FFFFFF', border: '1px solid #E5E7EB', borderRadius: 6, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                <div style={{ minWidth: 80, fontSize: 11, color: '#6B7280' }}>
+                  <div style={{ fontWeight: 700, color: '#1B3A5C' }}>P{r.period.num}</div>
+                  <div>{formatTime(r.period.start)}</div>
+                </div>
+                <div style={{ flex: 1, minWidth: 120 }}>
+                  <div style={{ fontWeight: 600, color: '#1B3A5C', fontSize: 14 }}>{r.className}</div>
+                  {!myTeacher && r.teacherName && <div style={{ fontSize: 11, color: '#6B7280' }}>{r.teacherName}</div>}
+                </div>
+                {r.roomName && <div style={{ fontSize: 12, color: '#4B5563', fontWeight: 600 }}>{r.roomName}</div>}
+                {r.isDouble && <span style={{ fontSize: 10, padding: '1px 6px', background: '#FEF3C7', color: '#92400E', borderRadius: 10, fontWeight: 600 }}>Double</span>}
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}

@@ -1,7 +1,8 @@
 import React, { useState, useMemo } from 'react';
-import { useAnnouncements, useQuickLinks, useDocuments, useTeacherData } from '../hooks/useFirestore';
+import { useAnnouncements, useQuickLinks, useDocuments, useTeacherData, useSchedule } from '../hooks/useFirestore';
 import { VIRTUES } from '../data/virtueData';
 import HomeComplianceBanner from './HomeComplianceBanner';
+import { TodaysScheduleCard } from './ScheduleBuilder';
 
 const TODAY = new Date().toISOString().split('T')[0];
 const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -39,6 +40,7 @@ export default function Home({ uid, isAdmin, displayName, masterStudents, onNavi
   const { links, loading: linksLoading, addLink, removeLink } = useQuickLinks();
   const { documents, loading: docsLoading, addDocument, removeDocument } = useDocuments();
   const { classes, loading: classesLoading } = useTeacherData(uid, masterStudents);
+  const { published: publishedSchedule } = useSchedule();
 
   const [showPostForm, setShowPostForm] = useState(false);
   const [newAnn, setNewAnn] = useState({ title: '', body: '', pinned: false });
@@ -153,6 +155,9 @@ export default function Home({ uid, isAdmin, displayName, masterStudents, onNavi
       <div className="home-grid">
         {/* ── Left Column ── */}
         <div className="home-main">
+
+          {/* Today's Schedule (from the published schedule) */}
+          <TodaysScheduleCard published={publishedSchedule} displayName={displayName} onNavigate={onNavigate} />
 
           {/* Scoring Status */}
           {!loading && classes.length > 0 && (
