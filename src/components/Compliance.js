@@ -493,6 +493,9 @@ function ComplianceRow({ item, onUpdate, onDelete, onComplete, onSnooze }) {
   const [expanded, setExpanded] = useState(false);
   const [notes, setNotes] = useState(item.notes || '');
   const [instructions, setInstructions] = useState(item.instructions || '');
+  const [responsible, setResponsible] = useState(item.responsible || '');
+  const [cost, setCost] = useState(item.cost ?? '');
+  const [externalLink, setExternalLink] = useState(item.externalLink || '');
   const cat = CATEGORIES.find(c => c.key === item.category) || CATEGORIES[0];
   const freq = FREQUENCIES.find(f => f.key === item.frequency) || FREQUENCIES[2];
   const status = complianceStatus(item.nextDue);
@@ -514,12 +517,33 @@ function ComplianceRow({ item, onUpdate, onDelete, onComplete, onSnooze }) {
     onUpdate({ driveLinks: newLinks, driveLink: newLinks[0]?.url || '' });
   };
 
-  const saveNotes = () => {
-    if (notes !== (item.notes || '')) onUpdate({ notes });
+  const normCost = (v) => (v === '' || v === null || v === undefined ? null : Number(v));
+  const savedCost = item.cost ?? '';
+
+  const notesDirty = notes !== (item.notes || '');
+  const instructionsDirty = instructions !== (item.instructions || '');
+  const responsibleDirty = responsible !== (item.responsible || '');
+  const costDirty = String(cost) !== String(savedCost);
+  const externalLinkDirty = externalLink !== (item.externalLink || '');
+  const hasUnsavedChanges = notesDirty || instructionsDirty || responsibleDirty || costDirty || externalLinkDirty;
+
+  const buildPatch = () => {
+    const patch = {};
+    if (notesDirty) patch.notes = notes;
+    if (instructionsDirty) patch.instructions = instructions;
+    if (responsibleDirty) patch.responsible = responsible;
+    if (costDirty) patch.cost = normCost(cost);
+    if (externalLinkDirty) patch.externalLink = externalLink;
+    return patch;
   };
 
-  const saveInstructions = () => {
-    if (instructions !== (item.instructions || '')) onUpdate({ instructions });
+  const saveAll = async () => {
+    if (!hasUnsavedChanges) {
+      window.dispatchEvent(new CustomEvent('toast', { detail: 'Already saved \u2713' }));
+      return;
+    }
+    await onUpdate(buildPatch());
+    window.dispatchEvent(new CustomEvent('toast', { detail: 'Saved \u2713' }));
   };
 
   return (
@@ -546,7 +570,21 @@ function ComplianceRow({ item, onUpdate, onDelete, onComplete, onSnooze }) {
           <div>Last done: {fmtDate(item.lastCompleted)}</div>
         </div>
         <div style={{ display: 'flex', gap: 4 }}>
-          <button className="btn btn-sm btn-secondary" onClick={() => setExpanded(v => !v)}>
+          <button
+            className="btn btn-sm btn-secondary"
+            onClick={() => {
+              if (expanded && hasUnsavedChanges) {
+                if (!window.confirm('You have unsaved changes on this item. Hide anyway and discard them?')) return;
+                // Reset local state back to saved values so next open shows saved data
+                setNotes(item.notes || '');
+                setInstructions(item.instructions || '');
+                setResponsible(item.responsible || '');
+                setCost(item.cost ?? '');
+                setExternalLink(item.externalLink || '');
+              }
+              setExpanded(v => !v);
+            }}
+          >
             {expanded ? 'Hide' : 'Details'}
           </button>
           <button
@@ -574,7 +612,7 @@ function ComplianceRow({ item, onUpdate, onDelete, onComplete, onSnooze }) {
           </div>
           <div>
             <label style={{ fontSize: 11, color: '#6B7280', fontWeight: 600 }}>Responsible person</label>
-            <input className="form-input" value={item.responsible || ''} onChange={e => onUpdate({ responsible: e.target.value })} placeholder="Name / role" />
+            <input className="form-input" value={responsible} onChange={e => setResponsible(e.target.value)} placeholder="Name / role" />
           </div>
           <div>
             <label style={{ fontSize: 11, color: '#6B7280', fontWeight: 600 }}>Frequency</label>
@@ -584,11 +622,11 @@ function ComplianceRow({ item, onUpdate, onDelete, onComplete, onSnooze }) {
           </div>
           <div>
             <label style={{ fontSize: 11, color: '#6B7280', fontWeight: 600 }}>Annual cost ($)</label>
-            <input type="number" min="0" className="form-input" value={item.cost ?? ''} onChange={e => onUpdate({ cost: e.target.value === '' ? null : Number(e.target.value) })} placeholder="optional" />
+            <input type="number" min="0" className="form-input" value={cost} onChange={e => setCost(e.target.value)} placeholder="optional" />
           </div>
           <div>
             <label style={{ fontSize: 11, color: '#6B7280', fontWeight: 600 }}>External portal</label>
-            <input className="form-input" value={item.externalLink || ''} onChange={e => onUpdate({ externalLink: e.target.value })} placeholder="https://..." />
+            <input className="form-input" value={externalLink} onChange={e => setExternalLink(e.target.value)} placeholder="https://..." />
           </div>
 
           {/* Instructions */}
@@ -596,7 +634,7 @@ function ComplianceRow({ item, onUpdate, onDelete, onComplete, onSnooze }) {
             <label style={{ fontSize: 11, color: '#6B7280', fontWeight: 600 }}>Instructions / How-to</label>
             <textarea
               className="form-input" rows={3}
-              value={instructions} onChange={e => setInstructions(e.target.value)} onBlur={saveInstructions}
+              value={instructions} onChange={e => setInstructions(e.target.value)}
               placeholder="Notes on how to complete this — login info, due date specifics, contact info, etc."
             />
           </div>
@@ -604,7 +642,7 @@ function ComplianceRow({ item, onUpdate, onDelete, onComplete, onSnooze }) {
           {/* Notes */}
           <div style={{ gridColumn: '1 / -1' }}>
             <label style={{ fontSize: 11, color: '#6B7280', fontWeight: 600 }}>Notes (current status)</label>
-            <textarea className="form-input" rows={2} value={notes} onChange={e => setNotes(e.target.value)} onBlur={saveNotes} placeholder="Add any current-status notes…" />
+            <textarea className="form-input" rows={2} value={notes} onChange={e => setNotes(e.target.value)} placeholder="Add any current-status notes…" />
           </div>
 
           {/* Drive links — multi-year archive */}
@@ -649,7 +687,19 @@ function ComplianceRow({ item, onUpdate, onDelete, onComplete, onSnooze }) {
           )}
 
           {/* Actions */}
-          <div style={{ gridColumn: '1 / -1', display: 'flex', gap: 8, marginTop: 4, flexWrap: 'wrap' }}>
+          <div style={{ gridColumn: '1 / -1', display: 'flex', gap: 8, marginTop: 4, flexWrap: 'wrap', alignItems: 'center' }}>
+            <button
+              className="btn btn-sm"
+              onClick={saveAll}
+              style={{
+                background: hasUnsavedChanges ? '#1B3A5C' : '#E5E7EB',
+                color: hasUnsavedChanges ? '#FFFFFF' : '#4B5563',
+                border: 'none', fontWeight: 600,
+              }}
+              title={hasUnsavedChanges ? 'Save your notes and instructions' : 'No unsaved changes'}
+            >
+              {hasUnsavedChanges ? '💾 Save changes' : '✓ Saved'}
+            </button>
             <button className="btn btn-primary btn-sm" onClick={onComplete}>✓ Mark Complete (today)</button>
             <button className="btn btn-sm btn-secondary" onClick={onSnooze}>⏰ Snooze…</button>
             <button className="btn btn-sm btn-secondary" onClick={() => onUpdate({ archived: !item.archived })}>
