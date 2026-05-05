@@ -3364,7 +3364,7 @@ function printSchedule(config, periods) {
 // ============================================================
 // Loose name-match: returns the teacher whose name best matches the user's
 // display name. Falls back to null if no reasonable match is found.
-function findMyTeacher(displayName, teachers) {
+export function findMyTeacher(displayName, teachers) {
   if (!displayName || !teachers?.length) return null;
   const dn = displayName.toLowerCase().trim();
   const dnWords = dn.split(/\s+/).filter(w => w.length >= 2);

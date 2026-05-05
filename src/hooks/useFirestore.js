@@ -796,3 +796,97 @@ function getDefaultConfig() {
     publishedAt: null,
   };
 }
+
+// ============================================================
+// PTO ALLOTMENTS HOOK
+// Firestore: ptoAllotments/{teacherId} = {
+//   teacherId, displayName, contractType,
+//   sick: number, vacation: number, bereavement: number,
+//   updatedAt
+// }
+// ============================================================
+export function usePTOAllotments() {
+  const [allotments, setAllotments] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const snap = await getDocs(collection(db, 'ptoAllotments'));
+      setAllotments(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    } catch (err) { console.error('PTO allotments load failed:', err); }
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const setAllotment = useCallback(async (teacherId, data) => {
+    const payload = { ...data, teacherId, updatedAt: new Date().toISOString() };
+    await setDoc(doc(db, 'ptoAllotments', teacherId), payload);
+    setAllotments(prev => {
+      const others = prev.filter(a => a.id !== teacherId);
+      return [...others, { id: teacherId, ...payload }];
+    });
+  }, []);
+
+  return { allotments, loading, setAllotment, refresh: load };
+}
+
+// ============================================================
+// PTO REQUESTS HOOK
+// Firestore: ptoRequests/{id} = {
+//   teacherId, displayName, type ('sick'|'vacation'|'bereavement'),
+//   startDate ('YYYY-MM-DD'), endDate, days (number),
+//   reason, status ('pending'|'approved'|'denied'),
+//   requestedAt, requestedBy (uid), submittedByAdmin (bool),
+//   decidedAt, decidedBy (uid), decisionNote
+// }
+// ============================================================
+export function usePTORequests() {
+  const [requests, setRequests] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const snap = await getDocs(collection(db, 'ptoRequests'));
+      const sorted = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+        .sort((a, b) => (b.requestedAt || '').localeCompare(a.requestedAt || ''));
+      setRequests(sorted);
+    } catch (err) { console.error('PTO requests load failed:', err); }
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const submitRequest = useCallback(async (data) => {
+    const payload = {
+      status: 'pending',
+      ...data,
+      requestedAt: new Date().toISOString(),
+    };
+    const ref = await addDoc(collection(db, 'ptoRequests'), payload);
+    const newReq = { id: ref.id, ...payload };
+    setRequests(prev => [newReq, ...prev]);
+    return ref.id;
+  }, []);
+
+  const decideRequest = useCallback(async (id, decision, decidedBy, note) => {
+    const update = {
+      status: decision,
+      decidedAt: new Date().toISOString(),
+      decidedBy: decidedBy || null,
+      decisionNote: note || null,
+    };
+    await updateDoc(doc(db, 'ptoRequests', id), update);
+    setRequests(prev => prev.map(r => r.id === id ? { ...r, ...update } : r));
+  }, []);
+
+  const deleteRequest = useCallback(async (id) => {
+    await deleteDoc(doc(db, 'ptoRequests', id));
+    setRequests(prev => prev.filter(r => r.id !== id));
+  }, []);
+
+  return { requests, loading, submitRequest, decideRequest, deleteRequest, refresh: load };
+}
+

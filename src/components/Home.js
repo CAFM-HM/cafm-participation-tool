@@ -1,8 +1,9 @@
 import React, { useState, useMemo } from 'react';
-import { useAnnouncements, useQuickLinks, useDocuments, useTeacherData, useSchedule } from '../hooks/useFirestore';
+import { useAnnouncements, useQuickLinks, useDocuments, useTeacherData, useSchedule, usePTOAllotments, usePTORequests } from '../hooks/useFirestore';
 import { VIRTUES } from '../data/virtueData';
 import HomeComplianceBanner from './HomeComplianceBanner';
-import { TodaysScheduleCard } from './ScheduleBuilder';
+import { TodaysScheduleCard, findMyTeacher } from './ScheduleBuilder';
+import { computeBalances } from './TimeOff';
 
 const TODAY = new Date().toISOString().split('T')[0];
 const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -41,6 +42,8 @@ export default function Home({ uid, isAdmin, displayName, masterStudents, onNavi
   const { documents, loading: docsLoading, addDocument, removeDocument } = useDocuments();
   const { classes, loading: classesLoading } = useTeacherData(uid, masterStudents);
   const { published: publishedSchedule } = useSchedule();
+  const { allotments: ptoAllotments } = usePTOAllotments();
+  const { requests: ptoRequests } = usePTORequests();
 
   const [showPostForm, setShowPostForm] = useState(false);
   const [newAnn, setNewAnn] = useState({ title: '', body: '', pinned: false });
@@ -413,6 +416,42 @@ export default function Home({ uid, isAdmin, displayName, masterStudents, onNavi
               </div>
             )}
           </div>
+
+          {/* PTO Balance — visible to anyone matched to a teacher record */}
+          {(() => {
+            const myTeacher = publishedSchedule ? findMyTeacher(displayName, publishedSchedule.teachers || []) : null;
+            const myAllotment = myTeacher ? ptoAllotments.find(a => a.id === myTeacher.id) : null;
+            if (!myTeacher || !myAllotment) return null;
+            const balances = computeBalances(myAllotment, ptoRequests, myTeacher.id);
+            const types = [
+              { key: 'sick',        label: 'Sick',        icon: '\u{1F912}' },
+              { key: 'vacation',    label: 'Vacation',    icon: '\u{1F3D6}' },
+              { key: 'bereavement', label: 'Bereavement', icon: '\u{1F54A}' },
+            ];
+            return (
+              <div className="home-card">
+                <div className="home-card-header">
+                  <h3>Time Off Balance</h3>
+                  <button className="btn btn-sm btn-secondary" onClick={() => onNavigate('pto')}>Request →</button>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {types.map(t => {
+                    const remaining = balances.remaining[t.key];
+                    const total = balances.total[t.key];
+                    const overdrawn = remaining < 0;
+                    return (
+                      <div key={t.key} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 10px', background: overdrawn ? '#FEF2F2' : 'var(--gray-50)', borderRadius: 'var(--radius-sm)' }}>
+                        <span style={{ fontSize: 13, color: 'var(--gray-600)' }}>{t.icon} {t.label}</span>
+                        <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, color: overdrawn ? '#DC2626' : 'var(--navy)', fontSize: 16 }}>
+                          {remaining}<span style={{ fontSize: 11, color: '#9CA3AF', fontWeight: 500 }}> / {total}</span>
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })()}
 
           {/* At a Glance */}
           <div className="home-card">

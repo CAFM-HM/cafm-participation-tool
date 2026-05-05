@@ -13,6 +13,8 @@ import ServiceHours from './components/ServiceHours';
 import DocumentRepository from './components/DocumentRepository';
 import Compliance from './components/Compliance';
 import AccessControl from './components/AccessControl';
+import TimeOff from './components/TimeOff';
+import PTOAdmin from './components/PTOAdmin';
 import { useServiceHours } from './hooks/useFirestore';
 
 function App() {
@@ -73,12 +75,14 @@ function App() {
 
   const operationsTabs = [
     { id: 'schedule', label: isAdmin ? 'Schedule Builder' : 'Schedule', icon: '\u{1F4C5}' },
+    { id: 'pto', label: 'Time Off', icon: '\u{1F3D6}' },
     ...(isBoardMember ? [{ id: 'command', label: 'Board', icon: '\u{1F465}' }] : []),
     ...(isAdmin ? [
       { id: 'dashboard', label: 'Dashboard', icon: '\u{1F4CA}' },
       { id: 'roster', label: 'Roster', icon: '\u{1F4CB}' },
       { id: 'documents', label: 'Documents', icon: '\u{1F4C1}' },
       { id: 'compliance', label: 'Compliance', icon: '\u{1F4D7}' },
+      { id: 'ptoadmin', label: 'PTO Admin', icon: '\u{1F4C5}' },
       { id: 'access', label: 'Access Control', icon: '\u{1F511}' },
     ] : []),
   ];
@@ -190,6 +194,8 @@ function App() {
             <DocumentRepository masterStudents={masterStudents} uid={user.uid} />
           )}
           {activeTab === 'compliance' && isAdmin && <Compliance uid={user.uid} />}
+          {activeTab === 'pto' && <TimeOff uid={user.uid} displayName={displayName} />}
+          {activeTab === 'ptoadmin' && isAdmin && <PTOAdmin uid={user.uid} />}
           {activeTab === 'access' && isAdmin && <AccessControl currentEmail={email} />}
           </div>
         </main>
