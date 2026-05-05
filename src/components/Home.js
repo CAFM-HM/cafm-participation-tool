@@ -3,7 +3,7 @@ import { useAnnouncements, useQuickLinks, useDocuments, useTeacherData, useSched
 import { VIRTUES } from '../data/virtueData';
 import HomeComplianceBanner from './HomeComplianceBanner';
 import { TodaysScheduleCard, findMyTeacher } from './ScheduleBuilder';
-import { computeBalances } from './TimeOff';
+import { computeBalances, fmtPeriod } from './TimeOff';
 
 const TODAY = new Date().toISOString().split('T')[0];
 const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -434,6 +434,11 @@ export default function Home({ uid, isAdmin, displayName, masterStudents, onNavi
                   <h3>Time Off Balance</h3>
                   <button className="btn btn-sm btn-secondary" onClick={() => onNavigate('pto')}>Request →</button>
                 </div>
+                {(myAllotment.startDate || myAllotment.endDate) && (
+                  <div style={{ fontSize: 11, color: '#6B7280', marginBottom: 8, fontStyle: 'italic' }}>
+                    Contract year: {fmtPeriod(myAllotment.startDate, myAllotment.endDate)}
+                  </div>
+                )}
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                   {types.map(t => {
                     const remaining = balances.remaining[t.key];

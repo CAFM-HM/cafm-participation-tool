@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { useSchedule, usePTOAllotments, usePTORequests } from '../hooks/useFirestore';
-import { computeBalances } from './TimeOff';
+import { computeBalances, defaultContractPeriod, fmtPeriod } from './TimeOff';
 
 const TYPES = [
   { key: 'sick',        label: 'Sick',        icon: '\u{1F912}' },
@@ -15,6 +15,7 @@ const STATUS_BADGE = {
 };
 
 // Default allotment templates by contract type — admin can override per row.
+// Each template also implies a default contract period (Aug 1 → end of contract).
 const TEMPLATES = {
   '10-month': { sick: 5,  vacation: 0,  bereavement: 3 },
   '11-month': { sick: 6,  vacation: 5,  bereavement: 3 },
@@ -64,6 +65,7 @@ export default function PTOAdmin({ uid }) {
   const beginEdit = (teacherId) => {
     if (edits[teacherId]) return;
     const a = allotmentByTeacher[teacherId];
+    const defaults = defaultContractPeriod(a?.contractType);
     setEdits(prev => ({
       ...prev,
       [teacherId]: {
@@ -71,6 +73,8 @@ export default function PTOAdmin({ uid }) {
         vacation:    a?.vacation ?? 0,
         bereavement: a?.bereavement ?? 0,
         contractType: a?.contractType || '',
+        startDate: a?.startDate || defaults.startDate,
+        endDate:   a?.endDate   || defaults.endDate,
       }
     }));
   };
@@ -82,10 +86,33 @@ export default function PTOAdmin({ uid }) {
   const applyTemplate = (teacherId, templateKey) => {
     const t = TEMPLATES[templateKey];
     if (!t) return;
+    const period = defaultContractPeriod(templateKey);
     setEdits(prev => ({
       ...prev,
-      [teacherId]: { ...prev[teacherId], ...t, contractType: templateKey },
+      [teacherId]: {
+        ...prev[teacherId],
+        ...t,
+        contractType: templateKey,
+        startDate: period.startDate,
+        endDate: period.endDate,
+      },
     }));
+  };
+
+  const rollOverYear = (teacherId) => {
+    setEdits(prev => {
+      const e = prev[teacherId];
+      if (!e?.startDate || !e?.endDate) return prev;
+      const bumpYear = (iso) => {
+        const d = new Date(iso + 'T00:00:00');
+        d.setFullYear(d.getFullYear() + 1);
+        return d.toISOString().slice(0, 10);
+      };
+      return {
+        ...prev,
+        [teacherId]: { ...e, startDate: bumpYear(e.startDate), endDate: bumpYear(e.endDate) },
+      };
+    });
   };
 
   const saveAllotment = async (teacher) => {
@@ -98,6 +125,8 @@ export default function PTOAdmin({ uid }) {
       sick:        Number(e.sick) || 0,
       vacation:    Number(e.vacation) || 0,
       bereavement: Number(e.bereavement) || 0,
+      startDate: e.startDate || '',
+      endDate:   e.endDate   || '',
     });
     setEdits(prev => { const { [teacher.id]: _, ...rest } = prev; return rest; });
     window.dispatchEvent(new CustomEvent('toast', { detail: `Allotment saved for ${teacher.name}` }));
@@ -252,8 +281,9 @@ export default function PTOAdmin({ uid }) {
           <h3>Set allotments by employee</h3>
         </div>
         <p style={{ fontSize: 12, color: '#6B7280', marginTop: 0 }}>
-          Pick a contract template to auto-fill, or set the three numbers directly.
-          Allotments persist year over year — adjust at the start of each contract year.
+          Pick a contract template to auto-fill (sets dates and bucket totals), or set numbers directly.
+          Each allotment runs from a Start to End date — the bank resets at the end and unused days do not carry over.
+          Use <strong>Roll over</strong> to bump the dates to the following contract year.
         </p>
         <div style={{ overflowX: 'auto' }}>
           <table className="data-table" style={{ width: '100%', fontSize: 13 }}>
@@ -261,11 +291,13 @@ export default function PTOAdmin({ uid }) {
               <tr>
                 <th>Employee</th>
                 <th>Contract</th>
+                <th>Start</th>
+                <th>End</th>
                 <th style={{ textAlign: 'right' }}>Sick</th>
                 <th style={{ textAlign: 'right' }}>Vacation</th>
                 <th style={{ textAlign: 'right' }}>Bereavement</th>
-                <th style={{ textAlign: 'right' }}>Used (S / V / B)</th>
-                <th style={{ textAlign: 'right' }}>Remaining (S / V / B)</th>
+                <th style={{ textAlign: 'right' }}>Used (S/V/B)</th>
+                <th style={{ textAlign: 'right' }}>Remaining</th>
                 <th></th>
               </tr>
             </thead>
@@ -275,13 +307,14 @@ export default function PTOAdmin({ uid }) {
                 const editing = !!edits[t.id];
                 const e = edits[t.id];
                 const balances = computeBalances(a, requests, t.id);
+                const periodLabel = a ? fmtPeriod(a.startDate, a.endDate) : '';
                 return (
                   <tr key={t.id}>
                     <td style={{ fontWeight: 600 }}>{t.name}</td>
                     <td>
                       {editing ? (
                         <select className="form-input" value={e.contractType || ''}
-                          onChange={ev => { updateEdit(t.id, 'contractType', ev.target.value); if (ev.target.value) applyTemplate(t.id, ev.target.value); }}
+                          onChange={ev => { if (ev.target.value) applyTemplate(t.id, ev.target.value); else updateEdit(t.id, 'contractType', ''); }}
                           style={{ fontSize: 12, padding: '2px 6px' }}>
                           <option value="">—</option>
                           <option value="10-month">10-month</option>
@@ -290,6 +323,24 @@ export default function PTOAdmin({ uid }) {
                         </select>
                       ) : (
                         <span style={{ fontSize: 12, color: '#6B7280' }}>{a?.contractType || '—'}</span>
+                      )}
+                    </td>
+                    <td>
+                      {editing ? (
+                        <input type="date" className="form-input" value={e.startDate || ''}
+                          onChange={ev => updateEdit(t.id, 'startDate', ev.target.value)}
+                          style={{ fontSize: 12, padding: '2px 4px', width: 130 }} />
+                      ) : (
+                        <span style={{ fontSize: 11, color: '#6B7280' }}>{a?.startDate || '—'}</span>
+                      )}
+                    </td>
+                    <td>
+                      {editing ? (
+                        <input type="date" className="form-input" value={e.endDate || ''}
+                          onChange={ev => updateEdit(t.id, 'endDate', ev.target.value)}
+                          style={{ fontSize: 12, padding: '2px 4px', width: 130 }} />
+                      ) : (
+                        <span style={{ fontSize: 11, color: '#6B7280' }}>{a?.endDate || '—'}</span>
                       )}
                     </td>
                     {['sick', 'vacation', 'bereavement'].map(field => (
@@ -313,6 +364,8 @@ export default function PTOAdmin({ uid }) {
                     <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
                       {editing ? (
                         <>
+                          <button className="btn btn-sm" onClick={() => rollOverYear(t.id)} title="Bump start and end dates by one year"
+                            style={{ marginRight: 4, background: '#FEF3C7', color: '#92400E' }}>Roll over +1 yr</button>
                           <button className="btn btn-sm btn-primary" onClick={() => saveAllotment(t)} style={{ marginRight: 4 }}>Save</button>
                           <button className="btn btn-sm btn-secondary" onClick={() => cancelEdit(t.id)}>Cancel</button>
                         </>

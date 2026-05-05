@@ -37,6 +37,9 @@ function fmtDate(iso) {
 
 // Compute PTO balances {sick, vacation, bereavement} for a teacher,
 // given their allotment record and the list of approved requests.
+// If the allotment has startDate/endDate set, only approved requests whose
+// startDate falls within that window count against the balance — letting
+// the bank reset at the end of each contract year.
 export function computeBalances(allotment, requests, teacherId) {
   const total = {
     sick:        allotment?.sick ?? 0,
@@ -44,21 +47,47 @@ export function computeBalances(allotment, requests, teacherId) {
     bereavement: allotment?.bereavement ?? 0,
   };
   const used = { sick: 0, vacation: 0, bereavement: 0 };
+  const periodStart = allotment?.startDate || null;
+  const periodEnd = allotment?.endDate || null;
   (requests || []).forEach(r => {
     if (r.teacherId !== teacherId) return;
     if (r.status !== 'approved') return;
     if (used[r.type] === undefined) return;
+    const reqStart = r.startDate || '';
+    if (periodStart && reqStart < periodStart) return;
+    if (periodEnd && reqStart > periodEnd) return;
     used[r.type] += Number(r.days || 0);
   });
   return {
-    total,
-    used,
+    total, used,
+    period: { start: periodStart, end: periodEnd },
     remaining: {
       sick:        total.sick        - used.sick,
       vacation:    total.vacation    - used.vacation,
       bereavement: total.bereavement - used.bereavement,
     },
   };
+}
+
+// Default contract period: Aug 1 of "current school year" through Jul 31 next year.
+// "Current school year" = if today is before Aug 1, use prev year; otherwise this year.
+export function defaultContractPeriod(contractType) {
+  const today = new Date();
+  const yr = today.getFullYear();
+  const startYear = today.getMonth() >= 7 ? yr : yr - 1;  // month is 0-indexed (7 = Aug)
+  const start = `${startYear}-08-01`;
+  const end = (() => {
+    if (contractType === '10-month') return `${startYear + 1}-05-31`;
+    if (contractType === '11-month') return `${startYear + 1}-06-30`;
+    return `${startYear + 1}-07-31`;  // 12-month or unspecified
+  })();
+  return { startDate: start, endDate: end };
+}
+
+export function fmtPeriod(start, end) {
+  if (!start || !end) return '';
+  const fmt = (iso) => new Date(iso + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  return `${fmt(start)} – ${fmt(end)}`;
 }
 
 export default function TimeOff({ uid, displayName }) {
@@ -183,6 +212,16 @@ export default function TimeOff({ uid, displayName }) {
       <p style={{ color: '#6B7280', fontSize: 13, marginBottom: 16 }}>
         Hello {myTeacher.name}. Submit a request below; your admin will review it. Approved time deducts from your balance.
       </p>
+
+      {(myAllotment.startDate || myAllotment.endDate) && (
+        <div style={{ marginBottom: 16, padding: '8px 12px', background: '#F0F9FF', border: '1px solid #BFDBFE', borderRadius: 6, fontSize: 12, color: '#1E40AF' }}>
+          <strong>Current contract year:</strong> {fmtPeriod(myAllotment.startDate, myAllotment.endDate)}
+          {myAllotment.contractType && <span style={{ marginLeft: 8, color: '#6B7280' }}>({myAllotment.contractType})</span>}
+          <div style={{ fontSize: 11, color: '#6B7280', marginTop: 2, fontStyle: 'italic' }}>
+            Balances reset at the end of the contract year. Unused days do not carry over.
+          </div>
+        </div>
+      )}
 
       {/* ── Balances ── */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 24 }}>
