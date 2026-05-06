@@ -98,13 +98,25 @@ export default function Cadence({ uid, displayName }) {
     return map;
   }, [filtered]);
 
-  const handleStatus = async (task, newStatus) => {
+  const handleStatus = async (task, newStatus, opts = {}) => {
+    // Confirm before marking complete (unless explicitly skipped, e.g. via Undo flow)
+    if (newStatus === 'complete' && !opts.skipConfirm) {
+      if (!window.confirm(`Mark "${task.title}" as complete?`)) return;
+    }
     const patch = {
       status: newStatus,
       completedAt: newStatus === 'complete' ? new Date().toISOString() : null,
       completedBy: newStatus === 'complete' ? (uid || null) : null,
     };
     await updateTask(task.id, patch);
+    if (newStatus === 'complete') {
+      window.dispatchEvent(new CustomEvent('toast', { detail: `Marked complete: ${task.title}` }));
+    }
+  };
+
+  const handleUndo = async (task) => {
+    await updateTask(task.id, { status: 'pending', completedAt: null, completedBy: null });
+    window.dispatchEvent(new CustomEvent('toast', { detail: `Undone: ${task.title}` }));
   };
 
   const handleAssignee = async (task, value) => updateTask(task.id, { assignedTo: value });
@@ -294,6 +306,7 @@ export default function Cadence({ uid, displayName }) {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               {monthTasks.map(t => <TaskRow key={t.id} task={t} assigneeOptions={assigneeOptions}
                 onStatus={handleStatus} onAssignee={handleAssignee} onNote={handleNote} onDueDate={handleDueDate}
+                onUndo={handleUndo}
                 onDelete={() => window.confirm(`Delete "${t.title}"?`) && deleteTask(t.id)} />)}
             </div>
           </div>
@@ -340,7 +353,7 @@ export default function Cadence({ uid, displayName }) {
   );
 }
 
-function TaskRow({ task, assigneeOptions, onStatus, onAssignee, onNote, onDueDate, onDelete }) {
+function TaskRow({ task, assigneeOptions, onStatus, onAssignee, onNote, onDueDate, onUndo, onDelete }) {
   const [noteValue, setNoteValue] = useState(task.note || '');
   const [noteOpen, setNoteOpen] = useState(false);
   const [savingNote, setSavingNote] = useState(false);
@@ -369,9 +382,13 @@ function TaskRow({ task, assigneeOptions, onStatus, onAssignee, onNote, onDueDat
       gap: 8,
       alignItems: 'center',
     }}>
-      {/* Quick complete checkbox */}
+      {/* Quick complete checkbox — confirms via the onStatus handler */}
       <input type="checkbox" checked={task.status === 'complete'}
-        onChange={e => onStatus(task, e.target.checked ? 'complete' : 'pending')}
+        onChange={e => {
+          if (e.target.checked) onStatus(task, 'complete');
+          else onUndo(task);
+        }}
+        title={task.status === 'complete' ? 'Click to undo complete' : 'Click to mark complete (asks for confirmation)'}
         style={{ cursor: 'pointer', width: 16, height: 16 }} />
 
       {/* Title + description + chips */}
@@ -440,6 +457,10 @@ function TaskRow({ task, assigneeOptions, onStatus, onAssignee, onNote, onDueDat
 
       {/* More actions */}
       <div style={{ display: 'flex', gap: 2 }}>
+        {task.status === 'complete' && (
+          <button className="btn btn-sm" style={{ padding: '2px 8px', background: '#FEF3C7', color: '#92400E', fontWeight: 600, border: '1px solid #FCD34D' }}
+            onClick={() => onUndo(task)} title="Revert this task to pending">↶ Undo</button>
+        )}
         {!task.note && !noteOpen && (
           <button className="btn btn-sm" style={{ padding: '2px 6px', background: 'none', color: '#6B7280' }}
             onClick={() => setNoteOpen(true)} title="Add note">+ note</button>
