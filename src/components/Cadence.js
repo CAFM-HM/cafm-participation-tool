@@ -122,6 +122,10 @@ export default function Cadence({ uid, displayName }) {
   const handleAssignee = async (task, value) => updateTask(task.id, { assignedTo: value });
   const handleNote     = async (task, value) => updateTask(task.id, { note: value });
   const handleDueDate  = async (task, value) => updateTask(task.id, { dueDate: value });
+  const handleEdit     = async (task, patch) => {
+    await updateTask(task.id, patch);
+    window.dispatchEvent(new CustomEvent('toast', { detail: 'Task updated' }));
+  };
 
   const handleSeed = async () => {
     if (!window.confirm('Load the 2026-27 default cadence? This adds any tasks not already present (safe to click twice).')) return;
@@ -342,7 +346,7 @@ export default function Cadence({ uid, displayName }) {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               {monthTasks.map(t => <TaskRow key={t.id} task={t} assigneeOptions={assigneeOptions}
                 onStatus={handleStatus} onAssignee={handleAssignee} onNote={handleNote} onDueDate={handleDueDate}
-                onUndo={handleUndo}
+                onUndo={handleUndo} onEdit={handleEdit}
                 onDelete={() => window.confirm(`Delete "${t.title}"?`) && deleteTask(t.id)} />)}
             </div>
           </div>
@@ -391,14 +395,48 @@ export default function Cadence({ uid, displayName }) {
   );
 }
 
-function TaskRow({ task, assigneeOptions, onStatus, onAssignee, onNote, onDueDate, onUndo, onDelete }) {
+function TaskRow({ task, assigneeOptions, onStatus, onAssignee, onNote, onDueDate, onUndo, onEdit, onDelete }) {
   const [noteValue, setNoteValue] = useState(task.note || '');
   const [noteOpen, setNoteOpen] = useState(false);
   const [savingNote, setSavingNote] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [edits, setEdits] = useState({
+    title: task.title || '',
+    description: task.description || '',
+    defaultRole: task.defaultRole || '',
+    category: task.category || 'operational',
+    month: task.month || 'jul',
+  });
+  const [savingEdit, setSavingEdit] = useState(false);
 
   const status = STATUS[task.status] || STATUS.pending;
   const isOverdue = task.dueDate && task.status === 'pending' && task.dueDate < todayIso();
   const roleColor = ROLE_TINT[task.defaultRole] || '#6B7280';
+
+  const beginEdit = () => {
+    setEdits({
+      title: task.title || '',
+      description: task.description || '',
+      defaultRole: task.defaultRole || '',
+      category: task.category || 'operational',
+      month: task.month || 'jul',
+    });
+    setEditing(true);
+  };
+  const saveEdit = async () => {
+    if (!edits.title.trim()) return;
+    setSavingEdit(true);
+    await onEdit(task, {
+      title: edits.title.trim(),
+      description: edits.description,
+      defaultRole: edits.defaultRole,
+      category: edits.category,
+      month: edits.month,
+    });
+    setSavingEdit(false);
+    setEditing(false);
+  };
+  const cancelEdit = () => setEditing(false);
 
   const saveNote = async () => {
     if (noteValue === (task.note || '')) { setNoteOpen(false); return; }
@@ -503,9 +541,60 @@ function TaskRow({ task, assigneeOptions, onStatus, onAssignee, onNote, onDueDat
           <button className="btn btn-sm" style={{ padding: '2px 6px', background: 'none', color: '#6B7280' }}
             onClick={() => setNoteOpen(true)} title="Add note">+ note</button>
         )}
+        <button className="btn btn-sm" style={{ padding: '2px 6px', background: 'none', color: '#6B7280' }}
+          onClick={beginEdit} title="Edit task title, description, role, category, month">✎</button>
         <button className="btn btn-sm" style={{ padding: '2px 6px', background: 'none', color: '#9CA3AF' }}
           onClick={onDelete} title="Delete task">×</button>
       </div>
+
+      {/* ── EDIT PANEL ── spans the full row */}
+      {editing && (
+        <div style={{ gridColumn: '1 / -1', marginTop: 8, padding: 12, background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 6 }}>
+          <div style={{ fontSize: 11, color: '#92400E', fontWeight: 700, marginBottom: 8 }}>EDITING TASK</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 8 }}>
+            <div style={{ gridColumn: '1 / -1' }}>
+              <label style={{ fontSize: 11, color: '#6B7280', fontWeight: 600 }}>Title</label>
+              <input className="form-input" value={edits.title}
+                onChange={e => setEdits({ ...edits, title: e.target.value })} autoFocus />
+            </div>
+            <div style={{ gridColumn: '1 / -1' }}>
+              <label style={{ fontSize: 11, color: '#6B7280', fontWeight: 600 }}>Description (optional)</label>
+              <textarea className="form-input" rows={2} value={edits.description}
+                onChange={e => setEdits({ ...edits, description: e.target.value })} />
+            </div>
+            <div>
+              <label style={{ fontSize: 11, color: '#6B7280', fontWeight: 600 }}>Default role</label>
+              <select className="form-input" value={edits.defaultRole}
+                onChange={e => setEdits({ ...edits, defaultRole: e.target.value })}>
+                <option value="">—</option>
+                {['HM', 'DOS', 'DOS-AT', 'HM-DOS', 'Admin', 'Laura', 'Yearbook', 'Unassigned'].map(r => (
+                  <option key={r} value={r}>{r}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label style={{ fontSize: 11, color: '#6B7280', fontWeight: 600 }}>Category</label>
+              <select className="form-input" value={edits.category}
+                onChange={e => setEdits({ ...edits, category: e.target.value })}>
+                {Object.entries(CATEGORY_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+              </select>
+            </div>
+            <div>
+              <label style={{ fontSize: 11, color: '#6B7280', fontWeight: 600 }}>Month</label>
+              <select className="form-input" value={edits.month}
+                onChange={e => setEdits({ ...edits, month: e.target.value })}>
+                {MONTHS.map(m => <option key={m.key} value={m.key}>{m.label}</option>)}
+              </select>
+            </div>
+          </div>
+          <div style={{ marginTop: 10, display: 'flex', gap: 8 }}>
+            <button className="btn btn-sm btn-primary" onClick={saveEdit} disabled={savingEdit || !edits.title.trim()}>
+              {savingEdit ? 'Saving…' : 'Save changes'}
+            </button>
+            <button className="btn btn-sm btn-secondary" onClick={cancelEdit}>Cancel</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
