@@ -377,6 +377,8 @@ export default function Cadence({ uid, displayName }) {
                       <span style={{ color: '#9CA3AF', fontSize: 11 }}>
                         {t.completedAt ? new Date(t.completedAt).toLocaleDateString() : ''}
                       </span>
+                      <button className="btn btn-sm" style={{ padding: '2px 8px', background: '#FEF3C7', color: '#92400E', fontWeight: 600, border: '1px solid #FCD34D', fontSize: 11 }}
+                        onClick={() => handleUndo(t)} title="Revert to pending">↶ Undo</button>
                     </div>
                   ))}
                 </div>
