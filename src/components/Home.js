@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { useAnnouncements, useQuickLinks, useDocuments, useTeacherData, useSchedule, usePTOAllotments, usePTORequests } from '../hooks/useFirestore';
+import { useAnnouncements, useQuickLinks, useDocuments, useTeacherData, useSchedule, usePTOAllotments, usePTORequests, useCadenceTasks } from '../hooks/useFirestore';
 import { VIRTUES } from '../data/virtueData';
 import HomeComplianceBanner from './HomeComplianceBanner';
 import { TodaysScheduleCard, findMyTeacher } from './ScheduleBuilder';
@@ -44,6 +44,7 @@ export default function Home({ uid, isAdmin, displayName, masterStudents, onNavi
   const { published: publishedSchedule } = useSchedule();
   const { allotments: ptoAllotments } = usePTOAllotments();
   const { requests: ptoRequests } = usePTORequests();
+  const { tasks: cadenceTasks } = useCadenceTasks();
 
   const [showPostForm, setShowPostForm] = useState(false);
   const [newAnn, setNewAnn] = useState({ title: '', body: '', pinned: false });
@@ -450,6 +451,58 @@ export default function Home({ uid, isAdmin, displayName, masterStudents, onNavi
                         <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, color: overdrawn ? '#DC2626' : 'var(--navy)', fontSize: 16 }}>
                           {remaining}<span style={{ fontSize: 11, color: '#9CA3AF', fontWeight: 500 }}> / {total}</span>
                         </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* My Cadence Tasks — pending/delayed tasks assigned to this user */}
+          {(() => {
+            if (!cadenceTasks || cadenceTasks.length === 0) return null;
+            const dn = (displayName || '').toLowerCase();
+            const dnFirst = dn.split(/\s+/)[0] || '';
+            // Match if assignedTo equals displayName, or matches the role label "HM" for admin,
+            // or if the user's first name appears in the assignee field.
+            const myTasks = cadenceTasks.filter(t => {
+              if (t.status !== 'pending' && t.status !== 'delayed') return false;
+              const a = (t.assignedTo || '').toLowerCase().trim();
+              if (!a) return false;
+              if (a === dn) return true;
+              if (dnFirst.length >= 2 && a.includes(dnFirst)) return true;
+              if (isAdmin && (a === 'hm' || a === 'hm-dos' || a === 'admin')) return true;
+              return false;
+            }).sort((a, b) => {
+              const aDate = a.dueDate || '9999-12-31';
+              const bDate = b.dueDate || '9999-12-31';
+              return aDate.localeCompare(bDate);
+            }).slice(0, 6);
+            if (myTasks.length === 0) return null;
+            const today = new Date().toISOString().slice(0, 10);
+            return (
+              <div className="home-card">
+                <div className="home-card-header">
+                  <h3>My Cadence Tasks</h3>
+                  {isAdmin && <button className="btn btn-sm btn-secondary" onClick={() => onNavigate('cadence')}>View all →</button>}
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {myTasks.map(t => {
+                    const overdue = t.dueDate && t.dueDate < today;
+                    return (
+                      <div key={t.id} style={{
+                        padding: '6px 10px',
+                        background: overdue ? '#FEF2F2' : t.status === 'delayed' ? '#FEF3C7' : 'var(--gray-50)',
+                        borderLeft: `3px solid ${overdue ? '#DC2626' : t.status === 'delayed' ? '#EAB308' : '#1B3A5C'}`,
+                        borderRadius: 4,
+                      }}>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: '#1B3A5C' }}>{t.title}</div>
+                        <div style={{ fontSize: 10, color: '#6B7280', marginTop: 2 }}>
+                          {t.dueDate ? `Due ${new Date(t.dueDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` : 'No due date'}
+                          {overdue && <span style={{ marginLeft: 6, color: '#DC2626', fontWeight: 700 }}>OVERDUE</span>}
+                          {t.status === 'delayed' && <span style={{ marginLeft: 6, color: '#92400E', fontWeight: 700 }}>DELAYED</span>}
+                        </div>
                       </div>
                     );
                   })}

@@ -890,3 +890,83 @@ export function usePTORequests() {
   return { requests, loading, submitRequest, decideRequest, deleteRequest, refresh: load };
 }
 
+// ============================================================
+// CADENCE TASKS HOOK
+// Firestore: cadenceTasks/{id} = {
+//   id, month ('jul'..'jun'), title, description,
+//   defaultRole, assignedTo, category, recurring,
+//   dueDate ('YYYY-MM-DD'), status ('pending'|'complete'|'delayed'|'na'),
+//   note, completedAt, completedBy
+// }
+// Re-seeding is idempotent — only inserts tasks whose id isn't already
+// in the database, so the admin can safely click "Load defaults" twice.
+// ============================================================
+export function useCadenceTasks() {
+  const [tasks, setTasks] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const snap = await getDocs(collection(db, 'cadenceTasks'));
+      setTasks(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    } catch (err) { console.error('Cadence tasks load failed:', err); }
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const updateTask = useCallback(async (id, patch) => {
+    await updateDoc(doc(db, 'cadenceTasks', id), patch);
+    setTasks(prev => prev.map(t => t.id === id ? { ...t, ...patch } : t));
+  }, []);
+
+  const upsertTask = useCallback(async (id, data) => {
+    await setDoc(doc(db, 'cadenceTasks', id), data, { merge: true });
+    setTasks(prev => {
+      const others = prev.filter(t => t.id !== id);
+      return [...others, { id, ...data }];
+    });
+  }, []);
+
+  const addCustomTask = useCallback(async (data) => {
+    const ref = await addDoc(collection(db, 'cadenceTasks'), data);
+    setTasks(prev => [...prev, { id: ref.id, ...data }]);
+    return ref.id;
+  }, []);
+
+  const deleteTask = useCallback(async (id) => {
+    await deleteDoc(doc(db, 'cadenceTasks', id));
+    setTasks(prev => prev.filter(t => t.id !== id));
+  }, []);
+
+  // Bulk seed: only inserts tasks whose id isn't already present.
+  const seedDefaults = useCallback(async (seedList) => {
+    const existing = new Set(tasks.map(t => t.id));
+    const toAdd = seedList.filter(t => !existing.has(t.id));
+    for (const t of toAdd) {
+      const payload = {
+        month: t.month,
+        title: t.title,
+        description: t.description || '',
+        defaultRole: t.defaultRole || '',
+        assignedTo: t.defaultRole || '',
+        category: t.category || 'operational',
+        recurring: !!t.recurring,
+        dueDate: t.defaultDueDate || '',
+        status: 'pending',
+        note: '',
+        completedAt: null,
+        completedBy: null,
+        seedId: t.id,
+      };
+      await setDoc(doc(db, 'cadenceTasks', t.id), payload);
+    }
+    await load();
+    return toAdd.length;
+  }, [tasks, load]);
+
+  return { tasks, loading, updateTask, upsertTask, addCustomTask, deleteTask, seedDefaults, refresh: load };
+}
+
+
