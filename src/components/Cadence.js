@@ -136,6 +136,9 @@ export default function Cadence({ uid, displayName }) {
     setSeeding(false);
   };
 
+  // Help panel
+  const [showHelp, setShowHelp] = useState(false);
+
   // Custom task form
   const [showCustom, setShowCustom] = useState(false);
   const [newTask, setNewTask] = useState({ month: 'jul', title: '', description: '', defaultRole: 'HM', category: 'operational', dueDate: '' });
@@ -179,9 +182,12 @@ export default function Cadence({ uid, displayName }) {
 
   return (
     <div>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, flexWrap: 'wrap', gap: 8 }}>
         <h2 className="section-title" style={{ margin: 0 }}>Operational Cadence</h2>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <button className="btn btn-sm btn-secondary" onClick={() => setShowHelp(v => !v)}>
+            {showHelp ? 'Hide help' : '? How this page works'}
+          </button>
           <button className="btn btn-sm btn-secondary" onClick={() => setShowCustom(v => !v)}>
             {showCustom ? 'Cancel' : '+ Add task'}
           </button>
@@ -190,6 +196,36 @@ export default function Cadence({ uid, displayName }) {
           </button>
         </div>
       </div>
+
+      {/* ── HELP PANEL ── */}
+      {showHelp && (
+        <div style={{ marginBottom: 12, padding: 14, background: '#F0F9FF', border: '1px solid #BFDBFE', borderRadius: 6, fontSize: 13, lineHeight: 1.55 }}>
+          <h4 style={{ margin: '0 0 8px', color: '#1E40AF', fontSize: 13 }}>What's on this page</h4>
+          <ul style={{ margin: 0, paddingLeft: 18, color: '#1F2937' }}>
+            <li><strong>Month strip</strong> at the top: shows progress per month. Green = complete, yellow = delayed, gray = N/A, light gray = pending. Click any month to filter the list to just that month.</li>
+            <li><strong>Filter bar</strong>: search by keyword, filter by status (default is "Open" = pending + delayed), assignee, or category.</li>
+          </ul>
+          <h4 style={{ margin: '10px 0 4px', color: '#1E40AF', fontSize: 13 }}>For each task row</h4>
+          <ul style={{ margin: 0, paddingLeft: 18, color: '#1F2937' }}>
+            <li><strong>Checkbox</strong> on the left — quick way to mark a task complete (asks you to confirm). Uncheck to undo.</li>
+            <li><strong>Role chip</strong> (HM, DOS, DOS-AT, Admin, Laura, Yearbook) — who the cadence document originally tagged for this task. The colored bar on the left edge of the row matches.</li>
+            <li><strong>Category chip</strong> — Operational / Communications / Compliance / Governance / Finance / Admissions / Fundraising / Standing.</li>
+            <li><strong>Assigned to</strong> dropdown — defaults to the role from the cadence, but you can pick a specific person (any teacher in your schedule shows up here too). Reassign anytime.</li>
+            <li><strong>Due date</strong> — optional specific calendar deadline. If the date passes and the task is still pending, the row gets a red OVERDUE badge. Most tasks don't need a date — just live in their month — but use it for hard deadlines like state filings or quarterly close-outs.</li>
+            <li><strong>Status</strong> dropdown — Pending → Complete → Delayed → N/A. Pick Delayed when something slipped (so you can find it later); pick N/A if the task no longer applies (e.g., no new hires this year, so no FDLE checks needed).</li>
+            <li><strong>+ note</strong> — for context, especially on Delayed or N/A items so you remember why later.</li>
+            <li><strong>↶ Undo</strong> button (only on Complete rows) — reverts to Pending in one click.</li>
+            <li><strong>×</strong> on the far right — permanently deletes the task. Use for items that don't apply at all and you want off the list.</li>
+          </ul>
+          <h4 style={{ margin: '10px 0 4px', color: '#1E40AF', fontSize: 13 }}>Workflow tips</h4>
+          <ul style={{ margin: 0, paddingLeft: 18, color: '#1F2937' }}>
+            <li>The default "Open" filter hides what's done so you only see what needs attention.</li>
+            <li>Recurring monthly items (grade checks, statements, faculty meeting, SUFS invoices) appear once per month — check each one off as you go so the next one stays visible.</li>
+            <li>The completed-history panel at the bottom shows everything you've checked off, grouped by month, with the date and who marked it.</li>
+            <li>The Home page sidebar shows each user their own pending/delayed tasks, sorted by due date.</li>
+          </ul>
+        </div>
+      )}
 
       {/* ── MONTH STRIP VISUALIZATION ── */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(12, 1fr)', gap: 4, marginBottom: 16 }}>
