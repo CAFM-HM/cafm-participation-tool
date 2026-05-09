@@ -778,6 +778,7 @@ function getDefaultConfig() {
       passingMinutes: 5,
       lunchAfterPeriod: 4,
       lunchMinutes: 30,
+      periodMinutesOverrides: {},
     },
     rooms: [
       { id: 'r1', name: 'Room 1', capacity: 10, notes: 'Small classes only' },

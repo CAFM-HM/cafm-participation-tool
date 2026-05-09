@@ -63,6 +63,21 @@ function computePeriods(sd, overrideEndTime) {
   return periods;
 }
 
+// Effective period length for a given day, applying any per-day override.
+function effectivePeriodMinutes(sd, dayKey) {
+  const ov = sd?.periodMinutesOverrides || {};
+  const v = ov[dayKey];
+  return v ? Number(v) : sd.periodMinutes;
+}
+
+// Compute periods for a specific day, honoring period-length overrides
+// and the existing early-release end time.
+export function computePeriodsForDay(sd, dayKey) {
+  const sdForDay = { ...sd, periodMinutes: effectivePeriodMinutes(sd, dayKey) };
+  const overrideEnd = (sd.earlyReleaseDay === dayKey && sd.earlyReleaseEndTime) ? sd.earlyReleaseEndTime : null;
+  return computePeriods(sdForDay, overrideEnd);
+}
+
 // Get the max period index that's valid for a given day (early release support)
 function getMaxPeriodForDay(day, sd, periods) {
   if (!sd.earlyReleaseDay || sd.earlyReleaseDay !== day || !sd.earlyReleaseEndTime) return null; // no limit
@@ -1155,6 +1170,12 @@ export default function ScheduleBuilder({ isAdmin }) {
   };
 
   const periods = useMemo(() => local ? computePeriods(local.schoolDay) : [], [local]);
+  const periodsByDay = useMemo(() => {
+    if (!local) return {};
+    const result = {};
+    DAYS.forEach(d => { result[d] = computePeriodsForDay(local.schoolDay, d); });
+    return result;
+  }, [local]);
 
   // ============================================================
   // CONFLICT DETECTION
@@ -1193,10 +1214,10 @@ export default function ScheduleBuilder({ isAdmin }) {
         ))}
       </div>
 
-      {tab === 'settings' && <SettingsPanel config={local} update={update} periods={periods} />}
+      {tab === 'settings' && <SettingsPanel config={local} update={update} periods={periods} periodsByDay={periodsByDay} />}
       {tab === 'teachers' && <TeachersPanel config={local} update={update} periods={periods} />}
       {tab === 'classes' && <ClassesPanel config={local} update={update} />}
-      {tab === 'grid' && <GridPanel config={local} update={update} periods={periods} />}
+      {tab === 'grid' && <GridPanel config={local} update={update} periods={periods} periodsByDay={periodsByDay} />}
       {tab === 'preview' && <PreviewWithToggle draft={local} published={published} />}
     </div>
   );
@@ -1205,9 +1226,15 @@ export default function ScheduleBuilder({ isAdmin }) {
 // ============================================================
 // SETTINGS PANEL
 // ============================================================
-function SettingsPanel({ config, update, periods }) {
+function SettingsPanel({ config, update, periods, periodsByDay }) {
   const sd = config.schoolDay;
   const upd = (f, v) => update(c => { c.schoolDay[f] = v; });
+  const updOverride = (day, v) => update(c => {
+    if (!c.schoolDay.periodMinutesOverrides) c.schoolDay.periodMinutesOverrides = {};
+    if (v === '' || v === null) delete c.schoolDay.periodMinutesOverrides[day];
+    else c.schoolDay.periodMinutesOverrides[day] = parseInt(v) || null;
+  });
+  const overrides = sd.periodMinutesOverrides || {};
 
   return (
     <div>
@@ -1219,6 +1246,29 @@ function SettingsPanel({ config, update, periods }) {
         <div className="sched-field"><label>Passing Period (min)</label><input type="number" value={sd.passingMinutes} min={0} max={15} onChange={e => upd('passingMinutes', parseInt(e.target.value) || 5)} /></div>
         <div className="sched-field"><label>Lunch After Period #</label><input type="number" value={sd.lunchAfterPeriod} min={1} max={10} onChange={e => upd('lunchAfterPeriod', parseInt(e.target.value) || 4)} /></div>
         <div className="sched-field"><label>Lunch Length (min)</label><input type="number" value={sd.lunchMinutes} min={15} max={60} onChange={e => upd('lunchMinutes', parseInt(e.target.value) || 30)} /></div>
+      </div>
+
+      <h3 className="section-title" style={{ marginTop: 24, marginBottom: 4 }}>Per-Day Period Length Overrides</h3>
+      <p style={{ fontSize: 12, color: '#6B7280', margin: '0 0 12px' }}>
+        Leave a day blank to use the default Period Length above. Use this for shorter periods on a specific day (e.g., chapel/assembly Wednesdays).
+      </p>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 8, maxWidth: 600 }}>
+        {DAYS.map(d => {
+          const eff = effectivePeriodMinutes(sd, d);
+          const isOverridden = overrides[d] != null && overrides[d] !== '';
+          return (
+            <div key={d} className="sched-field">
+              <label>{DAY_LABELS[d]}</label>
+              <input type="number" min={20} max={90}
+                value={overrides[d] != null ? overrides[d] : ''}
+                placeholder={`${sd.periodMinutes} (default)`}
+                onChange={e => updOverride(d, e.target.value)} />
+              <div style={{ fontSize: 10, color: isOverridden ? '#92400E' : '#9CA3AF', marginTop: 2 }}>
+                {isOverridden ? `Using ${eff} min` : 'Default'}
+              </div>
+            </div>
+          );
+        })}
       </div>
 
       <h3 className="section-title" style={{ marginTop: 24, marginBottom: 12 }}>Early Release Day</h3>
@@ -1918,7 +1968,7 @@ function ClassesPanel({ config, update }) {
 // ============================================================
 // GRID PANEL — full M-F grid
 // ============================================================
-function GridPanel({ config, update, periods }) {
+function GridPanel({ config, update, periods, periodsByDay }) {
   const [pickerCell, setPickerCell] = useState(null); // "day-pIdx"
   const [genResult, setGenResult] = useState(null); // { unplaced, emptySlots }
   const [dragData, setDragData] = useState(null); // { classId, fromDay, fromPIdx, roomId }
@@ -2801,12 +2851,21 @@ function GridPanel({ config, update, periods }) {
           <thead>
             <tr>
               <th className="sched-grid-time-col">Time</th>
-              {DAYS.map(d => <th key={d} className="sched-grid-day-col">
-                {DAY_LABELS[d]}
-                {config.schoolDay.earlyReleaseDay === d && (
-                  <div style={{ fontSize: 10, fontWeight: 400, color: '#CA8A04' }}>Early Release</div>
-                )}
-              </th>)}
+              {DAYS.map(d => {
+                const dayPeriodMin = effectivePeriodMinutes(config.schoolDay, d);
+                const isOverridden = dayPeriodMin !== config.schoolDay.periodMinutes;
+                return (
+                  <th key={d} className="sched-grid-day-col">
+                    {DAY_LABELS[d]}
+                    {isOverridden && (
+                      <div style={{ fontSize: 10, fontWeight: 600, color: '#92400E' }}>{dayPeriodMin}-min periods</div>
+                    )}
+                    {config.schoolDay.earlyReleaseDay === d && (
+                      <div style={{ fontSize: 10, fontWeight: 400, color: '#CA8A04' }}>Early Release</div>
+                    )}
+                  </th>
+                );
+              })}
             </tr>
           </thead>
           <tbody>
@@ -3039,6 +3098,11 @@ function PreviewWithToggle({ draft, published }) {
 function SchedulePreview({ config }) {
   const [viewMode, setViewMode] = useState('week');
   const periods = useMemo(() => computePeriods(config.schoolDay), [config.schoolDay]);
+  const periodsByDay = useMemo(() => {
+    const result = {};
+    DAYS.forEach(d => { result[d] = computePeriodsForDay(config.schoolDay, d); });
+    return result;
+  }, [config.schoolDay]);
   const grid = config.grid || {};
   const rooms = config.rooms || [];
   const classes = config.classes || [];
@@ -3084,12 +3148,21 @@ function SchedulePreview({ config }) {
             <thead>
               <tr>
                 <th className="sched-grid-time-col">Time</th>
-                {DAYS.map(d => <th key={d} className="sched-grid-day-col">
-                  {DAY_LABELS[d]}
-                  {config.schoolDay?.earlyReleaseDay === d && (
-                    <div style={{ fontSize: 10, fontWeight: 400, color: '#CA8A04' }}>Early Release</div>
-                  )}
-                </th>)}
+                {DAYS.map(d => {
+                  const dayPeriodMin = effectivePeriodMinutes(config.schoolDay, d);
+                  const isOverridden = dayPeriodMin !== config.schoolDay?.periodMinutes;
+                  return (
+                    <th key={d} className="sched-grid-day-col">
+                      {DAY_LABELS[d]}
+                      {isOverridden && (
+                        <div style={{ fontSize: 10, fontWeight: 600, color: '#92400E' }}>{dayPeriodMin}-min periods</div>
+                      )}
+                      {config.schoolDay?.earlyReleaseDay === d && (
+                        <div style={{ fontSize: 10, fontWeight: 400, color: '#CA8A04' }}>Early Release</div>
+                      )}
+                    </th>
+                  );
+                })}
               </tr>
             </thead>
             <tbody>
@@ -3162,9 +3235,19 @@ function SchedulePreview({ config }) {
             return arr.some(a => a?.classId);
           });
           if (!hasClasses) return null;
+          const dayPeriods = periodsByDay[day] || periods;  // per-day actual times
+          const dayPeriodMin = effectivePeriodMinutes(config.schoolDay, day);
+          const isOverridden = dayPeriodMin !== config.schoolDay?.periodMinutes;
           return (
             <div key={day} style={{ marginBottom: 24 }}>
-              <h4 style={{ fontFamily: 'var(--font-display)', fontSize: 14, color: '#1B3A5C', marginBottom: 8 }}>{DAY_LABELS[day]}</h4>
+              <h4 style={{ fontFamily: 'var(--font-display)', fontSize: 14, color: '#1B3A5C', marginBottom: 8 }}>
+                {DAY_LABELS[day]}
+                {isOverridden && (
+                  <span style={{ fontSize: 11, fontWeight: 600, color: '#92400E', marginLeft: 8 }}>
+                    ({dayPeriodMin}-min periods)
+                  </span>
+                )}
+              </h4>
               <div style={{ overflowX: 'auto' }}>
                 <table className="data-table schedule-preview-table">
                   <thead>
@@ -3174,7 +3257,7 @@ function SchedulePreview({ config }) {
                     </tr>
                   </thead>
                   <tbody>
-                    {periods.map(period => {
+                    {dayPeriods.map(period => {
                       const pIdx = period.index;
                       const key = gk(day, pIdx);
                       const assignments = grid[key] ? (Array.isArray(grid[key]) ? grid[key] : [grid[key]]) : [];
