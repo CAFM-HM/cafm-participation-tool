@@ -134,6 +134,9 @@ export default function Home({ uid, isAdmin, displayName, masterStudents, onNavi
   const handleAddCalendar = async () => {
     if (!newCal.label.trim() || !newCal.url.trim()) return;
     let url = newCal.url.trim();
+    // Accept full <iframe ... src="..."> snippets by extracting the src URL
+    const iframeMatch = url.match(/<iframe[^>]*\bsrc=["']([^"']+)["']/i);
+    if (iframeMatch) url = iframeMatch[1];
     if (!url.startsWith('http')) url = 'https://' + url;
     await addCalendar({ label: newCal.label.trim(), url });
     setNewCal({ label: '', url: '' });
@@ -422,11 +425,11 @@ export default function Home({ uid, isAdmin, displayName, masterStudents, onNavi
                     <div style={{ marginBottom: 12, padding: 12, background: '#F9FAFB', borderRadius: 8, border: '1px solid #E5E7EB' }}>
                       <input type="text" placeholder="Calendar name (e.g. Faculty)" value={newCal.label}
                         onChange={e => setNewCal({ ...newCal, label: e.target.value })} style={{ marginBottom: 6 }} />
-                      <input type="text" placeholder="Google Calendar embed URL" value={newCal.url}
+                      <input type="text" placeholder='Paste full <iframe ...> code or just the URL' value={newCal.url}
                         onChange={e => setNewCal({ ...newCal, url: e.target.value })}
                         onKeyDown={e => e.key === 'Enter' && handleAddCalendar()} style={{ marginBottom: 8 }} />
                       <div style={{ fontSize: 11, color: '#9CA3AF', marginBottom: 8 }}>
-                        In Google Calendar: Settings &rarr; pick the calendar &rarr; "Integrate calendar" &rarr; copy the "Embed code" URL (the src= value, starts with https://calendar.google.com/calendar/embed?...).
+                        In Google Calendar: Settings &rarr; pick the calendar &rarr; "Integrate calendar" &rarr; copy the entire "Embed code" block and paste it here. (Just the src URL also works.)
                       </div>
                       <button className="btn btn-sm btn-gold" onClick={handleAddCalendar}>Add Calendar</button>
                     </div>
