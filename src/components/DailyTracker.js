@@ -54,7 +54,6 @@ export default function DailyTracker({ uid, masterStudents, adminViewMode, admin
   const [date, setDate] = useState(TODAY);
   const [showSetup, setShowSetup] = useState(!adminViewMode);
   const [newClassName, setNewClassName] = useState('');
-  const [studentSearch, setStudentSearch] = useState('');
   const [legendVirtue, setLegendVirtue] = useState(null);
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [viewMode, setViewMode] = useState('scoring');
@@ -289,8 +288,7 @@ export default function DailyTracker({ uid, masterStudents, adminViewMode, admin
   const hasNextPeriod = selectedPeriodIdx > 0;
 
   const availableStudents = (masterStudents || []).filter(ms =>
-    !currentClass?.roster?.includes(ms.name) &&
-    ms.name.toLowerCase().includes(studentSearch.toLowerCase())
+    !currentClass?.roster?.includes(ms.name)
   );
 
   if (loading) return <div style={{ padding: 40, textAlign: 'center', color: '#9CA3AF' }}>Loading classes...</div>;
@@ -420,22 +418,26 @@ export default function DailyTracker({ uid, masterStudents, adminViewMode, admin
                   <div style={{ fontSize: 12, fontWeight: 600, color: '#6B7280', marginBottom: 6 }}>
                     ADD STUDENT TO {currentClass?.name?.toUpperCase()}
                   </div>
-                  <input type="text" placeholder="Search master roster..." value={studentSearch}
-                    onChange={e => setStudentSearch(e.target.value)} style={{ marginBottom: 8, maxWidth: 300 }} />
-                  {studentSearch && availableStudents.length > 0 && (
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
-                      {availableStudents.slice(0, 10).map(ms => (
-                        <button key={ms.id} className="btn btn-sm btn-secondary"
-                          onClick={() => handleAddStudent(ms.name)}>
-                          + {ms.name} <span style={{ fontSize: 10, opacity: 0.6 }}>({ms.house})</span>
-                        </button>
+                  {(masterStudents || []).length === 0 ? (
+                    <div style={{ fontSize: 12, color: '#9CA3AF' }}>
+                      Master roster is empty — ask an admin to add students first.
+                    </div>
+                  ) : availableStudents.length === 0 ? (
+                    <div style={{ fontSize: 12, color: '#9CA3AF' }}>
+                      All master-roster students are already in this class.
+                    </div>
+                  ) : (
+                    <select
+                      value=""
+                      onChange={e => { if (e.target.value) handleAddStudent(e.target.value); }}
+                      style={{ maxWidth: 300, padding: '6px 8px' }}>
+                      <option value="">— Pick a student to add —</option>
+                      {availableStudents.map(ms => (
+                        <option key={ms.id} value={ms.name}>
+                          {ms.name}{ms.house ? ` (${ms.house})` : ''}
+                        </option>
                       ))}
-                    </div>
-                  )}
-                  {studentSearch && availableStudents.length === 0 && (
-                    <div style={{ fontSize: 12, color: '#9CA3AF', marginBottom: 8 }}>
-                      No matching students in master roster.
-                    </div>
+                    </select>
                   )}
                 </div>
               )}
