@@ -132,16 +132,22 @@ export default function Home({ uid, isAdmin, displayName, masterStudents, onNavi
   };
 
   const handleAddCalendar = async () => {
-    if (!newCal.label.trim() || !newCal.url.trim()) return;
+    if (!newCal.label.trim()) { toast('Please enter a calendar name'); return; }
+    if (!newCal.url.trim()) { toast('Please paste the embed URL or iframe code'); return; }
     let url = newCal.url.trim();
     // Accept full <iframe ... src="..."> snippets by extracting the src URL
     const iframeMatch = url.match(/<iframe[^>]*\bsrc=["']([^"']+)["']/i);
     if (iframeMatch) url = iframeMatch[1];
     if (!url.startsWith('http')) url = 'https://' + url;
-    await addCalendar({ label: newCal.label.trim(), url });
-    setNewCal({ label: '', url: '' });
-    setShowCalForm(false);
-    toast('Calendar added');
+    try {
+      await addCalendar({ label: newCal.label.trim(), url });
+      setNewCal({ label: '', url: '' });
+      setShowCalForm(false);
+      toast('Calendar added');
+    } catch (err) {
+      console.error('Add calendar failed:', err);
+      toast('Could not save calendar — ' + (err?.code || err?.message || 'unknown error'));
+    }
   };
 
   const loading = annLoading || linksLoading || docsLoading || classesLoading;
