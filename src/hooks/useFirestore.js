@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { doc, getDoc, setDoc, updateDoc, deleteDoc, collection, getDocs, addDoc, query, orderBy, limit } from 'firebase/firestore';
-import { db } from '../firebase';
+import { onAuthStateChanged } from 'firebase/auth';
+import { auth, db } from '../firebase';
 
 // ============================================================
 // VIRTUE KEY MAPPING — old format uses single letters
@@ -43,22 +44,37 @@ export function useMasterRoster() {
   const [students, setStudents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshKey, setRefreshKey] = useState(0);
+  // Track auth so the roster fetch waits for sign-in. Without this, a brand-new
+  // session fires getDocs before Firebase auth resolves, the request is denied,
+  // and the load never retries — leaving the roster empty for the whole session.
+  const [authedUid, setAuthedUid] = useState(() => auth.currentUser?.uid || null);
 
-  const loadStudents = useCallback(async () => {
-    setLoading(true);
-    try {
-      const ref = collection(db, 'students');
-      const snap = await getDocs(ref);
-      const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      data.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
-      setStudents(data);
-    } catch (err) {
-      console.error('Error loading master roster:', err);
-    }
-    setLoading(false);
+  useEffect(() => {
+    return onAuthStateChanged(auth, (u) => setAuthedUid(u?.uid || null));
   }, []);
 
-  useEffect(() => { loadStudents(); }, [loadStudents, refreshKey]);
+  useEffect(() => {
+    if (!authedUid) {
+      setStudents([]);
+      setLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setLoading(true);
+    (async () => {
+      try {
+        const snap = await getDocs(collection(db, 'students'));
+        if (cancelled) return;
+        const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        data.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+        setStudents(data);
+      } catch (err) {
+        console.error('Error loading master roster:', err);
+      }
+      if (!cancelled) setLoading(false);
+    })();
+    return () => { cancelled = true; };
+  }, [authedUid, refreshKey]);
 
   const addStudent = useCallback(async (studentData) => {
     const ref = collection(db, 'students');
