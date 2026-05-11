@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { useAnnouncements, useQuickLinks, useDocuments, useTeacherData, useSchedule, usePTOAllotments, usePTORequests, useCadenceTasks } from '../hooks/useFirestore';
+import { useAnnouncements, useQuickLinks, useDocuments, useCalendars, useTeacherData, useSchedule, usePTOAllotments, usePTORequests, useCadenceTasks } from '../hooks/useFirestore';
 import { VIRTUES } from '../data/virtueData';
 import HomeComplianceBanner from './HomeComplianceBanner';
 import { TodaysScheduleCard, findMyTeacher } from './ScheduleBuilder';
@@ -40,6 +40,7 @@ export default function Home({ uid, isAdmin, displayName, masterStudents, onNavi
   const { announcements, loading: annLoading, addAnnouncement, removeAnnouncement, togglePin } = useAnnouncements();
   const { links, loading: linksLoading, addLink, removeLink } = useQuickLinks();
   const { documents, loading: docsLoading, addDocument, removeDocument } = useDocuments();
+  const { calendars, addCalendar, removeCalendar } = useCalendars();
   const { classes, loading: classesLoading } = useTeacherData(uid, masterStudents);
   const { published: publishedSchedule } = useSchedule();
   const { allotments: ptoAllotments } = usePTOAllotments();
@@ -53,6 +54,10 @@ export default function Home({ uid, isAdmin, displayName, masterStudents, onNavi
   const [showDocForm, setShowDocForm] = useState(false);
   const [newDoc, setNewDoc] = useState({ label: '', url: '' });
   const [activeDocId, setActiveDocId] = useState(null);
+  const [calendarsOpen, setCalendarsOpen] = useState(false);
+  const [showCalForm, setShowCalForm] = useState(false);
+  const [newCal, setNewCal] = useState({ label: '', url: '' });
+  const [activeCalId, setActiveCalId] = useState(null);
 
   // ============================================================
   // SCORING STATUS — this week
@@ -126,11 +131,24 @@ export default function Home({ uid, isAdmin, displayName, masterStudents, onNavi
     toast('Document added');
   };
 
+  const handleAddCalendar = async () => {
+    if (!newCal.label.trim() || !newCal.url.trim()) return;
+    let url = newCal.url.trim();
+    if (!url.startsWith('http')) url = 'https://' + url;
+    await addCalendar({ label: newCal.label.trim(), url });
+    setNewCal({ label: '', url: '' });
+    setShowCalForm(false);
+    toast('Calendar added');
+  };
+
   const loading = annLoading || linksLoading || docsLoading || classesLoading;
 
   // Set first doc as active if none selected
   if (!activeDocId && documents.length > 0) {
     setActiveDocId(documents[0].id);
+  }
+  if (!activeCalId && calendars.length > 0) {
+    setActiveCalId(calendars[0].id);
   }
 
   // Sort announcements: pinned first, then by date
@@ -368,6 +386,102 @@ export default function Home({ uid, isAdmin, displayName, masterStudents, onNavi
               </>
             )}
           </div>
+
+          {/* Calendar — collapsible, hidden by default to keep teacher content above the fold */}
+          {(isAdmin || calendars.length > 0) && (
+            <div className="home-card">
+              <div
+                className="home-card-header"
+                style={{ cursor: 'pointer', userSelect: 'none' }}
+                onClick={() => setCalendarsOpen(o => !o)}
+              >
+                <h3 style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontSize: 14, color: '#6B7280', width: 12, display: 'inline-block' }}>
+                    {calendarsOpen ? '▾' : '▸'}
+                  </span>
+                  {'\u{1F4C5}'} Calendar
+                  {!calendarsOpen && calendars.length > 0 && (
+                    <span style={{ fontSize: 12, color: '#6B7280', fontWeight: 400, marginLeft: 4 }}>
+                      ({calendars.map(c => c.label).join(', ')})
+                    </span>
+                  )}
+                </h3>
+                {isAdmin && calendarsOpen && (
+                  <button
+                    className="btn btn-sm btn-secondary"
+                    onClick={(e) => { e.stopPropagation(); setShowCalForm(!showCalForm); }}
+                  >
+                    {showCalForm ? 'Cancel' : '+ Add'}
+                  </button>
+                )}
+              </div>
+
+              {calendarsOpen && (
+                <>
+                  {isAdmin && showCalForm && (
+                    <div style={{ marginBottom: 12, padding: 12, background: '#F9FAFB', borderRadius: 8, border: '1px solid #E5E7EB' }}>
+                      <input type="text" placeholder="Calendar name (e.g. Faculty)" value={newCal.label}
+                        onChange={e => setNewCal({ ...newCal, label: e.target.value })} style={{ marginBottom: 6 }} />
+                      <input type="text" placeholder="Google Calendar embed URL" value={newCal.url}
+                        onChange={e => setNewCal({ ...newCal, url: e.target.value })}
+                        onKeyDown={e => e.key === 'Enter' && handleAddCalendar()} style={{ marginBottom: 8 }} />
+                      <div style={{ fontSize: 11, color: '#9CA3AF', marginBottom: 8 }}>
+                        In Google Calendar: Settings &rarr; pick the calendar &rarr; "Integrate calendar" &rarr; copy the "Embed code" URL (the src= value, starts with https://calendar.google.com/calendar/embed?...).
+                      </div>
+                      <button className="btn btn-sm btn-gold" onClick={handleAddCalendar}>Add Calendar</button>
+                    </div>
+                  )}
+
+                  {calendars.length === 0 ? (
+                    <div className="empty-state">
+                      <div className="empty-state-text">{isAdmin ? 'Add a Google Calendar embed URL above.' : 'No calendars added yet.'}</div>
+                    </div>
+                  ) : (
+                    <>
+                      {calendars.length > 1 && (
+                        <div style={{ display: 'flex', gap: 4, marginBottom: 12, flexWrap: 'wrap' }}>
+                          {calendars.map(cal => (
+                            <div key={cal.id} style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                              <button
+                                className={`btn btn-sm ${activeCalId === cal.id ? 'btn-primary' : 'btn-secondary'}`}
+                                onClick={() => setActiveCalId(cal.id)}>
+                                {cal.label}
+                              </button>
+                              {isAdmin && (
+                                <button className="remove-btn" style={{ fontSize: 11 }}
+                                  onClick={() => window.confirm(`Remove "${cal.label}"?`) && removeCalendar(cal.id)}>×</button>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {calendars.length === 1 && isAdmin && (
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
+                          <button className="remove-btn" style={{ fontSize: 11 }}
+                            onClick={() => window.confirm(`Remove "${calendars[0].label}"?`) && removeCalendar(calendars[0].id)}>× Remove</button>
+                        </div>
+                      )}
+                      {(() => {
+                        const activeCal = calendars.find(c => c.id === activeCalId) || calendars[0];
+                        if (!activeCal) return null;
+                        return (
+                          <div style={{ position: 'relative', width: '100%', height: 600, border: '1px solid #E5E7EB', borderRadius: 8, overflow: 'hidden' }}>
+                            <iframe
+                              src={activeCal.url}
+                              title={activeCal.label}
+                              style={{ border: 0, width: '100%', height: '100%' }}
+                              frameBorder="0"
+                              scrolling="no"
+                            />
+                          </div>
+                        );
+                      })()}
+                    </>
+                  )}
+                </>
+              )}
+            </div>
+          )}
         </div>
 
         {/* ── Right Column / Sidebar ── */}

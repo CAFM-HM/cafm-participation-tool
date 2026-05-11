@@ -646,6 +646,49 @@ export function useDocuments() {
 }
 
 // ============================================================
+// CALENDARS HOOK — Google Calendar embeds on Home tab
+// Firestore: calendars/{id} = { label, url, order }
+// ============================================================
+export function useCalendars() {
+  const [calendars, setCalendars] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const q = query(collection(db, 'calendars'), orderBy('order', 'asc'));
+      const snap = await getDocs(q);
+      setCalendars(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    } catch (err) {
+      try {
+        const snap = await getDocs(collection(db, 'calendars'));
+        const cals = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        cals.sort((a, b) => (a.order || 0) - (b.order || 0));
+        setCalendars(cals);
+      } catch (err2) { console.error('Calendars load failed:', err2); }
+    }
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const addCalendar = useCallback(async (data) => {
+    const maxOrder = calendars.reduce((max, c) => Math.max(max, c.order || 0), 0);
+    await addDoc(collection(db, 'calendars'), {
+      label: data.label, url: data.url, order: maxOrder + 1,
+    });
+    await load();
+  }, [load, calendars]);
+
+  const removeCalendar = useCallback(async (id) => {
+    await deleteDoc(doc(db, 'calendars', id));
+    await load();
+  }, [load]);
+
+  return { calendars, loading, addCalendar, removeCalendar, refresh: load };
+}
+
+// ============================================================
 // COMMAND CENTER HOOK — single document stores board data
 // Firestore: commandCenter/data = { directors, completedMonths, boardDocs }
 // ============================================================
