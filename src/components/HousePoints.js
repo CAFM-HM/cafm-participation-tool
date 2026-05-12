@@ -40,6 +40,7 @@ export default function HousePoints({ uid, isAdmin, masterStudents }) {
   const [confirmDeleteId, setConfirmDeleteId] = useState(null);
   const [showTrend, setShowTrend] = useState(false);
   const [editingDateId, setEditingDateId] = useState(null);
+  const [logLimit, setLogLimit] = useState(50);
   const [showReset, setShowReset] = useState(false);
   const [resetting, setResetting] = useState(false);
   const [isFrozen, setIsFrozen] = useState(false);
@@ -265,6 +266,8 @@ export default function HousePoints({ uid, isAdmin, masterStudents }) {
     if (filterType === 'demerit' && !(e.type === 'demerit' || (!e.type && e.points < 0))) return false;
     return true;
   });
+
+  useEffect(() => { setLogLimit(50); }, [filterHouse, filterType]);
 
   if (loading) return <div style={{ padding: 40, textAlign: 'center', color: '#9CA3AF' }}>Loading...</div>;
 
@@ -635,7 +638,7 @@ export default function HousePoints({ uid, isAdmin, masterStudents }) {
           <table className="data-table">
             <thead><tr><th>Type</th><th>House</th><th>Student</th><th>Category</th><th>Points</th><th>Reason</th><th>Date</th><th></th></tr></thead>
             <tbody>
-              {filtered.slice(0, 50).map(e => {
+              {filtered.slice(0, logLimit).map(e => {
                 const isMerit = e.type === 'merit' || (!e.type && e.points > 0);
                 return (
                   <tr key={e.id}>
@@ -688,6 +691,21 @@ export default function HousePoints({ uid, isAdmin, masterStudents }) {
               })}
             </tbody>
           </table>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 4px', flexWrap: 'wrap', gap: 8 }}>
+            <div style={{ fontSize: 12, color: '#6B7280' }}>
+              Showing {Math.min(logLimit, filtered.length)} of {filtered.length} entries
+            </div>
+            {logLimit < filtered.length && (
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button className="btn btn-sm btn-secondary" onClick={() => setLogLimit(l => l + 50)}>
+                  Show 50 more
+                </button>
+                <button className="btn btn-sm btn-secondary" onClick={() => setLogLimit(filtered.length)}>
+                  Show all ({filtered.length})
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>
