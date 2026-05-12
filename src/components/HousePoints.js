@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useHousePoints } from '../hooks/useFirestore';
@@ -30,7 +30,7 @@ function parseCSVLine(line) {
 }
 
 export default function HousePoints({ uid, isAdmin, masterStudents }) {
-  const { entries, loading, addEntry, bulkAddEntries, deleteEntry, resetAll } = useHousePoints();
+  const { entries, loading, addEntry, bulkAddEntries, updateEntry, deleteEntry, resetAll } = useHousePoints();
   const [showAdd, setShowAdd] = useState(false);
   const [entryType, setEntryType] = useState('merit'); // 'merit' or 'demerit'
   const [awardTarget, setAwardTarget] = useState('student'); // 'student' or 'house'
@@ -38,6 +38,8 @@ export default function HousePoints({ uid, isAdmin, masterStudents }) {
   const [filterType, setFilterType] = useState('all');
   const [studentSearch, setStudentSearch] = useState('');
   const [confirmDeleteId, setConfirmDeleteId] = useState(null);
+  const [showTrend, setShowTrend] = useState(false);
+  const [editingDateId, setEditingDateId] = useState(null);
   const [showReset, setShowReset] = useState(false);
   const [resetting, setResetting] = useState(false);
   const [isFrozen, setIsFrozen] = useState(false);
@@ -577,6 +579,18 @@ export default function HousePoints({ uid, isAdmin, masterStudents }) {
         )}
       </div>
 
+      {/* Trend over time */}
+      <div style={{ marginBottom: 24 }}>
+        <button className="btn btn-sm btn-secondary" onClick={() => setShowTrend(!showTrend)}>
+          {showTrend ? '▲ Hide Trend Over Time' : '📈 Show Trend Over Time'}
+        </button>
+        {showTrend && (
+          <div style={{ marginTop: 12 }}>
+            <HousePointsTrendChart entries={entries} />
+          </div>
+        )}
+      </div>
+
       {/* Top Students */}
       {topStudents.length > 0 && (
         <div style={{ marginBottom: 24 }}>
@@ -631,7 +645,33 @@ export default function HousePoints({ uid, isAdmin, masterStudents }) {
                     <td style={{ fontSize: 12 }}>{e.category || '—'}</td>
                     <td style={{ fontWeight: 600, color: isMerit ? '#16A34A' : '#DC2626' }}>{e.points > 0 ? '+' : ''}{e.points}</td>
                     <td style={{ fontSize: 13 }}>{e.reason}</td>
-                    <td style={{ fontSize: 12, color: '#9CA3AF' }}>{e.createdAt ? new Date(e.createdAt).toLocaleDateString() : '—'}</td>
+                    <td style={{ fontSize: 12, color: '#9CA3AF' }}>
+                      {editingDateId === e.id ? (
+                        <input type="date"
+                          defaultValue={e.createdAt ? new Date(e.createdAt).toISOString().split('T')[0] : ''}
+                          autoFocus
+                          onBlur={async (ev) => {
+                            const v = ev.target.value;
+                            if (v) {
+                              // Anchor at noon local so display date doesn't drift across timezones.
+                              const iso = new Date(v + 'T12:00:00').toISOString();
+                              if (iso !== e.createdAt) await updateEntry(e.id, { createdAt: iso });
+                            }
+                            setEditingDateId(null);
+                          }}
+                          onKeyDown={(ev) => {
+                            if (ev.key === 'Enter') ev.target.blur();
+                            else if (ev.key === 'Escape') setEditingDateId(null);
+                          }}
+                          style={{ fontSize: 12, padding: '2px 4px' }} />
+                      ) : (
+                        <button onClick={() => setEditingDateId(e.id)}
+                          title="Click to edit date"
+                          style={{ background: 'none', border: 'none', color: '#6B7280', fontSize: 12, cursor: 'pointer', padding: 0, textDecoration: 'underline dotted' }}>
+                          {e.createdAt ? new Date(e.createdAt).toLocaleDateString() : '—'}
+                        </button>
+                      )}
+                    </td>
                     <td>
                       {confirmDeleteId === e.id ? (
                         <div style={{ display: 'flex', gap: 4 }}>
@@ -648,6 +688,135 @@ export default function HousePoints({ uid, isAdmin, masterStudents }) {
               })}
             </tbody>
           </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================
+// TREND CHART — cumulative net points per house over time
+// ============================================================
+function HousePointsTrendChart({ entries }) {
+  const [hover, setHover] = useState(null);
+
+  const snapshots = useMemo(() => {
+    const valid = entries
+      .filter(e => e.createdAt && e.house && e.points && HOUSES.includes(e.house))
+      .map(e => ({ t: new Date(e.createdAt).getTime(), house: e.house, pts: Number(e.points) }))
+      .filter(e => !isNaN(e.t))
+      .sort((a, b) => a.t - b.t);
+    if (valid.length === 0) return [];
+    const running = {};
+    HOUSES.forEach(h => { running[h] = 0; });
+    const out = [{ t: valid[0].t, totals: { ...running } }];
+    for (const e of valid) {
+      running[e.house] += e.pts;
+      out.push({ t: e.t, totals: { ...running } });
+    }
+    return out;
+  }, [entries]);
+
+  if (snapshots.length === 0) {
+    return <div style={{ padding: 24, textAlign: 'center', color: '#9CA3AF', fontSize: 13 }}>No entries yet to chart.</div>;
+  }
+
+  const W = 800, H = 300;
+  const padL = 50, padR = 20, padT = 20, padB = 40;
+  const innerW = W - padL - padR;
+  const innerH = H - padT - padB;
+
+  const tMin = snapshots[0].t;
+  const tMax = snapshots[snapshots.length - 1].t;
+  const tRange = Math.max(1, tMax - tMin);
+
+  const allVals = snapshots.flatMap(s => Object.values(s.totals));
+  let vMin = Math.min(0, ...allVals);
+  let vMax = Math.max(0, ...allVals);
+  if (vMin === vMax) vMax = vMin + 1;
+  const vRange = vMax - vMin;
+
+  const xOf = t => padL + ((t - tMin) / tRange) * innerW;
+  const yOf = v => padT + innerH - ((v - vMin) / vRange) * innerH;
+
+  const paths = {};
+  HOUSES.forEach(h => {
+    const pts = snapshots.map(s => `${xOf(s.t).toFixed(1)},${yOf(s.totals[h] || 0).toFixed(1)}`);
+    paths[h] = `M ${pts.join(' L ')}`;
+  });
+
+  const fmtDate = (t) => {
+    const d = new Date(t);
+    return `${d.getMonth() + 1}/${d.getDate()}/${String(d.getFullYear()).slice(-2)}`;
+  };
+
+  const N_TICKS = 5;
+  const xTicks = Array.from({ length: N_TICKS }, (_, i) => tMin + (tRange * i) / (N_TICKS - 1));
+  const yTicks = [vMin, (vMin + vMax) / 2, vMax].map(v => Math.round(v));
+
+  const onMouseMove = (e) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = ((e.clientX - rect.left) / rect.width) * W;
+    if (x < padL || x > padL + innerW) { setHover(null); return; }
+    const t = tMin + ((x - padL) / innerW) * tRange;
+    let nearest = snapshots[0];
+    let best = Math.abs(snapshots[0].t - t);
+    for (const s of snapshots) {
+      const d = Math.abs(s.t - t);
+      if (d < best) { best = d; nearest = s; }
+    }
+    setHover({ x: xOf(nearest.t), snapshot: nearest });
+  };
+
+  return (
+    <div style={{ position: 'relative' }}>
+      <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none"
+        style={{ width: '100%', height: 300, background: '#fff', borderRadius: 8, border: '1px solid #E5E7EB', display: 'block' }}
+        onMouseMove={onMouseMove} onMouseLeave={() => setHover(null)}>
+        {vMin < 0 && (
+          <line x1={padL} y1={yOf(0)} x2={W - padR} y2={yOf(0)} stroke="#D1D5DB" strokeDasharray="3 3" />
+        )}
+        <line x1={padL} y1={padT} x2={padL} y2={H - padB} stroke="#E5E7EB" />
+        <line x1={padL} y1={H - padB} x2={W - padR} y2={H - padB} stroke="#E5E7EB" />
+        {xTicks.map((t, i) => (
+          <text key={i} x={xOf(t)} y={H - padB + 16} fontSize="10" fill="#6B7280" textAnchor="middle">{fmtDate(t)}</text>
+        ))}
+        {yTicks.map((v, i) => (
+          <text key={i} x={padL - 6} y={yOf(v) + 3} fontSize="10" fill="#6B7280" textAnchor="end">{v}</text>
+        ))}
+        {HOUSES.map(h => (
+          <path key={h} d={paths[h]} stroke={HOUSE_COLORS[h].bg} strokeWidth={2} fill="none" />
+        ))}
+        {hover && (
+          <g>
+            <line x1={hover.x} y1={padT} x2={hover.x} y2={H - padB} stroke="#9CA3AF" strokeDasharray="2 2" />
+            {HOUSES.map(h => (
+              <circle key={h} cx={hover.x} cy={yOf(hover.snapshot.totals[h] || 0)} r={4} fill={HOUSE_COLORS[h].bg} />
+            ))}
+          </g>
+        )}
+      </svg>
+      <div style={{ display: 'flex', gap: 14, marginTop: 8, flexWrap: 'wrap', fontSize: 12 }}>
+        {HOUSES.map(h => (
+          <div key={h} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ width: 14, height: 3, background: HOUSE_COLORS[h].bg, display: 'inline-block' }} />
+            <span style={{ color: HOUSE_COLORS[h].bg, fontWeight: 600 }}>{h}</span>
+          </div>
+        ))}
+      </div>
+      {hover && (
+        <div style={{
+          position: 'absolute', top: 8, right: 8, background: '#fff',
+          border: '1px solid #E5E7EB', borderRadius: 6, padding: '8px 10px', fontSize: 12,
+          boxShadow: '0 2px 8px rgba(0,0,0,0.08)', pointerEvents: 'none', minWidth: 140,
+        }}>
+          <div style={{ fontWeight: 600, marginBottom: 4, color: '#1B3A5C' }}>{fmtDate(hover.snapshot.t)}</div>
+          {[...HOUSES].sort((a, b) => (hover.snapshot.totals[b] || 0) - (hover.snapshot.totals[a] || 0)).map(h => (
+            <div key={h} style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+              <span style={{ color: HOUSE_COLORS[h].bg }}>{h}</span>
+              <span style={{ fontWeight: 600 }}>{hover.snapshot.totals[h] || 0}</span>
+            </div>
+          ))}
         </div>
       )}
     </div>

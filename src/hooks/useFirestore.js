@@ -398,6 +398,11 @@ export function useHousePoints() {
     await load();
   }, [load]);
 
+  const updateEntry = useCallback(async (id, updates) => {
+    await updateDoc(doc(db, 'housePointEntries', id), updates);
+    await load();
+  }, [load]);
+
   const deleteEntry = useCallback(async (id) => {
     await deleteDoc(doc(db, 'housePointEntries', id));
     await load();
@@ -410,7 +415,7 @@ export function useHousePoints() {
     await load();
   }, [entries, load]);
 
-  return { entries, loading, addEntry, bulkAddEntries, deleteEntry, resetAll, refresh: load };
+  return { entries, loading, addEntry, bulkAddEntries, updateEntry, deleteEntry, resetAll, refresh: load };
 }
 
 // ============================================================
