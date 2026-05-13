@@ -41,6 +41,7 @@ export default function HousePoints({ uid, isAdmin, masterStudents }) {
   const [showTrend, setShowTrend] = useState(false);
   const [editingDateId, setEditingDateId] = useState(null);
   const [logLimit, setLogLimit] = useState(50);
+  const [filterStudent, setFilterStudent] = useState('');
   const [showReset, setShowReset] = useState(false);
   const [resetting, setResetting] = useState(false);
   const [isFrozen, setIsFrozen] = useState(false);
@@ -261,13 +262,42 @@ export default function HousePoints({ uid, isAdmin, masterStudents }) {
 
   // Filter entries
   const filtered = entries.filter(e => {
+    if (filterStudent && e.studentName !== filterStudent) return false;
     if (filterHouse !== 'all' && e.house !== filterHouse) return false;
     if (filterType === 'merit' && !(e.type === 'merit' || (!e.type && e.points > 0))) return false;
     if (filterType === 'demerit' && !(e.type === 'demerit' || (!e.type && e.points < 0))) return false;
     return true;
   });
 
-  useEffect(() => { setLogLimit(50); }, [filterHouse, filterType]);
+  useEffect(() => { setLogLimit(50); }, [filterHouse, filterType, filterStudent]);
+
+  // Roll up a single student's entries by category for the lookup view.
+  const studentBreakdown = useMemo(() => {
+    if (!filterStudent) return null;
+    const mine = entries.filter(e => e.studentName === filterStudent);
+    const byCategory = {};
+    let total = 0, merits = 0, demerits = 0, house = '';
+    for (const e of mine) {
+      const cat = e.category || 'Uncategorized';
+      if (!byCategory[cat]) byCategory[cat] = { points: 0, merits: 0, demerits: 0 };
+      const pts = Number(e.points);
+      const isMerit = e.type === 'merit' || (!e.type && pts > 0);
+      byCategory[cat].points += pts;
+      if (isMerit) { byCategory[cat].merits++; merits++; } else { byCategory[cat].demerits++; demerits++; }
+      total += pts;
+      if (!house && e.house) house = e.house;
+    }
+    const categories = Object.entries(byCategory).sort((a, b) => Math.abs(b[1].points) - Math.abs(a[1].points));
+    return { categories, total, merits, demerits, house, count: mine.length };
+  }, [filterStudent, entries]);
+
+  // Names for the lookup dropdown: union of master roster + anyone with entries.
+  const lookupNames = useMemo(() => {
+    const set = new Set();
+    (masterStudents || []).forEach(s => { if (s.name) set.add(s.name); });
+    entries.forEach(e => { if (e.studentName) set.add(e.studentName); });
+    return [...set].sort((a, b) => a.localeCompare(b));
+  }, [masterStudents, entries]);
 
   if (loading) return <div style={{ padding: 40, textAlign: 'center', color: '#9CA3AF' }}>Loading...</div>;
 
@@ -602,7 +632,9 @@ export default function HousePoints({ uid, isAdmin, masterStudents }) {
             <thead><tr><th>Student</th><th>House</th><th>Merits</th><th>Demerits</th><th>Net</th></tr></thead>
             <tbody>
               {topStudents.map((s, i) => (
-                <tr key={i}>
+                <tr key={i} style={{ cursor: 'pointer' }}
+                  onClick={() => setFilterStudent(s.name)}
+                  title="Click to see this student's breakdown">
                   <td style={{ fontWeight: 500 }}>{s.name}</td>
                   <td><span className="badge" style={{ background: HOUSE_COLORS[s.house]?.light, color: HOUSE_COLORS[s.house]?.bg }}>{s.house}</span></td>
                   <td style={{ color: '#16A34A', fontWeight: 500 }}>{s.merits}</td>
@@ -615,16 +647,90 @@ export default function HousePoints({ uid, isAdmin, masterStudents }) {
         </div>
       )}
 
+      {/* Student Lookup */}
+      <div style={{ marginBottom: 24 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12, flexWrap: 'wrap' }}>
+          <h3 className="section-title" style={{ margin: 0 }}>Student Lookup</h3>
+          <select value={filterStudent} onChange={ev => setFilterStudent(ev.target.value)}
+            style={{ maxWidth: 280, padding: '6px 8px' }}>
+            <option value="">— Pick a student —</option>
+            {lookupNames.map(name => <option key={name} value={name}>{name}</option>)}
+          </select>
+          {filterStudent && (
+            <button className="btn btn-sm btn-secondary" onClick={() => setFilterStudent('')}>Clear</button>
+          )}
+        </div>
+        {studentBreakdown && (
+          <div className="card" style={{ padding: 16 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12, flexWrap: 'wrap', gap: 12 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontFamily: 'var(--font-display)', fontSize: 18, fontWeight: 700 }}>{filterStudent}</span>
+                {studentBreakdown.house && (
+                  <span className="badge" style={{ background: HOUSE_COLORS[studentBreakdown.house]?.light, color: HOUSE_COLORS[studentBreakdown.house]?.bg }}>
+                    {studentBreakdown.house}
+                  </span>
+                )}
+              </div>
+              <div style={{ display: 'flex', gap: 16 }}>
+                <div style={{ textAlign: 'center' }}>
+                  <div style={{ fontSize: 18, fontWeight: 700, color: '#16A34A' }}>{studentBreakdown.merits}</div>
+                  <div style={{ fontSize: 10, color: '#6B7280', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Merits</div>
+                </div>
+                <div style={{ textAlign: 'center' }}>
+                  <div style={{ fontSize: 18, fontWeight: 700, color: '#DC2626' }}>{studentBreakdown.demerits}</div>
+                  <div style={{ fontSize: 10, color: '#6B7280', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Demerits</div>
+                </div>
+                <div style={{ textAlign: 'center' }}>
+                  <div style={{ fontSize: 18, fontWeight: 700, color: studentBreakdown.total >= 0 ? '#16A34A' : '#DC2626' }}>
+                    {studentBreakdown.total > 0 ? '+' : ''}{studentBreakdown.total}
+                  </div>
+                  <div style={{ fontSize: 10, color: '#6B7280', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Net</div>
+                </div>
+              </div>
+            </div>
+            {studentBreakdown.categories.length === 0 ? (
+              <div style={{ padding: 16, textAlign: 'center', color: '#9CA3AF', fontSize: 13 }}>
+                No house point entries for this student yet.
+              </div>
+            ) : (
+              <>
+                <table className="data-table">
+                  <thead><tr><th>Category</th><th>Merits</th><th>Demerits</th><th>Net Points</th></tr></thead>
+                  <tbody>
+                    {studentBreakdown.categories.map(([cat, data]) => (
+                      <tr key={cat}>
+                        <td style={{ fontWeight: 500 }}>{cat}</td>
+                        <td style={{ color: '#16A34A' }}>{data.merits || ''}</td>
+                        <td style={{ color: data.demerits > 0 ? '#DC2626' : undefined }}>{data.demerits || ''}</td>
+                        <td style={{ fontWeight: 600, color: data.points >= 0 ? '#16A34A' : '#DC2626' }}>
+                          {data.points > 0 ? '+' : ''}{data.points}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <div style={{ marginTop: 8, fontSize: 11, color: '#9CA3AF' }}>
+                  Individual entries shown in the Activity Log below.
+                </div>
+              </>
+            )}
+          </div>
+        )}
+      </div>
+
       {/* Activity Log */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
         <h3 className="section-title">
-          {filterHouse !== 'all' ? `${filterHouse} Log` : 'Activity Log'}
+          {filterStudent ? `${filterStudent} — Activity Log` : filterHouse !== 'all' ? `${filterHouse} Log` : 'Activity Log'}
         </h3>
-        <div style={{ display: 'flex', gap: 6 }}>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
           {[{ id: 'all', label: 'All' }, { id: 'merit', label: 'Merits' }, { id: 'demerit', label: 'Demerits' }].map(f => (
             <button key={f.id} className={`btn btn-sm ${filterType === f.id ? 'btn-primary' : 'btn-secondary'}`}
               onClick={() => setFilterType(f.id)}>{f.label}</button>
           ))}
+          {filterStudent && (
+            <button className="btn btn-sm btn-secondary" onClick={() => setFilterStudent('')}>Clear: {filterStudent}</button>
+          )}
           {filterHouse !== 'all' && (
             <button className="btn btn-sm btn-secondary" onClick={() => setFilterHouse('all')}>Clear: {filterHouse}</button>
           )}
