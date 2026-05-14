@@ -956,6 +956,281 @@ export function usePTORequests() {
 }
 
 // ============================================================
+// TEACHER DIRECTORY HOOK — single source of truth for teacher records.
+// Firestore: teacherDirectory/{id} = {
+//   id, name, email (lowercased), uid (set on first sign-in match),
+//   phone, title, classesTaught: string[], contractType ('ft'|'pt'|''),
+//   defaultRoom, unavailable: [{ day, periods: [...] }, ...],
+//   pto: { sick, vacation, bereavement },
+//   permission ('teacher'|'admin'|'board'), active, createdAt, updatedAt
+// }
+//
+// On first load this hook one-time-migrates from the legacy sources
+// (schedule/config.teachers, ptoAllotments/*, config/roles) so no
+// existing data is lost. Writes mirror back to the legacy locations
+// while Schedule Builder, PTO Admin, and Access Control still consume
+// them — that mirroring will be removed once those views read from
+// teacherDirectory directly.
+// ============================================================
+const norm = (s) => (s || '').trim().toLowerCase();
+
+async function runTeacherDirectoryMigration() {
+  const flagRef = doc(db, 'config', 'teacherManagerMigration');
+  const flagSnap = await getDoc(flagRef);
+  if (flagSnap.exists() && flagSnap.data().done) return false;
+
+  const [scheduleSnap, publishedSnap, allotmentsSnap, rolesSnap, directorySnap] = await Promise.all([
+    getDoc(doc(db, 'schedule', 'config')),
+    getDoc(doc(db, 'schedule', 'published')),
+    getDocs(collection(db, 'ptoAllotments')),
+    getDoc(doc(db, 'config', 'roles')),
+    getDocs(collection(db, 'teacherDirectory')),
+  ]);
+
+  const existingIds = new Set(directorySnap.docs.map(d => d.id));
+  const scheduleTeachers = (scheduleSnap.exists() ? scheduleSnap.data().teachers : null)
+    || (publishedSnap.exists() ? publishedSnap.data().teachers : null) || [];
+  const allotmentDocs = allotmentsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+  const roles = rolesSnap.exists() ? rolesSnap.data() : { admins: [], boardMembers: [] };
+  const admins = new Set((roles.admins || []).map(norm));
+  const board = new Set((roles.boardMembers || []).map(norm));
+
+  const now = new Date().toISOString();
+  const writes = [];
+  const seenIds = new Set();
+
+  for (const t of scheduleTeachers) {
+    if (!t || !t.id) continue;
+    seenIds.add(t.id);
+    if (existingIds.has(t.id)) continue; // don't overwrite a manual edit
+    const allotment = allotmentDocs.find(a => a.id === t.id) || {};
+    const email = norm(t.email);
+    const permission = email && admins.has(email) ? 'admin'
+      : email && board.has(email) ? 'board' : 'teacher';
+    writes.push(setDoc(doc(db, 'teacherDirectory', t.id), {
+      id: t.id,
+      name: t.name || '',
+      email,
+      uid: null,
+      phone: '',
+      title: '',
+      classesTaught: [],
+      contractType: t.type || '',
+      defaultRoom: t.defaultRoom || '',
+      unavailable: Array.isArray(t.unavailable) ? t.unavailable : [],
+      pto: {
+        sick: Number(allotment.sick) || 0,
+        vacation: Number(allotment.vacation) || 0,
+        bereavement: Number(allotment.bereavement) || 0,
+      },
+      permission,
+      active: true,
+      createdAt: now,
+      updatedAt: now,
+      migratedAt: now,
+    }));
+  }
+
+  // Allotments that have no matching schedule teacher — bring them across too.
+  for (const a of allotmentDocs) {
+    if (seenIds.has(a.id) || existingIds.has(a.id)) continue;
+    writes.push(setDoc(doc(db, 'teacherDirectory', a.id), {
+      id: a.id,
+      name: a.displayName || '',
+      email: norm(a.email),
+      uid: null,
+      phone: '',
+      title: '',
+      classesTaught: [],
+      contractType: a.contractType || '',
+      defaultRoom: '',
+      unavailable: [],
+      pto: {
+        sick: Number(a.sick) || 0,
+        vacation: Number(a.vacation) || 0,
+        bereavement: Number(a.bereavement) || 0,
+      },
+      permission: 'teacher',
+      active: true,
+      createdAt: now,
+      updatedAt: now,
+      migratedAt: now,
+    }));
+  }
+
+  await Promise.all(writes);
+  await setDoc(flagRef, { done: true, at: now, importedCount: writes.length });
+  return writes.length > 0;
+}
+
+async function mirrorToLegacy(teacher) {
+  // Schedule Builder still reads from schedule/config.teachers — keep it in sync.
+  try {
+    const ref = doc(db, 'schedule', 'config');
+    const snap = await getDoc(ref);
+    const cfg = snap.exists() ? snap.data() : null;
+    if (cfg) {
+      const list = Array.isArray(cfg.teachers) ? [...cfg.teachers] : [];
+      const idx = list.findIndex(t => t && t.id === teacher.id);
+      const entry = {
+        id: teacher.id,
+        name: teacher.name || '',
+        type: teacher.contractType || 'ft',
+        defaultRoom: teacher.defaultRoom || '',
+        unavailable: teacher.unavailable || [],
+      };
+      if (idx >= 0) list[idx] = { ...list[idx], ...entry };
+      else list.push(entry);
+      await setDoc(ref, { ...cfg, teachers: list });
+    }
+  } catch (err) { console.error('Mirror to schedule failed:', err); }
+
+  // PTO Admin reads ptoAllotments/{id}.
+  try {
+    await setDoc(doc(db, 'ptoAllotments', teacher.id), {
+      teacherId: teacher.id,
+      displayName: teacher.name || '',
+      email: teacher.email || '',
+      contractType: teacher.contractType || '',
+      sick: Number(teacher.pto?.sick) || 0,
+      vacation: Number(teacher.pto?.vacation) || 0,
+      bereavement: Number(teacher.pto?.bereavement) || 0,
+      updatedAt: new Date().toISOString(),
+    });
+  } catch (err) { console.error('Mirror to ptoAllotments failed:', err); }
+
+  // Auth + Access Control read config/roles.
+  if (teacher.email) {
+    try {
+      const ref = doc(db, 'config', 'roles');
+      const snap = await getDoc(ref);
+      const cur = snap.exists() ? snap.data() : { admins: [], boardMembers: [] };
+      const admins = new Set((cur.admins || []).map(norm));
+      const board = new Set((cur.boardMembers || []).map(norm));
+      const e = norm(teacher.email);
+      admins.delete(e); board.delete(e);
+      if (teacher.permission === 'admin') admins.add(e);
+      else if (teacher.permission === 'board') board.add(e);
+      await setDoc(ref, { admins: [...admins], boardMembers: [...board] });
+    } catch (err) { console.error('Mirror to roles failed:', err); }
+  }
+}
+
+async function removeFromLegacy(teacher) {
+  try {
+    const ref = doc(db, 'schedule', 'config');
+    const snap = await getDoc(ref);
+    if (snap.exists()) {
+      const cfg = snap.data();
+      const list = (cfg.teachers || []).filter(t => t && t.id !== teacher.id);
+      await setDoc(ref, { ...cfg, teachers: list });
+    }
+  } catch (err) { console.error('Remove from schedule failed:', err); }
+  try { await deleteDoc(doc(db, 'ptoAllotments', teacher.id)); } catch (_) {}
+  if (teacher.email) {
+    try {
+      const ref = doc(db, 'config', 'roles');
+      const snap = await getDoc(ref);
+      if (snap.exists()) {
+        const cur = snap.data();
+        const e = norm(teacher.email);
+        await setDoc(ref, {
+          admins: (cur.admins || []).filter(a => norm(a) !== e),
+          boardMembers: (cur.boardMembers || []).filter(a => norm(a) !== e),
+        });
+      }
+    } catch (_) {}
+  }
+}
+
+export function useTeacherDirectory() {
+  const [teachers, setTeachers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [migrating, setMigrating] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const snap = await getDocs(collection(db, 'teacherDirectory'));
+      const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      data.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+      setTeachers(data);
+    } catch (err) { console.error('teacherDirectory load failed:', err); }
+    setLoading(false);
+  }, []);
+
+  useEffect(() => {
+    (async () => {
+      setMigrating(true);
+      try { await runTeacherDirectoryMigration(); }
+      catch (err) { console.error('Teacher migration failed:', err); }
+      setMigrating(false);
+      await load();
+    })();
+  }, [load]);
+
+  const addTeacher = useCallback(async (data) => {
+    const ref = doc(collection(db, 'teacherDirectory'));
+    const now = new Date().toISOString();
+    const teacher = {
+      id: ref.id,
+      name: data.name || '',
+      email: norm(data.email),
+      uid: null,
+      phone: data.phone || '',
+      title: data.title || '',
+      classesTaught: Array.isArray(data.classesTaught) ? data.classesTaught : [],
+      contractType: data.contractType || 'ft',
+      defaultRoom: data.defaultRoom || '',
+      unavailable: data.unavailable || [],
+      pto: {
+        sick: Number(data.pto?.sick) || 0,
+        vacation: Number(data.pto?.vacation) || 0,
+        bereavement: Number(data.pto?.bereavement) || 0,
+      },
+      permission: data.permission || 'teacher',
+      active: data.active !== false,
+      createdAt: now,
+      updatedAt: now,
+    };
+    await setDoc(ref, teacher);
+    await mirrorToLegacy(teacher);
+    await load();
+    return ref.id;
+  }, [load]);
+
+  const updateTeacher = useCallback(async (id, updates) => {
+    const ref = doc(db, 'teacherDirectory', id);
+    const snap = await getDoc(ref);
+    if (!snap.exists()) return;
+    const current = snap.data();
+    const merged = {
+      ...current,
+      ...updates,
+      email: updates.email !== undefined ? norm(updates.email) : current.email,
+      pto: { ...current.pto, ...(updates.pto || {}) },
+      id,
+      updatedAt: new Date().toISOString(),
+    };
+    await setDoc(ref, merged);
+    await mirrorToLegacy(merged);
+    await load();
+  }, [load]);
+
+  const removeTeacher = useCallback(async (id) => {
+    const ref = doc(db, 'teacherDirectory', id);
+    const snap = await getDoc(ref);
+    if (!snap.exists()) return;
+    const teacher = snap.data();
+    await deleteDoc(ref);
+    await removeFromLegacy(teacher);
+    await load();
+  }, [load]);
+
+  return { teachers, loading, migrating, addTeacher, updateTeacher, removeTeacher, refresh: load };
+}
+
+// ============================================================
 // CADENCE TASKS HOOK
 // Firestore: cadenceTasks/{id} = {
 //   id, month ('jul'..'jun'), title, description,

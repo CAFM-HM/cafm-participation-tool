@@ -13,6 +13,7 @@ import ServiceHours from './components/ServiceHours';
 import DocumentRepository from './components/DocumentRepository';
 import Compliance from './components/Compliance';
 import AccessControl from './components/AccessControl';
+import TeacherManager from './components/TeacherManager';
 import TimeOff from './components/TimeOff';
 import PTOAdmin from './components/PTOAdmin';
 import Cadence from './components/Cadence';
@@ -81,6 +82,7 @@ function App() {
     ...(isAdmin ? [
       { id: 'dashboard', label: 'Dashboard', icon: '\u{1F4CA}' },
       { id: 'roster', label: 'Roster', icon: '\u{1F4CB}' },
+      { id: 'teachers', label: 'Teachers', icon: '\u{1F468}' },
       { id: 'documents', label: 'Documents', icon: '\u{1F4C1}' },
       { id: 'compliance', label: 'Compliance', icon: '\u{1F4D7}' },
       { id: 'cadence', label: 'Cadence', icon: '\u{1F5D3}' },
@@ -198,6 +200,7 @@ function App() {
           {activeTab === 'compliance' && isAdmin && <Compliance uid={user.uid} />}
           {activeTab === 'pto' && <TimeOff uid={user.uid} displayName={displayName} />}
           {activeTab === 'ptoadmin' && isAdmin && <PTOAdmin uid={user.uid} />}
+          {activeTab === 'teachers' && isAdmin && <TeacherManager />}
           {activeTab === 'cadence' && isAdmin && <Cadence uid={user.uid} displayName={displayName} />}
           {activeTab === 'access' && isAdmin && <AccessControl currentEmail={email} />}
           </div>
