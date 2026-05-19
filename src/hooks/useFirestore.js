@@ -597,11 +597,20 @@ export function useSchedule() {
     setLoading(true);
     try {
       const configSnap = await getDoc(doc(db, 'schedule', 'config'));
-      if (configSnap.exists()) setConfig(configSnap.data());
-      else setConfig(getDefaultConfig());
+      if (configSnap.exists()) {
+        const { config: migrated, changed } = splitGrade11And12(configSnap.data());
+        setConfig(migrated);
+        if (changed) await setDoc(doc(db, 'schedule', 'config'), migrated);
+      } else {
+        setConfig(getDefaultConfig());
+      }
 
       const pubSnap = await getDoc(doc(db, 'schedule', 'published'));
-      if (pubSnap.exists()) setPublished(pubSnap.data());
+      if (pubSnap.exists()) {
+        const { config: migratedPub, changed } = splitGrade11And12(pubSnap.data());
+        setPublished(migratedPub);
+        if (changed) await setDoc(doc(db, 'schedule', 'published'), migratedPub);
+      }
     } catch (err) { console.error('Error loading schedule:', err); }
     setLoading(false);
   }, []);
@@ -833,6 +842,35 @@ export function useServiceHours() {
   return { entries, loading, addEntry, updateEntry, deleteEntry, refresh: load };
 }
 
+// Splits the legacy combined "Grade 11/12" student group into separate
+// Grade 11 and Grade 12 groups, and updates any class assigned to the
+// combined group so it's assigned to both. Idempotent — returns the same
+// config object untouched once there's no g11-12 group left.
+function splitGrade11And12(config) {
+  if (!config) return { config, changed: false };
+  const groups = config.studentGroups || [];
+  const combined = groups.find(g => g.id === 'g11-12');
+  if (!combined) return { config, changed: false };
+
+  const newGroups = groups.filter(g => g.id !== 'g11-12');
+  if (!newGroups.some(g => g.id === 'g11')) {
+    newGroups.push({ id: 'g11', name: 'Grade 11', color: combined.color || '#2E7D5B' });
+  }
+  if (!newGroups.some(g => g.id === 'g12')) {
+    newGroups.push({ id: 'g12', name: 'Grade 12', color: '#B45309' });
+  }
+
+  const newClasses = (config.classes || []).map(cls => {
+    if (!(cls.groupIds || []).includes('g11-12')) return cls;
+    const ids = cls.groupIds.filter(id => id !== 'g11-12');
+    if (!ids.includes('g11')) ids.push('g11');
+    if (!ids.includes('g12')) ids.push('g12');
+    return { ...cls, groupIds: ids };
+  });
+
+  return { config: { ...config, studentGroups: newGroups, classes: newClasses }, changed: true };
+}
+
 function getDefaultConfig() {
   return {
     schoolDay: {
@@ -854,7 +892,8 @@ function getDefaultConfig() {
     studentGroups: [
       { id: 'g9', name: 'Grade 9', color: '#1B3A5C' },
       { id: 'g10', name: 'Grade 10', color: '#8B2252' },
-      { id: 'g11-12', name: 'Grade 11/12', color: '#2E7D5B' },
+      { id: 'g11', name: 'Grade 11', color: '#2E7D5B' },
+      { id: 'g12', name: 'Grade 12', color: '#B45309' },
     ],
     classes: [],
     grid: {}, // grid[periodIndex] = { classId, roomId }
