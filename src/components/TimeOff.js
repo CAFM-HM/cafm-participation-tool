@@ -1,10 +1,13 @@
 import React, { useState, useMemo } from 'react';
-import { useSchedule, usePTOAllotments, usePTORequests } from '../hooks/useFirestore';
+import { useSchedule, usePTOAllotments, usePTORequests, useSubstitutes } from '../hooks/useFirestore';
 import { findMyTeacher } from './ScheduleBuilder';
+
+// Hours per standard work day — used for date-range auto-conversion only.
+const HOURS_PER_DAY = 8;
 
 const TYPES = [
   { key: 'sick',        label: 'Sick',        icon: '\u{1F912}' },     // 🤒
-  { key: 'vacation',    label: 'Vacation',    icon: '\u{1F3D6}' },     // 🏖
+  { key: 'vacation',    label: 'Personal',    icon: '\u{1F3D6}' },     // 🏖  (stored as 'vacation' for back-compat)
   { key: 'bereavement', label: 'Bereavement', icon: '\u{1F54A}' },     // 🕊
 ];
 const TYPE_LABEL = Object.fromEntries(TYPES.map(t => [t.key, t.label]));
@@ -94,6 +97,7 @@ export default function TimeOff({ uid, displayName }) {
   const { published } = useSchedule();
   const { allotments, loading: allotsLoading } = usePTOAllotments();
   const { requests, loading: reqsLoading, submitRequest, deleteRequest } = usePTORequests();
+  const { substitutes } = useSubstitutes();
 
   const teachers = published?.teachers || [];
   const myTeacher = useMemo(() => findMyTeacher(displayName, teachers), [displayName, teachers]);
@@ -120,10 +124,10 @@ export default function TimeOff({ uid, displayName }) {
   const [reason, setReason] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
-  // Auto-compute days when dates change (unless user typed an override)
+  // Auto-compute hours (weekdays × 8) when dates change, unless overridden.
   React.useEffect(() => {
     if (!daysOverride) {
-      setDays(countWeekdays(startDate, endDate));
+      setDays(countWeekdays(startDate, endDate) * HOURS_PER_DAY);
     }
   }, [startDate, endDate, daysOverride]);
 
@@ -141,7 +145,7 @@ export default function TimeOff({ uid, displayName }) {
       return;
     }
     if (Number(days) <= 0) {
-      window.dispatchEvent(new CustomEvent('toast', { detail: 'Days must be greater than 0' }));
+      window.dispatchEvent(new CustomEvent('toast', { detail: 'Hours must be greater than 0' }));
       return;
     }
     setSubmitting(true);
@@ -218,7 +222,7 @@ export default function TimeOff({ uid, displayName }) {
           <strong>Current contract year:</strong> {fmtPeriod(myAllotment.startDate, myAllotment.endDate)}
           {myAllotment.contractType && <span style={{ marginLeft: 8, color: '#6B7280' }}>({myAllotment.contractType})</span>}
           <div style={{ fontSize: 11, color: '#6B7280', marginTop: 2, fontStyle: 'italic' }}>
-            Balances reset at the end of the contract year. Unused days do not carry over.
+            Balances reset at the end of the contract year. Unused hours do not carry over.
           </div>
         </div>
       )}
@@ -240,11 +244,43 @@ export default function TimeOff({ uid, displayName }) {
                 {remaining}
               </div>
               <div style={{ fontSize: 11, color: '#9CA3AF' }}>
-                days remaining ({used} used / {total} allotted)
+                hours remaining ({used} used / {total} allotted)
               </div>
             </div>
           );
         })}
+      </div>
+
+      {/* ── Approved Substitutes ── */}
+      <div className="home-card" style={{ marginBottom: 24 }}>
+        <div className="home-card-header"><h3>Approved Substitutes</h3></div>
+        <div style={{ background: '#FEF3C7', border: '1px solid #FDE68A', color: '#78350F', padding: '10px 14px', borderRadius: 6, fontSize: 13, marginBottom: 12, fontWeight: 500 }}>
+          You are responsible for arranging for a substitute when taking time off. Contact one of the approved substitutes below to coordinate coverage before submitting your request.
+        </div>
+        {substitutes.filter(s => s.active !== false).length === 0 ? (
+          <div style={{ fontSize: 13, color: '#9CA3AF', padding: 8 }}>
+            No approved substitutes listed yet — ask your admin to add them in PTO Admin.
+          </div>
+        ) : (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 10 }}>
+            {substitutes.filter(s => s.active !== false).map(s => (
+              <div key={s.id} style={{ border: '1px solid #E5E7EB', borderRadius: 6, padding: 12, background: '#FAFAFA' }}>
+                <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 4 }}>{s.name}</div>
+                {s.email && (
+                  <div style={{ fontSize: 12, marginBottom: 2 }}>
+                    <a href={`mailto:${s.email}`} style={{ color: '#1B3A5C', textDecoration: 'none' }}>✉ {s.email}</a>
+                  </div>
+                )}
+                {s.phone && (
+                  <div style={{ fontSize: 12, marginBottom: 2 }}>
+                    <a href={`tel:${s.phone.replace(/[^0-9+]/g, '')}`} style={{ color: '#1B3A5C', textDecoration: 'none' }}>📞 {s.phone}</a>
+                  </div>
+                )}
+                {s.notes && <div style={{ fontSize: 11, color: '#6B7280', marginTop: 4, fontStyle: 'italic' }}>{s.notes}</div>}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* ── Submit Request Form ── */}
@@ -267,9 +303,9 @@ export default function TimeOff({ uid, displayName }) {
           </div>
           <div>
             <label style={{ fontSize: 11, color: '#6B7280', fontWeight: 600 }}>
-              Days <span style={{ color: '#9CA3AF', fontWeight: 400 }}>(weekdays auto-counted)</span>
+              Hours <span style={{ color: '#9CA3AF', fontWeight: 400 }}>(weekdays × 8h auto-counted)</span>
             </label>
-            <input type="number" min="0" step="0.5" className="form-input" value={days}
+            <input type="number" min="0" step="0.25" className="form-input" value={days}
               onChange={e => { setDaysOverride(true); setDays(e.target.value); }} />
           </div>
         </div>
@@ -284,7 +320,7 @@ export default function TimeOff({ uid, displayName }) {
           <button className="btn btn-secondary btn-sm" onClick={reset}>Reset</button>
           {Number(days) > 0 && balances.remaining[type] - Number(days) < 0 && (
             <span style={{ fontSize: 12, color: '#DC2626', fontWeight: 600 }}>
-              ⚠ This would put you {Math.abs(balances.remaining[type] - Number(days))} day(s) over your {TYPE_LABEL[type]} balance.
+              ⚠ This would put you {Math.abs(balances.remaining[type] - Number(days))} hour(s) over your {TYPE_LABEL[type]} balance.
             </span>
           )}
         </div>
@@ -302,7 +338,7 @@ export default function TimeOff({ uid, displayName }) {
           <table className="data-table" style={{ width: '100%', fontSize: 13 }}>
             <thead>
               <tr>
-                <th>Type</th><th>Dates</th><th style={{ textAlign: 'right' }}>Days</th>
+                <th>Type</th><th>Dates</th><th style={{ textAlign: 'right' }}>Hours</th>
                 <th>Reason</th><th>Status</th><th></th>
               </tr>
             </thead>

@@ -1,10 +1,10 @@
 import React, { useState, useMemo } from 'react';
-import { useSchedule, usePTOAllotments, usePTORequests } from '../hooks/useFirestore';
+import { useSchedule, usePTOAllotments, usePTORequests, useSubstitutes } from '../hooks/useFirestore';
 import { computeBalances, defaultContractPeriod, fmtPeriod } from './TimeOff';
 
 const TYPES = [
   { key: 'sick',        label: 'Sick',        icon: '\u{1F912}' },
-  { key: 'vacation',    label: 'Vacation',    icon: '\u{1F3D6}' },
+  { key: 'vacation',    label: 'Personal',    icon: '\u{1F3D6}' },     // stored as 'vacation' for back-compat
   { key: 'bereavement', label: 'Bereavement', icon: '\u{1F54A}' },
 ];
 const TYPE_LABEL = Object.fromEntries(TYPES.map(t => [t.key, t.label]));
@@ -14,12 +14,12 @@ const STATUS_BADGE = {
   denied:   { bg: '#FEE2E2', fg: '#991B1B', label: 'Denied' },
 };
 
-// Default allotment templates by contract type — admin can override per row.
-// Each template also implies a default contract period (Aug 1 → end of contract).
+// Default allotment templates by contract type, in HOURS (1 day = 8 hours).
+// Admin can override per row.
 const TEMPLATES = {
-  '10-month': { sick: 5,  vacation: 0,  bereavement: 3 },
-  '11-month': { sick: 6,  vacation: 5,  bereavement: 3 },
-  '12-month': { sick: 8,  vacation: 10, bereavement: 3 },
+  '10-month': { sick: 40, vacation: 0,  bereavement: 24 },
+  '11-month': { sick: 48, vacation: 40, bereavement: 24 },
+  '12-month': { sick: 64, vacation: 80, bereavement: 24 },
 };
 
 function countWeekdays(startDate, endDate) {
@@ -46,6 +46,7 @@ export default function PTOAdmin({ uid }) {
   const { published, config } = useSchedule();
   const { allotments, loading: aLoading, setAllotment } = usePTOAllotments();
   const { requests, loading: rLoading, submitRequest, decideRequest, deleteRequest } = usePTORequests();
+  const { substitutes, addSubstitute, updateSubstitute, removeSubstitute } = useSubstitutes();
 
   // Use the published teachers list if available, else fall back to draft.
   const teachers = (published?.teachers || config?.teachers || []);
@@ -140,11 +141,11 @@ export default function PTOAdmin({ uid }) {
   const handleApprove = async (req) => {
     let note = '';
     await decideRequest(req.id, 'approved', uid, note || null);
-    window.dispatchEvent(new CustomEvent('toast', { detail: `Approved ${req.displayName} – ${TYPE_LABEL[req.type]} ${req.days}d` }));
+    window.dispatchEvent(new CustomEvent('toast', { detail: `Approved ${req.displayName} – ${TYPE_LABEL[req.type]} ${req.days}h` }));
   };
 
   const handleDeny = async (req) => {
-    const note = window.prompt(`Deny ${req.displayName}'s request for ${req.days} day(s) of ${TYPE_LABEL[req.type]}. Reason (optional):`, '');
+    const note = window.prompt(`Deny ${req.displayName}'s request for ${req.days} hour(s) of ${TYPE_LABEL[req.type]}. Reason (optional):`, '');
     if (note === null) return; // cancelled
     await decideRequest(req.id, 'denied', uid, note || null);
     window.dispatchEvent(new CustomEvent('toast', { detail: 'Request denied' }));
@@ -167,7 +168,7 @@ export default function PTOAdmin({ uid }) {
   const [obSubmitting, setObSubmitting] = useState(false);
 
   React.useEffect(() => {
-    if (!obDaysOverride) setObDays(countWeekdays(obStart, obEnd));
+    if (!obDaysOverride) setObDays(countWeekdays(obStart, obEnd) * 8);
   }, [obStart, obEnd, obDaysOverride]);
 
   const recordOnBehalf = async (autoApprove) => {
@@ -176,7 +177,7 @@ export default function PTOAdmin({ uid }) {
       return;
     }
     if (Number(obDays) <= 0) {
-      window.dispatchEvent(new CustomEvent('toast', { detail: 'Days must be greater than 0' }));
+      window.dispatchEvent(new CustomEvent('toast', { detail: 'Hours must be greater than 0' }));
       return;
     }
     const teacher = teachers.find(t => t.id === obTeacher);
@@ -241,7 +242,7 @@ export default function PTOAdmin({ uid }) {
           <table className="data-table" style={{ width: '100%', fontSize: 13 }}>
             <thead>
               <tr>
-                <th>Employee</th><th>Type</th><th>Dates</th><th style={{ textAlign: 'right' }}>Days</th>
+                <th>Employee</th><th>Type</th><th>Dates</th><th style={{ textAlign: 'right' }}>Hours</th>
                 <th>Reason</th><th>Submitted</th><th></th>
               </tr>
             </thead>
@@ -281,8 +282,8 @@ export default function PTOAdmin({ uid }) {
           <h3>Set allotments by employee</h3>
         </div>
         <p style={{ fontSize: 12, color: '#6B7280', marginTop: 0 }}>
-          Pick a contract template to auto-fill (sets dates and bucket totals), or set numbers directly.
-          Each allotment runs from a Start to End date — the bank resets at the end and unused days do not carry over.
+          Pick a contract template to auto-fill (sets dates and bucket totals in hours), or set numbers directly.
+          Each allotment runs from a Start to End date — the bank resets at the end and unused hours do not carry over.
           Use <strong>Roll over</strong> to bump the dates to the following contract year.
         </p>
         <div style={{ overflowX: 'auto' }}>
@@ -293,10 +294,10 @@ export default function PTOAdmin({ uid }) {
                 <th>Contract</th>
                 <th>Start</th>
                 <th>End</th>
-                <th style={{ textAlign: 'right' }}>Sick</th>
-                <th style={{ textAlign: 'right' }}>Vacation</th>
-                <th style={{ textAlign: 'right' }}>Bereavement</th>
-                <th style={{ textAlign: 'right' }}>Used (S/V/B)</th>
+                <th style={{ textAlign: 'right' }}>Sick (h)</th>
+                <th style={{ textAlign: 'right' }}>Personal (h)</th>
+                <th style={{ textAlign: 'right' }}>Bereavement (h)</th>
+                <th style={{ textAlign: 'right' }}>Used (S/P/B)</th>
                 <th style={{ textAlign: 'right' }}>Remaining</th>
                 <th></th>
               </tr>
@@ -411,8 +412,8 @@ export default function PTOAdmin({ uid }) {
             <input type="date" className="form-input" value={obEnd} onChange={ev => setObEnd(ev.target.value)} />
           </div>
           <div>
-            <label style={{ fontSize: 11, color: '#6B7280', fontWeight: 600 }}>Days</label>
-            <input type="number" min="0" step="0.5" className="form-input" value={obDays}
+            <label style={{ fontSize: 11, color: '#6B7280', fontWeight: 600 }}>Hours</label>
+            <input type="number" min="0" step="0.25" className="form-input" value={obDays}
               onChange={ev => { setObDaysOverride(true); setObDays(ev.target.value); }} />
           </div>
         </div>
@@ -441,7 +442,7 @@ export default function PTOAdmin({ uid }) {
           <table className="data-table" style={{ width: '100%', fontSize: 13 }}>
             <thead>
               <tr>
-                <th>Employee</th><th>Type</th><th>Dates</th><th style={{ textAlign: 'right' }}>Days</th>
+                <th>Employee</th><th>Type</th><th>Dates</th><th style={{ textAlign: 'right' }}>Hours</th>
                 <th>Reason</th><th>Status</th><th>Decided</th><th></th>
               </tr>
             </thead>
@@ -476,6 +477,164 @@ export default function PTOAdmin({ uid }) {
             </tbody>
           </table>
         )}
+      </div>
+
+      <SubstitutesAdmin
+        substitutes={substitutes}
+        onAdd={addSubstitute}
+        onUpdate={updateSubstitute}
+        onRemove={removeSubstitute}
+      />
+    </div>
+  );
+}
+
+// ============================================================
+// SUBSTITUTES ADMIN SECTION
+// ============================================================
+function SubstitutesAdmin({ substitutes, onAdd, onUpdate, onRemove }) {
+  const [showAdd, setShowAdd] = useState(false);
+  const [editingId, setEditingId] = useState(null);
+  const [form, setForm] = useState({ name: '', email: '', phone: '', notes: '', active: true });
+  const [saving, setSaving] = useState(false);
+
+  const reset = () => { setForm({ name: '', email: '', phone: '', notes: '', active: true }); };
+
+  const handleAdd = async () => {
+    if (!form.name.trim()) { window.dispatchEvent(new CustomEvent('toast', { detail: 'Name is required' })); return; }
+    setSaving(true);
+    try {
+      await onAdd(form);
+      reset();
+      setShowAdd(false);
+      window.dispatchEvent(new CustomEvent('toast', { detail: 'Substitute added' }));
+    } catch (err) { console.error(err); }
+    setSaving(false);
+  };
+
+  const startEdit = (s) => {
+    setEditingId(s.id);
+    setForm({
+      name: s.name || '',
+      email: s.email || '',
+      phone: s.phone || '',
+      notes: s.notes || '',
+      active: s.active !== false,
+    });
+  };
+
+  const handleUpdate = async () => {
+    if (!form.name.trim()) return;
+    setSaving(true);
+    try {
+      await onUpdate(editingId, form);
+      setEditingId(null);
+      reset();
+      window.dispatchEvent(new CustomEvent('toast', { detail: 'Substitute saved' }));
+    } catch (err) { console.error(err); }
+    setSaving(false);
+  };
+
+  const handleRemove = async (s) => {
+    if (!window.confirm(`Remove ${s.name}?`)) return;
+    await onRemove(s.id);
+    window.dispatchEvent(new CustomEvent('toast', { detail: 'Removed' }));
+  };
+
+  return (
+    <div className="home-card" style={{ marginTop: 24, marginBottom: 24 }}>
+      <div className="home-card-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <h3>Approved Substitutes</h3>
+        <button className="btn btn-primary btn-sm" onClick={() => { setShowAdd(!showAdd); setEditingId(null); reset(); }}>
+          {showAdd ? 'Cancel' : '+ Add Substitute'}
+        </button>
+      </div>
+      <p style={{ fontSize: 12, color: '#6B7280', marginTop: 0 }}>
+        Substitutes listed here appear on every teacher's Time Off page along with the responsibility instruction. Include phone and email so teachers can contact them directly.
+      </p>
+
+      {showAdd && (
+        <div style={{ padding: 12, background: '#F9FAFB', border: '1px solid #E5E7EB', borderRadius: 6, marginBottom: 12 }}>
+          <SubstituteForm form={form} setForm={setForm} />
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 10 }}>
+            <button className="btn btn-secondary btn-sm" onClick={() => { setShowAdd(false); reset(); }}>Cancel</button>
+            <button className="btn btn-primary btn-sm" onClick={handleAdd} disabled={saving || !form.name.trim()}>
+              {saving ? 'Saving…' : 'Add'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {substitutes.length === 0 ? (
+        <div className="empty-state" style={{ padding: 16 }}>
+          <div className="empty-state-text">No substitutes yet — click "+ Add Substitute" to add the first one.</div>
+        </div>
+      ) : (
+        <div style={{ display: 'grid', gap: 8 }}>
+          {substitutes.map(s => (
+            <div key={s.id} style={{ border: '1px solid #E5E7EB', borderRadius: 6, padding: 12, background: s.active === false ? '#F9FAFB' : '#fff', opacity: s.active === false ? 0.6 : 1 }}>
+              {editingId === s.id ? (
+                <div>
+                  <SubstituteForm form={form} setForm={setForm} />
+                  <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 10 }}>
+                    <button className="btn btn-secondary btn-sm" onClick={() => { setEditingId(null); reset(); }}>Cancel</button>
+                    <button className="btn btn-primary btn-sm" onClick={handleUpdate} disabled={saving || !form.name.trim()}>
+                      {saving ? 'Saving…' : 'Save'}
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                  <div style={{ flex: 1, minWidth: 200 }}>
+                    <div style={{ fontWeight: 600, fontSize: 14 }}>
+                      {s.name}
+                      {s.active === false && <span className="badge" style={{ marginLeft: 6, background: '#FEE2E2', color: '#991B1B', fontSize: 10 }}>Inactive</span>}
+                    </div>
+                    <div style={{ fontSize: 12, color: '#6B7280', display: 'flex', gap: 12, flexWrap: 'wrap', marginTop: 2 }}>
+                      {s.email && <span>✉ {s.email}</span>}
+                      {s.phone && <span>📞 {s.phone}</span>}
+                    </div>
+                    {s.notes && <div style={{ fontSize: 11, color: '#9CA3AF', fontStyle: 'italic', marginTop: 2 }}>{s.notes}</div>}
+                  </div>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <button className="btn btn-sm btn-secondary" onClick={() => startEdit(s)}>Edit</button>
+                    <button className="btn btn-sm" style={{ background: 'none', color: '#DC2626' }} onClick={() => handleRemove(s)}>Remove</button>
+                  </div>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SubstituteForm({ form, setForm }) {
+  const upd = (patch) => setForm({ ...form, ...patch });
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 8 }}>
+      <div>
+        <label style={{ fontSize: 11, color: '#6B7280', fontWeight: 600 }}>Name *</label>
+        <input type="text" className="form-input" value={form.name} onChange={e => upd({ name: e.target.value })} />
+      </div>
+      <div>
+        <label style={{ fontSize: 11, color: '#6B7280', fontWeight: 600 }}>Email</label>
+        <input type="email" className="form-input" value={form.email} onChange={e => upd({ email: e.target.value })} />
+      </div>
+      <div>
+        <label style={{ fontSize: 11, color: '#6B7280', fontWeight: 600 }}>Phone</label>
+        <input type="tel" className="form-input" value={form.phone} onChange={e => upd({ phone: e.target.value })} placeholder="(555) 123-4567" />
+      </div>
+      <div style={{ gridColumn: '1 / -1' }}>
+        <label style={{ fontSize: 11, color: '#6B7280', fontWeight: 600 }}>Notes</label>
+        <input type="text" className="form-input" value={form.notes} onChange={e => upd({ notes: e.target.value })} placeholder="Subjects, availability, etc." />
+      </div>
+      <div>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: '#6B7280', paddingTop: 16 }}>
+          <input type="checkbox" checked={form.active} onChange={e => upd({ active: e.target.checked })} />
+          Active (visible to teachers)
+        </label>
       </div>
     </div>
   );

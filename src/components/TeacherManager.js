@@ -310,17 +310,17 @@ function TeacherForm({ form, setForm }) {
 
       <div>
         <div style={{ fontSize: 11, fontWeight: 600, color: '#6B7280', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 6 }}>
-          PTO Allotment (days/year)
+          PTO Allotment (hours/year)
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 8 }}>
-          <Field label="Sick">
-            <input type="number" min="0" step="0.5" value={form.pto.sick} onChange={e => updPto({ sick: e.target.value })} />
+          <Field label="Sick (h)">
+            <input type="number" min="0" step="0.25" value={form.pto.sick} onChange={e => updPto({ sick: e.target.value })} />
           </Field>
-          <Field label="Vacation">
-            <input type="number" min="0" step="0.5" value={form.pto.vacation} onChange={e => updPto({ vacation: e.target.value })} />
+          <Field label="Personal (h)">
+            <input type="number" min="0" step="0.25" value={form.pto.vacation} onChange={e => updPto({ vacation: e.target.value })} />
           </Field>
-          <Field label="Bereavement">
-            <input type="number" min="0" step="0.5" value={form.pto.bereavement} onChange={e => updPto({ bereavement: e.target.value })} />
+          <Field label="Bereavement (h)">
+            <input type="number" min="0" step="0.25" value={form.pto.bereavement} onChange={e => updPto({ bereavement: e.target.value })} />
           </Field>
         </div>
       </div>

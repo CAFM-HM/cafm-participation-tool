@@ -916,6 +916,7 @@ export function usePTOAllotments() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
+      await migratePTOUnitsToHours();
       const snap = await getDocs(collection(db, 'ptoAllotments'));
       setAllotments(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     } catch (err) { console.error('PTO allotments load failed:', err); }
@@ -992,6 +993,125 @@ export function usePTORequests() {
   }, []);
 
   return { requests, loading, submitRequest, decideRequest, deleteRequest, refresh: load };
+}
+
+// ============================================================
+// SUBSTITUTES HOOK — approved substitute teachers admin maintains.
+// Firestore: substitutes/{id} = { id, name, email, phone, notes,
+//   active, createdAt, updatedAt }
+// ============================================================
+export function useSubstitutes() {
+  const [substitutes, setSubstitutes] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const snap = await getDocs(collection(db, 'substitutes'));
+      const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      data.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+      setSubstitutes(data);
+    } catch (err) { console.error('substitutes load failed:', err); }
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const addSubstitute = useCallback(async (data) => {
+    const ref = doc(collection(db, 'substitutes'));
+    const now = new Date().toISOString();
+    const sub = {
+      id: ref.id,
+      name: (data.name || '').trim(),
+      email: (data.email || '').trim().toLowerCase(),
+      phone: (data.phone || '').trim(),
+      notes: (data.notes || '').trim(),
+      active: data.active !== false,
+      createdAt: now,
+      updatedAt: now,
+    };
+    await setDoc(ref, sub);
+    await load();
+    return ref.id;
+  }, [load]);
+
+  const updateSubstitute = useCallback(async (id, updates) => {
+    const ref = doc(db, 'substitutes', id);
+    const snap = await getDoc(ref);
+    if (!snap.exists()) return;
+    const merged = {
+      ...snap.data(),
+      ...updates,
+      email: updates.email !== undefined ? String(updates.email).trim().toLowerCase() : snap.data().email,
+      updatedAt: new Date().toISOString(),
+    };
+    await setDoc(ref, merged);
+    await load();
+  }, [load]);
+
+  const removeSubstitute = useCallback(async (id) => {
+    await deleteDoc(doc(db, 'substitutes', id));
+    await load();
+  }, [load]);
+
+  return { substitutes, loading, addSubstitute, updateSubstitute, removeSubstitute, refresh: load };
+}
+
+// ============================================================
+// PTO UNITS MIGRATION — converts the bank from days to hours.
+// Runs once, multiplies every ptoAllotment bucket and every
+// ptoRequests.days value by 8 (one work day = 8 hours), then writes
+// config/ptoUnits = { unit: 'hours', migratedAt } so it never runs
+// again. After this completes, the system treats all PTO numbers as
+// hours throughout. Idempotent.
+// ============================================================
+async function migratePTOUnitsToHours() {
+  const flagRef = doc(db, 'config', 'ptoUnits');
+  const flagSnap = await getDoc(flagRef);
+  if (flagSnap.exists() && flagSnap.data().unit === 'hours') return false;
+
+  const [allotmentsSnap, requestsSnap] = await Promise.all([
+    getDocs(collection(db, 'ptoAllotments')),
+    getDocs(collection(db, 'ptoRequests')),
+  ]);
+
+  const writes = [];
+  for (const d of allotmentsSnap.docs) {
+    const data = d.data();
+    writes.push(setDoc(d.ref, {
+      ...data,
+      sick:        (Number(data.sick)        || 0) * 8,
+      vacation:    (Number(data.vacation)    || 0) * 8,
+      bereavement: (Number(data.bereavement) || 0) * 8,
+      updatedAt: new Date().toISOString(),
+    }));
+  }
+  for (const d of requestsSnap.docs) {
+    const data = d.data();
+    writes.push(setDoc(d.ref, { ...data, days: (Number(data.days) || 0) * 8 }));
+  }
+
+  // Same for the teacherDirectory.pto buckets so the new mgmt UI stays in sync.
+  try {
+    const dirSnap = await getDocs(collection(db, 'teacherDirectory'));
+    for (const d of dirSnap.docs) {
+      const data = d.data();
+      const pto = data.pto || {};
+      writes.push(setDoc(d.ref, {
+        ...data,
+        pto: {
+          sick:        (Number(pto.sick)        || 0) * 8,
+          vacation:    (Number(pto.vacation)    || 0) * 8,
+          bereavement: (Number(pto.bereavement) || 0) * 8,
+        },
+        updatedAt: new Date().toISOString(),
+      }));
+    }
+  } catch (err) { console.error('teacherDirectory PTO unit migration failed:', err); }
+
+  await Promise.all(writes);
+  await setDoc(flagRef, { unit: 'hours', migratedAt: new Date().toISOString(), convertedDocs: writes.length });
+  return true;
 }
 
 // ============================================================
