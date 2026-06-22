@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { useCadenceTasks, useSchedule } from '../hooks/useFirestore';
 import { MONTHS, MONTH_TO_DATE, ROLE_OPTIONS, CATEGORY_LABEL, buildSeedTasks } from '../data/cadenceSeed';
+import { toCSV, downloadCSV, todayStamp } from '../utils/csv';
 
 const STATUS = {
   pending:  { label: 'Pending',   bg: '#F3F4F6', fg: '#4B5563', border: '#D1D5DB' },
@@ -162,6 +163,36 @@ export default function Cadence({ uid, displayName }) {
     window.dispatchEvent(new CustomEvent('toast', { detail: 'Task added' }));
   };
 
+  // Export the full task list to CSV for Google Sheets / Excel.
+  const handleExport = () => {
+    const monthLabel = Object.fromEntries(MONTHS.map(m => [m.key, m.label]));
+    const monthOrder = Object.fromEntries(MONTHS.map((m, i) => [m.key, i]));
+    const statusLabel = { pending: 'Pending', complete: 'Complete', delayed: 'Delayed', na: 'N/A' };
+    const sorted = [...tasks].sort((a, b) => {
+      const mo = (monthOrder[a.month] ?? 99) - (monthOrder[b.month] ?? 99);
+      if (mo !== 0) return mo;
+      const co = (a.category || '').localeCompare(b.category || '');
+      if (co !== 0) return co;
+      return (a.title || '').localeCompare(b.title || '');
+    });
+    const csv = toCSV(sorted, [
+      { header: 'Month',          key: 'month',       format: v => monthLabel[v] || v || '' },
+      { header: 'Task',           key: 'title' },
+      { header: 'Description',    key: 'description' },
+      { header: 'Category',       key: 'category',    format: v => CATEGORY_LABEL[v] || v || '' },
+      { header: 'Default Role',   key: 'defaultRole' },
+      { header: 'Assigned To',    key: 'assignedTo' },
+      { header: 'Due Date',       key: 'dueDate' },
+      { header: 'Status',         key: 'status',      format: v => statusLabel[v] || v || 'Pending' },
+      { header: 'Note',           key: 'note' },
+      { header: 'Completed Date', key: 'completedAt', format: v => v ? new Date(v).toISOString().slice(0, 10) : '' },
+      { header: 'Completed By',   key: 'completedBy' },
+      { header: 'Recurring',      key: 'recurring',   format: v => v ? 'Yes' : 'No' },
+    ]);
+    downloadCSV(`operational-cadence-${todayStamp()}.csv`, csv);
+    window.dispatchEvent(new CustomEvent('toast', { detail: `Exported ${sorted.length} tasks` }));
+  };
+
   if (loading) {
     return <div style={{ padding: 40, textAlign: 'center', color: '#9CA3AF' }}>Loading cadence…</div>;
   }
@@ -197,6 +228,9 @@ export default function Cadence({ uid, displayName }) {
           </button>
           <button className="btn btn-sm btn-secondary" onClick={handleSeed} disabled={seeding} title="Adds any default tasks not already loaded">
             {seeding ? 'Loading…' : 'Reload defaults'}
+          </button>
+          <button className="btn btn-sm btn-secondary" onClick={handleExport} title="Download all cadence tasks as a CSV file for Google Sheets">
+            ⬇ Export CSV
           </button>
         </div>
       </div>

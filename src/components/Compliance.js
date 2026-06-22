@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { collection, getDocs, addDoc, deleteDoc, doc, updateDoc, writeBatch } from 'firebase/firestore';
 import { db } from '../firebase';
+import { toCSV, downloadCSV, todayStamp } from '../utils/csv';
 
 // ── CATEGORIES ──
 const CATEGORIES = [
@@ -300,6 +301,32 @@ export default function Compliance({ uid }) {
     return { counts, total: active.length, totalCost };
   }, [items]);
 
+  // Export every compliance item (including archived) to CSV for Google Sheets / Excel.
+  const handleExport = () => {
+    const catOrder = Object.fromEntries(CATEGORIES.map((c, i) => [c.key, i]));
+    const sorted = [...items].sort((a, b) => {
+      const co = (catOrder[a.category] ?? 99) - (catOrder[b.category] ?? 99);
+      if (co !== 0) return co;
+      return (a.title || '').localeCompare(b.title || '');
+    });
+    const csv = toCSV(sorted, [
+      { header: 'Item',            key: 'title' },
+      { header: 'Category',        key: 'category',     format: v => CATEGORIES.find(c => c.key === v)?.label || v || '' },
+      { header: 'Frequency',       key: 'frequency',    format: v => FREQUENCIES.find(f => f.key === v)?.label || v || '' },
+      { header: 'Last Completed',  key: 'lastCompleted' },
+      { header: 'Next Due',        key: 'nextDue' },
+      { header: 'Status',          value: row => STATUS_META[complianceStatus(row.nextDue)]?.label || '' },
+      { header: 'Cost ($)',        key: 'cost' },
+      { header: 'Owner',           key: 'owner' },
+      { header: 'Instructions',    key: 'instructions' },
+      { header: 'External Link',   key: 'externalLink' },
+      { header: 'Notes',           key: 'notes' },
+      { header: 'Archived',        key: 'archived',     format: v => v ? 'Yes' : 'No' },
+    ]);
+    downloadCSV(`compliance-tracking-${todayStamp()}.csv`, csv);
+    window.dispatchEvent(new CustomEvent('toast', { detail: `Exported ${sorted.length} items` }));
+  };
+
   if (loading) return <div style={{ padding: 40, textAlign: 'center', color: '#9CA3AF' }}>Loading compliance items…</div>;
 
   return (
@@ -310,6 +337,7 @@ export default function Compliance({ uid }) {
           <SaveStatusPill status={saveStatus} />
         </h2>
         <div style={{ display: 'flex', gap: 8 }}>
+          <button className="btn btn-secondary" onClick={handleExport} title="Download all compliance items as a CSV file for Google Sheets">⬇ Export CSV</button>
           <button className="btn btn-secondary" onClick={() => printComplianceReport(items)}>🖨️ Print Report</button>
           <button className="btn btn-primary" onClick={() => setShowAddForm(v => !v)}>
             {showAddForm ? 'Cancel' : '+ Add Item'}
